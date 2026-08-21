@@ -3,7 +3,7 @@ export const revalidate = 0
 
 import { createClient } from '@/lib/supabase/server'
 import UsageTrendsChart from '@/components/UsageTrendsChart'
-import RebarStockChart from '@/components/RebarStockChart'
+import StockBalanceLineChart from '@/components/StockBalanceLineChart'
 import { naturalSort } from '@/lib/utils/sort'
 
 export default async function DashboardPage() {
@@ -214,8 +214,14 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* Visual Rebar Stock Graph */}
-      <RebarStockChart stats={sizeStats} />
+      {/* Stock Balance Line Chart (Total vs Usable over Date) */}
+      <StockBalanceLineChart
+        transactions={transactions}
+        stockTakes={allStockTakes}
+        sizes={sizes}
+        projectTypes={projectTypes}
+        projects={projects}
+      />
 
       {/* Trends Chart */}
       <div className="bg-white border rounded-xl shadow-sm mb-10">
