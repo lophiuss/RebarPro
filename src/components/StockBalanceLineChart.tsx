@@ -193,17 +193,21 @@ export default function StockBalanceLineChart({
   }, [sizes, dailyData])
 
   const maxVal = useMemo(() => {
+    let rawMax = 1
     if (selectedMode === 'all_total') {
-      return Math.max(...dailyData.map(d => d.combinedTotal), 1) * 1.15
+      rawMax = Math.max(...dailyData.map(d => d.combinedTotal), 1)
     } else if (selectedMode === 'all_multi') {
       const allVals = dailyData.flatMap(d => 
         activeSizes.map(s => multiMetric === 'usable' ? d.perSizeBalances[s.id]?.usable || 0 : d.perSizeBalances[s.id]?.total || 0)
       )
-      return Math.max(...allVals, 1) * 1.15
+      rawMax = Math.max(...allVals, 1)
     } else {
       const vals = dailyData.map(d => d.perSizeBalances[selectedMode]?.total || 0)
-      return Math.max(...vals, 1) * 1.15
+      rawMax = Math.max(...vals, 1)
     }
+    const padded = rawMax * 1.15
+    const step = Math.max(Math.ceil((padded / 4) / 100) * 100, 25)
+    return step * 4
   }, [dailyData, selectedMode, activeSizes, multiMetric])
 
   const width = 900

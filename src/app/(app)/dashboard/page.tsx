@@ -179,33 +179,33 @@ export default async function DashboardPage() {
       <h1 className="text-3xl font-bold mb-8">Dashboard</h1>
 
       {/* Global KPIs */}
-      <div className="grid gap-4 grid-cols-2 lg:grid-cols-6 mb-10">
-        <div className="border rounded-xl p-5 bg-white shadow-sm">
-          <h3 className="font-semibold text-xs text-gray-500 uppercase">Total Stock ({uLabel})</h3>
-          <p className="text-2xl font-bold mt-1 text-slate-800">{fmtQty(totalBalance, unit)}</p>
-          <p className="text-xs text-gray-400 mt-1">Physical balance</p>
+      <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 mb-10">
+        <div className="border rounded-xl p-4 bg-white shadow-sm overflow-hidden">
+          <h3 className="font-semibold text-xs text-gray-500 uppercase truncate">Total Stock ({uLabel})</h3>
+          <p className="text-xl sm:text-2xl font-bold mt-1 text-slate-800 truncate" title={fmtQty(totalBalance, unit)}>{fmtQty(totalBalance, unit)}</p>
+          <p className="text-xs text-gray-400 mt-1 truncate">Physical balance</p>
         </div>
-        <div className="border rounded-xl p-5 bg-amber-50/70 border-amber-200 shadow-sm">
-          <h3 className="font-semibold text-xs text-amber-700 uppercase">Suspended ({uLabel})</h3>
-          <p className="text-2xl font-bold mt-1 text-amber-800">{fmtQty(totalSuspended, unit)}</p>
-          <p className="text-xs text-amber-600 mt-1">Held / Quarantined</p>
+        <div className="border rounded-xl p-4 bg-amber-50/70 border-amber-200 shadow-sm overflow-hidden">
+          <h3 className="font-semibold text-xs text-amber-700 uppercase truncate">Suspended ({uLabel})</h3>
+          <p className="text-xl sm:text-2xl font-bold mt-1 text-amber-800 truncate" title={fmtQty(totalSuspended, unit)}>{fmtQty(totalSuspended, unit)}</p>
+          <p className="text-xs text-amber-600 mt-1 truncate">Held / Quarantined</p>
         </div>
-        <div className="border rounded-xl p-5 bg-blue-50/70 border-blue-200 shadow-sm">
-          <h3 className="font-semibold text-xs text-blue-700 uppercase">Usable Balance ({uLabel})</h3>
-          <p className="text-2xl font-bold mt-1 text-blue-900">{fmtQty(totalUsableBalance, unit)}</p>
-          <p className="text-xs text-blue-600 mt-1">Total - Suspended</p>
+        <div className="border rounded-xl p-4 bg-blue-50/70 border-blue-200 shadow-sm overflow-hidden">
+          <h3 className="font-semibold text-xs text-blue-700 uppercase truncate">Usable Balance ({uLabel})</h3>
+          <p className="text-xl sm:text-2xl font-bold mt-1 text-blue-900 truncate" title={fmtQty(totalUsableBalance, unit)}>{fmtQty(totalUsableBalance, unit)}</p>
+          <p className="text-xs text-blue-600 mt-1 truncate">Total - Suspended</p>
         </div>
-        <div className="border rounded-xl p-5 bg-white shadow-sm">
-          <h3 className="font-semibold text-xs text-gray-500 uppercase">Avg Daily 7d ({uLabel})</h3>
-          <p className="text-2xl font-bold mt-1 text-slate-800">{fmtQty(avgDailyUsage7d, unit)}</p>
+        <div className="border rounded-xl p-4 bg-white shadow-sm overflow-hidden">
+          <h3 className="font-semibold text-xs text-gray-500 uppercase truncate">Avg Daily 7d ({uLabel}/day)</h3>
+          <p className="text-xl sm:text-2xl font-bold mt-1 text-slate-800 truncate" title={fmtQty(avgDailyUsage7d, unit)}>{fmtQty(avgDailyUsage7d, unit)}</p>
         </div>
-        <div className="border rounded-xl p-5 bg-white shadow-sm">
-          <h3 className="font-semibold text-xs text-gray-500 uppercase">Total Incoming ({uLabel})</h3>
-          <p className="text-2xl font-bold mt-1 text-green-600">+{fmtQty(totalIncoming, unit)}</p>
+        <div className="border rounded-xl p-4 bg-white shadow-sm overflow-hidden">
+          <h3 className="font-semibold text-xs text-gray-500 uppercase truncate">Total Incoming ({uLabel})</h3>
+          <p className="text-xl sm:text-2xl font-bold mt-1 text-green-600 truncate" title={`+${fmtQty(totalIncoming, unit)}`}>+{fmtQty(totalIncoming, unit)}</p>
         </div>
-        <div className="border rounded-xl p-5 bg-white shadow-sm">
-          <h3 className="font-semibold text-xs text-gray-500 uppercase">Usable Coverage</h3>
-          <p className={`text-2xl font-bold mt-1 ${globalDaysCoverage < 3 ? 'text-red-500' : 'text-slate-800'}`}>
+        <div className="border rounded-xl p-4 bg-white shadow-sm overflow-hidden">
+          <h3 className="font-semibold text-xs text-gray-500 uppercase truncate">Usable Coverage</h3>
+          <p className={`text-xl sm:text-2xl font-bold mt-1 truncate ${globalDaysCoverage < 3 ? 'text-red-500' : 'text-slate-800'}`}>
             {globalDaysCoverage > 999 ? '∞' : globalDaysCoverage.toFixed(1)} Days
           </p>
         </div>
@@ -242,8 +242,8 @@ export default async function DashboardPage() {
               <th className="px-4 py-3 text-left text-xs font-medium text-amber-700 uppercase bg-amber-50/50">Suspended ({uLabel})</th>
               <th className="px-4 py-3 text-left text-xs font-bold text-blue-800 uppercase bg-blue-50/50">Usable Balance ({uLabel})</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Today Usage ({uLabel})</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Target Daily ({uLabel}/d)</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Avg Daily 7d ({uLabel}/d)</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Target Daily ({uLabel}/day)</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Avg Daily 7d ({uLabel}/day)</th>
               <th className="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase">Usable Coverage</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Last Stock Take</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-blue-50">Req. Order ({targetCoverageDays}d, {uLabel})</th>
@@ -265,23 +265,23 @@ export default async function DashboardPage() {
                       </span>
                     </div>
                   </td>
-                  <td className="px-4 py-4 text-slate-600 font-medium">{fmtQty(stat.balance, unit)}</td>
-                  <td className="px-4 py-4 text-amber-700 font-medium bg-amber-50/30">{stat.suspended > 0 ? fmtQty(stat.suspended, unit) : '-'}</td>
-                  <td className="px-4 py-4 text-blue-900 font-bold bg-blue-50/30">{fmtQty(stat.usableBalance, unit)}</td>
-                  <td className="px-4 py-4 text-red-600 font-medium">{stat.todayUsage > 0 ? fmtQty(stat.todayUsage, unit) : '-'}</td>
-                  <td className="px-4 py-4 text-slate-500">
-                    {stat.targetDailyUsage > 0 ? `${fmtQtyNum(stat.targetDailyUsage, unit)} ${uLabel}/d` : <span className="text-gray-300 italic text-xs">not set</span>}
+                  <td className="px-4 py-4 text-slate-600 font-medium whitespace-nowrap">{fmtQty(stat.balance, unit)}</td>
+                  <td className="px-4 py-4 text-amber-700 font-medium bg-amber-50/30 whitespace-nowrap">{stat.suspended > 0 ? fmtQty(stat.suspended, unit) : '-'}</td>
+                  <td className="px-4 py-4 text-blue-900 font-bold bg-blue-50/30 whitespace-nowrap">{fmtQty(stat.usableBalance, unit)}</td>
+                  <td className="px-4 py-4 text-red-600 font-medium whitespace-nowrap">{stat.todayUsage > 0 ? fmtQty(stat.todayUsage, unit) : '-'}</td>
+                  <td className="px-4 py-4 text-slate-500 whitespace-nowrap">
+                    {stat.targetDailyUsage > 0 ? `${fmtQtyNum(stat.targetDailyUsage, unit)} ${uLabel}/day` : <span className="text-gray-300 italic text-xs">not set</span>}
                   </td>
-                  <td className="px-4 py-4 text-slate-600">{fmtQtyNum(stat.avgDailyUsage, unit)}</td>
-                  <td className={`px-4 py-4 font-bold ${stat.coverage < 3 ? 'text-red-500' : stat.coverage < 7 ? 'text-yellow-600' : 'text-green-600'}`}>
+                  <td className="px-4 py-4 text-slate-600 whitespace-nowrap">{fmtQtyNum(stat.avgDailyUsage, unit)}</td>
+                  <td className={`px-4 py-4 font-bold whitespace-nowrap ${stat.coverage < 3 ? 'text-red-500' : stat.coverage < 7 ? 'text-yellow-600' : 'text-green-600'}`}>
                     {stat.targetDailyUsage > 0 || stat.avgDailyUsage > 0
                       ? (stat.coverage > 999 ? '∞' : stat.coverage.toFixed(1) + ' Days')
                       : '-'}
                   </td>
-                  <td className="px-4 py-4 text-xs text-gray-500">
+                  <td className="px-4 py-4 text-xs text-gray-500 whitespace-nowrap">
                     {stat.hasStockTake ? <span className="text-green-700 font-medium">✓ {stat.lastStockTakeDate}</span> : <span className="text-gray-300">No stock take</span>}
                   </td>
-                  <td className={`px-4 py-4 font-bold bg-blue-50 ${stat.requireOrder > 0 ? 'text-blue-600' : 'text-gray-300'}`}>
+                  <td className={`px-4 py-4 font-bold bg-blue-50 whitespace-nowrap ${stat.requireOrder > 0 ? 'text-blue-600' : 'text-gray-300'}`}>
                     {stat.requireOrder > 0 ? fmtQty(stat.requireOrder, unit) : '-'}
                   </td>
                 </tr>

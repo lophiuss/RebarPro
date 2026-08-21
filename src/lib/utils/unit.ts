@@ -1,9 +1,7 @@
 /**
  * Unit utility for RebarPro.
- *
- * The system stores all quantities in TONNES internally.
- * - If defaultUnit === 'kg', display values are multiplied by 1000 and labelled 'kg'.
- * - If defaultUnit === 'ton', values are shown as-is and labelled 'ton'.
+ * Values stored in database are direct numbers.
+ * Formatting includes thousand separators (e.g. 1,250 kg).
  */
 
 export type DefaultUnit = 'kg' | 'ton'
@@ -13,40 +11,36 @@ export function unitLabel(unit: DefaultUnit): string {
   return unit === 'kg' ? 'kg' : 'ton'
 }
 
-/**
- * Converts an internal tonne value to the display unit.
- * - kg:  multiply by 1000
- * - ton: return as-is
- */
-export function toDisplayUnit(tonnes: number, unit: DefaultUnit): number {
-  return unit === 'kg' ? tonnes * 1000 : tonnes
+/** Values are displayed direct (no x1000 multiplier). */
+export function toDisplayUnit(val: number, _unit?: DefaultUnit): number {
+  return val
+}
+
+/** Values are saved direct. */
+export function toTonnes(val: number, _unit?: DefaultUnit): number {
+  return val
 }
 
 /**
- * Converts a user-entered display-unit value back to tonnes for storage.
- * - kg:  divide by 1000
- * - ton: return as-is
+ * Formats a number with thousand separators (commas).
+ * - kg: whole numbers by default (0 decimal places if whole, max 2) e.g. 12,345
+ * - ton: 2 decimal places e.g. 12.35
  */
-export function toTonnes(displayValue: number, unit: DefaultUnit): number {
-  return unit === 'kg' ? displayValue / 1000 : displayValue
+export function fmtQtyNum(val: number | null | undefined, unit: DefaultUnit = 'kg', decimals?: number): string {
+  if (val === null || val === undefined || isNaN(val)) return '0'
+
+  const dp = decimals !== undefined ? decimals : (unit === 'kg' ? (Number.isInteger(val) ? 0 : 2) : 2)
+
+  return new Intl.NumberFormat('en-US', {
+    minimumFractionDigits: dp,
+    maximumFractionDigits: dp
+  }).format(val)
 }
 
 /**
- * Formats a tonne value for display with the correct unit and decimal places.
- * - kg:  show 0 decimal places (whole kg)
- * - ton: show 2 decimal places
+ * Formats a number with thousand separators AND unit suffix.
+ * e.g. "12,345 kg" or "12.35 ton"
  */
-export function fmtQty(tonnes: number, unit: DefaultUnit, decimals?: number): string {
-  const value = toDisplayUnit(tonnes, unit)
-  const dp = decimals !== undefined ? decimals : (unit === 'kg' ? 0 : 2)
-  return `${value.toFixed(dp)} ${unitLabel(unit)}`
-}
-
-/**
- * Formats a tonne value for display WITHOUT the unit suffix.
- */
-export function fmtQtyNum(tonnes: number, unit: DefaultUnit, decimals?: number): string {
-  const value = toDisplayUnit(tonnes, unit)
-  const dp = decimals !== undefined ? decimals : (unit === 'kg' ? 0 : 2)
-  return value.toFixed(dp)
+export function fmtQty(val: number | null | undefined, unit: DefaultUnit = 'kg', decimals?: number): string {
+  return `${fmtQtyNum(val, unit, decimals)} ${unitLabel(unit)}`
 }
