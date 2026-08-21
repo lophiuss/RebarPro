@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import { fmtQtyNum, unitLabel, type DefaultUnit } from '@/lib/utils/unit'
 
 interface TransactionItem {
   quantity: number
@@ -10,11 +11,13 @@ interface TransactionItem {
 
 interface Props {
   transactions: TransactionItem[]
+  unit?: DefaultUnit
 }
 
 type Period = 'current_month' | '14_days' | 'monthly' | 'yearly' | 'custom'
 
-export default function UsageTrendsChart({ transactions }: Props) {
+export default function UsageTrendsChart({ transactions, unit = 'kg' }: Props) {
+  const uLabel = unitLabel(unit)
   const today = new Date()
   const todayStr = today.toISOString().split('T')[0]
   
@@ -233,7 +236,7 @@ export default function UsageTrendsChart({ transactions }: Props) {
               className="accent-green-500 rounded"
             />
             <span className="w-2.5 h-2.5 bg-green-500 rounded-xs inline-block" />
-            Incoming ({totalIn.toFixed(1)}T)
+            Incoming ({fmtQtyNum(totalIn, unit)} {uLabel})
           </label>
 
           <label className="flex items-center gap-1.5 cursor-pointer text-slate-700">
@@ -244,7 +247,7 @@ export default function UsageTrendsChart({ transactions }: Props) {
               className="accent-red-500 rounded"
             />
             <span className="w-2.5 h-2.5 bg-red-500 rounded-xs inline-block" />
-            Usage ({totalUse.toFixed(1)}T)
+            Usage ({fmtQtyNum(totalUse, unit)} {uLabel})
           </label>
 
           <label className="flex items-center gap-1.5 cursor-pointer text-slate-700">
@@ -255,7 +258,7 @@ export default function UsageTrendsChart({ transactions }: Props) {
               className="accent-orange-500 rounded"
             />
             <span className="w-2.5 h-2.5 bg-orange-500 rounded-xs inline-block" />
-            Wastage ({totalWaste.toFixed(1)}T)
+            Wastage ({fmtQtyNum(totalWaste, unit)} {uLabel})
           </label>
         </div>
       </div>
@@ -275,9 +278,9 @@ export default function UsageTrendsChart({ transactions }: Props) {
               {/* Tooltip */}
               <div className="absolute bottom-full mb-3 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs rounded-lg shadow-xl p-2.5 opacity-0 group-hover:opacity-100 transition-all whitespace-nowrap z-30 pointer-events-none border border-slate-700 min-w-[130px]">
                 <div className="font-bold border-b border-slate-700 pb-1 mb-1 text-slate-200">{item.key}</div>
-                {item.incoming > 0 && <div className="text-green-400">↑ Incoming: {item.incoming.toFixed(2)} T</div>}
-                {item.usage > 0 && <div className="text-red-400">↓ Usage: {item.usage.toFixed(2)} T</div>}
-                {item.wastage > 0 && <div className="text-orange-400">⚠ Wastage: {item.wastage.toFixed(2)} T</div>}
+                {item.incoming > 0 && <div className="text-green-400">↑ Incoming: {fmtQtyNum(item.incoming, unit)} {uLabel}</div>}
+                {item.usage > 0 && <div className="text-red-400">↓ Usage: {fmtQtyNum(item.usage, unit)} {uLabel}</div>}
+                {item.wastage > 0 && <div className="text-orange-400">⚠ Wastage: {fmtQtyNum(item.wastage, unit)} {uLabel}</div>}
                 {item.incoming === 0 && item.usage === 0 && item.wastage === 0 && (
                   <div className="text-gray-400 italic">No activity</div>
                 )}

@@ -5,12 +5,14 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Plus, Trash2, Pencil, X, Check, CheckCircle, ArrowRight } from 'lucide-react'
 import { naturalSort } from '@/lib/utils/sort'
+import { toDisplayUnit, toTonnes, fmtQtyNum, unitLabel, type DefaultUnit } from '@/lib/utils/unit'
 
 export default function TransactionsPage() {
   const [transactions, setTransactions] = useState<any[]>([])
   const [projects, setProjects] = useState<any[]>([])
   const [projectTypes, setProjectTypes] = useState<any[]>([])
   const [sizes, setSizes] = useState<any[]>([])
+  const [unit, setUnit] = useState<DefaultUnit>('kg')
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   
   // Form State
@@ -23,7 +25,7 @@ export default function TransactionsPage() {
   const [doNumber, setDoNumber] = useState('')
   const [notes, setNotes] = useState('')
   
-  // Multiple entries support (sizeId can be '' for overall wastage)
+  // Multiple entries support
   const [entries, setEntries] = useState([{ sizeId: '', qty: '' }])
 
   // Edit state
@@ -31,6 +33,7 @@ export default function TransactionsPage() {
   const [editData, setEditData] = useState<any>({})
 
   const supabase = createClient()
+  const uLabel = unitLabel(unit)
 
   function showSuccess(msg: string) {
     setSuccessMessage(msg)
@@ -42,13 +45,18 @@ export default function TransactionsPage() {
   }, [])
 
   async function fetchData() {
-    const [txRes, projRes, pTypesRes, sizeRes] = await Promise.all([
+    const [txRes, projRes, pTypesRes, sizeRes, settingsRes] = await Promise.all([
       supabase.from('transactions').select('*, rebar_sizes(size), projects(name), project_types(name)').order('transaction_date', { ascending: false }),
       supabase.from('projects').select('*'),
       supabase.from('project_types').select('*'),
-      supabase.from('rebar_sizes').select('*')
+      supabase.from('rebar_sizes').select('*'),
+      supabase.from('global_settings').select('default_unit').eq('id', 1).single()
     ])
     
+    if (settingsRes.data?.default_unit) {
+      setUnit(settingsRes.data.default_unit as DefaultUnit)
+    }
+
     if (txRes.data) setTransactions(txRes.data)
     
     const sortedProjects = naturalSort(projRes.data || [], p => p.name)
@@ -104,13 +112,16 @@ export default function TransactionsPage() {
 
       const rowsToInsert: any[] = []
       validEntries.forEach(ent => {
-        const qty = Math.abs(parseFloat(ent.qty))
+        // Convert user entry in display unit (kg/ton) to tonnes for DB storage
+        const inputQty = Math.abs(parseFloat(ent.qty))
+        const qtyTonnes = toTonnes(inputQty, unit)
+
         rowsToInsert.push({
           project_id: null,
           project_type_id: fromProjectTypeId,
           size_id: ent.sizeId,
           type: 'transfer',
-          quantity: -qty,
+          quantity: -qtyTonnes,
           transaction_date: date,
           do_number: doNumber || null,
           notes: `Transfer to ${toTypeName}${notes ? ' - ' + notes : ''}`
@@ -120,7 +131,7 @@ export default function TransactionsPage() {
           project_type_id: toProjectTypeId,
           size_id: ent.sizeId,
           type: 'transfer',
-          quantity: qty,
+          quantity: qtyTonnes,
           transaction_date: date,
           do_number: doNumber || null,
           notes: `Transfer from ${fromTypeName}${notes ? ' - ' + notes : ''}`
@@ -144,16 +155,17 @@ export default function TransactionsPage() {
     const isProjectTypeLevel = ['incoming', 'wastage'].includes(type)
     
     const rowsToInsert = entries.filter(ent => ent.qty && (ent.sizeId || type === 'wastage')).map(ent => {
-      let numericQty = parseFloat(ent.qty)
-      if (['usage', 'wastage'].includes(type) && numericQty > 0) {
-        numericQty = -numericQty
+      const inputQty = parseFloat(ent.qty)
+      let qtyTonnes = toTonnes(Math.abs(inputQty), unit)
+      if (['usage', 'wastage'].includes(type)) {
+        qtyTonnes = -qtyTonnes
       }
       return {
         project_id: isProjectTypeLevel ? null : (projectId || null),
         project_type_id: isProjectTypeLevel ? (projectTypeId || null) : null,
         size_id: ent.sizeId ? ent.sizeId : null,
         type,
-        quantity: numericQty,
+        quantity: qtyTonnes,
         transaction_date: date,
         do_number: doNumber || null,
         notes: notes || null
@@ -188,7 +200,7 @@ export default function TransactionsPage() {
     setEditData({
       transaction_date: tx.transaction_date,
       type: tx.type,
-      quantity: Math.abs(tx.quantity),
+      quantity: toDisplayUnit(Math.abs(tx.quantity), unit),
       do_number: tx.do_number || '',
       notes: tx.notes || '',
       project_id: tx.project_id || '',
@@ -198,9 +210,10 @@ export default function TransactionsPage() {
   }
 
   async function saveEdit(tx: any) {
-    let numericQty = parseFloat(editData.quantity)
-    if (['usage', 'wastage'].includes(editData.type) && numericQty > 0) {
-      numericQty = -numericQty
+    const inputQty = parseFloat(editData.quantity)
+    let qtyTonnes = toTonnes(Math.abs(inputQty), unit)
+    if (['usage', 'wastage'].includes(editData.type)) {
+      qtyTonnes = -qtyTonnes
     }
 
     const isProjectTypeLevel = ['incoming', 'transfer', 'wastage'].includes(editData.type)
@@ -208,7 +221,7 @@ export default function TransactionsPage() {
     const updatePayload = {
       transaction_date: editData.transaction_date,
       type: editData.type,
-      quantity: numericQty,
+      quantity: qtyTonnes,
       do_number: editData.do_number || null,
       notes: editData.notes || null,
       project_id: isProjectTypeLevel ? null : (editData.project_id || null),
@@ -248,7 +261,6 @@ export default function TransactionsPage() {
     <div className="p-4 md:p-8 max-w-7xl mx-auto">
       <h1 className="text-3xl font-bold mb-6">Transactions</h1>
 
-      {/* Success Banner */}
       {successMessage && (
         <div className="mb-6 flex items-center gap-3 bg-green-50 border border-green-300 text-green-800 rounded-xl px-5 py-4 shadow-sm animate-in fade-in">
           <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
@@ -314,7 +326,6 @@ export default function TransactionsPage() {
           )}
         </div>
 
-        {/* Transfer notice */}
         {type === 'transfer' && (
           <div className="mb-4 bg-purple-50 border border-purple-200 rounded-lg p-3 text-xs text-purple-900 flex items-center gap-2">
             <ArrowRight className="w-4 h-4 text-purple-600 flex-shrink-0" />
@@ -322,7 +333,6 @@ export default function TransactionsPage() {
           </div>
         )}
 
-        {/* Notes */}
         <div className="mb-4">
           <label className="block text-sm font-medium mb-1">Notes <span className="text-gray-400">(Optional)</span></label>
           <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full border rounded-md px-3 py-2" placeholder="e.g. Supplier ABC, Truck #123, scrap lot details" />
@@ -332,7 +342,7 @@ export default function TransactionsPage() {
         <div className="mb-4 border-t pt-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-medium text-gray-700">
-              {type === 'wastage' ? 'Wastage Quantity (Combined Scrap)' : 'Rebar Sizes & Quantities'}
+              {type === 'wastage' ? `Wastage Quantity (${uLabel})` : `Rebar Sizes & Quantities (${uLabel})`}
             </h3>
             {type === 'wastage' && (
               <span className="text-xs text-orange-600 bg-orange-50 px-2 py-0.5 rounded-full font-medium">
@@ -363,8 +373,8 @@ export default function TransactionsPage() {
                   newEntries[index].qty = e.target.value
                   setEntries(newEntries)
                 }} 
-                className="w-48 border rounded-md px-3 py-2" 
-                placeholder="Qty (Tons)" 
+                className="w-48 border rounded-md px-3 py-2 text-sm" 
+                placeholder={`Qty (${uLabel})`} 
               />
               {entries.length > 1 && (
                 <button type="button" onClick={() => setEntries(entries.filter((_, i) => i !== index))} className="text-red-500 hover:text-red-700 p-2">
@@ -396,6 +406,7 @@ export default function TransactionsPage() {
         projects={projects}
         projectTypes={projectTypes}
         sizes={sizes}
+        unit={unit}
         editingId={editingId}
         editData={editData}
         setEditData={setEditData}
@@ -408,11 +419,11 @@ export default function TransactionsPage() {
   )
 }
 
-// ─── Filterable Table with Excel Export ─────────────────────────────────────
 function TransactionTable({
-  transactions, projects, projectTypes, sizes,
+  transactions, projects, projectTypes, sizes, unit,
   editingId, editData, setEditData, startEdit, saveEdit, deleteTransaction, setEditingId
 }: any) {
+  const uLabel = unitLabel(unit)
   const [filterDate, setFilterDate] = React.useState('')
   const [filterProject, setFilterProject] = React.useState('')
   const [filterSize, setFilterSize] = React.useState('')
@@ -435,13 +446,13 @@ function TransactionTable({
   }).slice(0, 100)
 
   function exportCSV() {
-    const headers = ['Date', 'Project/Type', 'Size', 'Transaction Type', 'Qty (T)', 'DO Number', 'Notes']
+    const headers = ['Date', 'Project/Type', 'Size', 'Transaction Type', `Qty (${uLabel})`, 'DO Number', 'Notes']
     const rows = filtered.map((t: any) => [
       t.transaction_date,
       t.project_types?.name ? `[Type] ${t.project_types.name}` : (t.projects?.name || ''),
       t.rebar_sizes?.size || '(Overall Combine)',
       t.type,
-      t.quantity,
+      fmtQtyNum(t.quantity, unit),
       t.do_number || '',
       t.notes || ''
     ])
@@ -457,7 +468,6 @@ function TransactionTable({
 
   return (
     <div className="bg-white border rounded-xl shadow-sm overflow-x-auto">
-      {/* Filter bar */}
       <div className="p-4 border-b bg-gray-50 flex flex-wrap gap-3 items-end">
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">Date</label>
@@ -512,7 +522,7 @@ function TransactionTable({
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Size</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Qty (T)</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Qty ({uLabel})</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">DO #</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Notes</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
@@ -581,7 +591,9 @@ function TransactionTable({
                       {t.type === 'unsuspend' ? 'Unsuspend' : t.type}
                     </span>
                   </td>
-                  <td className={`px-4 py-3 whitespace-nowrap text-sm font-medium ${t.quantity < 0 ? 'text-red-600' : 'text-green-600'}`}>{t.quantity}</td>
+                  <td className={`px-4 py-3 whitespace-nowrap text-sm font-medium ${t.quantity < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                    {fmtQtyNum(t.quantity, unit)}
+                  </td>
                   <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{t.do_number || '-'}</td>
                   <td className="px-4 py-3 text-sm text-gray-500 max-w-[200px] truncate">{t.notes || '-'}</td>
                   <td className="px-4 py-3 flex gap-1">

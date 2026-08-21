@@ -2,6 +2,7 @@
 
 import React from 'react'
 import { Download } from 'lucide-react'
+import { fmtQtyNum, unitLabel, type DefaultUnit } from '@/lib/utils/unit'
 
 interface Props {
   monthName: string
@@ -13,6 +14,7 @@ interface Props {
   stockTakes: any[]
   typeUsage: Record<string, any>
   projectUsage: Record<string, any>
+  unit?: DefaultUnit
 }
 
 export default function ExportMonthlyReportButton({
@@ -24,8 +26,11 @@ export default function ExportMonthlyReportButton({
   unassignedWastageQty,
   stockTakes,
   typeUsage,
-  projectUsage
+  projectUsage,
+  unit = 'kg'
 }: Props) {
+  const uLabel = unitLabel(unit)
+
   function exportReport() {
     const lines: string[] = []
 
@@ -34,56 +39,57 @@ export default function ExportMonthlyReportButton({
     // 1. Title & Header
     lines.push(`"REBARPRO MONTHLY INVENTORY REPORT - ${monthName.toUpperCase()}${typeSuffix}"`)
     lines.push(`"Generated on: ${new Date().toLocaleString()}"`)
+    lines.push(`"Unit: ${uLabel.toUpperCase()}"`)
     lines.push('')
 
     // 2. Executive Summary KPIs
     lines.push('"EXECUTIVE SUMMARY"')
-    lines.push('"Opening Balance (T)","Incoming (T)","Usage (T)","Total Wastage (T)","Wastage %","Expected Closing (T)","Total Variance (T)","Variance %"')
+    lines.push(`"Opening Balance (${uLabel})","Incoming (${uLabel})","Usage (${uLabel})","Total Wastage (${uLabel})","Wastage %","Expected Closing (${uLabel})","Total Variance (${uLabel})","Variance %"`)
     const totalVarPct = totals.usage > 0 ? ((totals.variance / totals.usage) * 100).toFixed(1) + '%' : '0.0%'
     const totalWastePct = totals.usage > 0 ? ((totals.wastage / totals.usage) * 100).toFixed(1) + '%' : '0.0%'
-    lines.push(`"${totals.opening.toFixed(2)}","${totals.incoming.toFixed(2)}","${totals.usage.toFixed(2)}","${totals.wastage.toFixed(2)}","${totalWastePct}","${totals.expectedClosing.toFixed(2)}","${totals.variance > 0 ? '+' : ''}${totals.variance.toFixed(2)}","${totalVarPct}"`)
+    lines.push(`"${fmtQtyNum(totals.opening, unit)}","${fmtQtyNum(totals.incoming, unit)}","${fmtQtyNum(totals.usage, unit)}","${fmtQtyNum(totals.wastage, unit)}","${totalWastePct}","${fmtQtyNum(totals.expectedClosing, unit)}","${totals.variance > 0 ? '+' : ''}${fmtQtyNum(totals.variance, unit)}","${totalVarPct}"`)
     lines.push('')
 
     // 3. Breakdown by Rebar Size Table
     lines.push('"BREAKDOWN BY REBAR SIZE"')
-    lines.push('"Size","Opening (T)","Incoming (T)","Transfer Net (T)","Usage (T)","Net Suspended (T)","Wastage (T)","Wastage %","Expected Closing (T)","ST Physical (T)","Variance (T)","Variance %"')
+    lines.push(`"Size","Opening (${uLabel})","Incoming (${uLabel})","Transfer Net (${uLabel})","Usage (${uLabel})","Net Suspended (${uLabel})","Wastage (${uLabel})","Wastage %","Expected Closing (${uLabel})","ST Physical (${uLabel})","Variance (${uLabel})","Variance %"`)
     
     sizeRows.forEach(r => {
       const varPctStr = r.variance === null ? '-' : (r.usage > 0 ? ((r.variance / r.usage) * 100).toFixed(1) + '%' : '0.0%')
       const wastePctStr = r.wastage > 0 ? r.wastagePct.toFixed(1) + '%' : '-'
       lines.push([
         `"${r.size}"`,
-        `"${r.opening.toFixed(2)}"`,
-        `"${r.incoming.toFixed(2)}"`,
-        `"${r.transfer > 0 ? '+' : ''}${r.transfer.toFixed(2)}"`,
-        `"${r.usage.toFixed(2)}"`,
-        `"${r.suspended.toFixed(2)}"`,
-        `"${r.wastage.toFixed(2)}"`,
+        `"${fmtQtyNum(r.opening, unit)}"`,
+        `"${fmtQtyNum(r.incoming, unit)}"`,
+        `"${r.transfer > 0 ? '+' : ''}${fmtQtyNum(r.transfer, unit)}"`,
+        `"${fmtQtyNum(r.usage, unit)}"`,
+        `"${fmtQtyNum(r.suspended, unit)}"`,
+        `"${fmtQtyNum(r.wastage, unit)}"`,
         `"${wastePctStr}"`,
-        `"${r.expectedClosing.toFixed(2)}"`,
-        `"${r.hasStockTake ? r.stPhysical?.toFixed(2) : 'No ST'}"`,
-        `"${r.variance === null ? '-' : (r.variance > 0 ? '+' : '') + r.variance.toFixed(2)}"`,
+        `"${fmtQtyNum(r.expectedClosing, unit)}"`,
+        `"${r.hasStockTake ? fmtQtyNum(r.stPhysical, unit) : 'No ST'}"`,
+        `"${r.variance === null ? '-' : (r.variance > 0 ? '+' : '') + fmtQtyNum(r.variance, unit)}"`,
         `"${varPctStr}"`
       ].join(','))
     })
 
     if (unassignedWastageQty > 0) {
-      lines.push(`"Overall Scrap (Combined)","-","-","-","-","-","${unassignedWastageQty.toFixed(2)}","-","-${unassignedWastageQty.toFixed(2)}","-","-","-"`)
+      lines.push(`"Overall Scrap (Combined)","-","-","-","-","-","${fmtQtyNum(unassignedWastageQty, unit)}","-","-${fmtQtyNum(unassignedWastageQty, unit)}","-","-","-"`)
     }
 
     // Totals line
     lines.push([
       '"TOTAL"',
-      `"${totals.opening.toFixed(2)}"`,
-      `"${totals.incoming.toFixed(2)}"`,
-      `"${totals.transfer > 0 ? '+' : ''}${totals.transfer.toFixed(2)}"`,
-      `"${totals.usage.toFixed(2)}"`,
-      `"${totals.suspended.toFixed(2)}"`,
-      `"${totals.wastage.toFixed(2)}"`,
+      `"${fmtQtyNum(totals.opening, unit)}"`,
+      `"${fmtQtyNum(totals.incoming, unit)}"`,
+      `"${totals.transfer > 0 ? '+' : ''}${fmtQtyNum(totals.transfer, unit)}"`,
+      `"${fmtQtyNum(totals.usage, unit)}"`,
+      `"${fmtQtyNum(totals.suspended, unit)}"`,
+      `"${fmtQtyNum(totals.wastage, unit)}"`,
       `"${totalWastePct}"`,
-      `"${totals.expectedClosing.toFixed(2)}"`,
+      `"${fmtQtyNum(totals.expectedClosing, unit)}"`,
       '""',
-      `"${totals.variance > 0 ? '+' : ''}${totals.variance.toFixed(2)}"`,
+      `"${totals.variance > 0 ? '+' : ''}${fmtQtyNum(totals.variance, unit)}"`,
       `"${totalVarPct}"`
     ].join(','))
     lines.push('')
@@ -91,16 +97,19 @@ export default function ExportMonthlyReportButton({
     // 4. Stock Takes This Month
     if (stockTakes.length > 0) {
       lines.push('"STOCK TAKES RECORDED THIS MONTH"')
-      lines.push('"Date","Project Type","Size","Physical Count (T)","System Balance (T)","Variance (T)"')
+      lines.push(`"Date","Project Type","Size","Physical Count (${uLabel})","System Balance (${uLabel})","Variance (${uLabel})"`)
       stockTakes.forEach((st: any) => {
         const pTypeName = st.project_types?.name || (st.project_type_id ? 'Unknown Type' : 'Unassigned')
+        const phys = Number(st.physical_count)
+        const sys = Number(st.system_balance)
+        const v = Number(st.variance)
         lines.push([
           `"${st.stock_take_date}"`,
           `"${pTypeName}"`,
           `"${st.rebar_sizes?.size || st.size || '-'}"`,
-          `"${Number(st.physical_count).toFixed(2)}"`,
-          `"${Number(st.system_balance).toFixed(2)}"`,
-          `"${Number(st.variance) > 0 ? '+' : ''}${Number(st.variance).toFixed(2)}"`
+          `"${fmtQtyNum(phys, unit)}"`,
+          `"${fmtQtyNum(sys, unit)}"`,
+          `"${v > 0 ? '+' : ''}${fmtQtyNum(v, unit)}"`
         ].join(','))
       })
       lines.push('')
@@ -108,28 +117,28 @@ export default function ExportMonthlyReportButton({
 
     // 5. Activity by Project Type
     lines.push('"ACTIVITY BY PROJECT TYPE"')
-    lines.push('"Project Type","Incoming (T)","Usage (T)","Transfer Net (T)","Wastage (T)"')
+    lines.push(`"Project Type","Incoming (${uLabel})","Usage (${uLabel})","Transfer Net (${uLabel})","Wastage (${uLabel})"`)
     Object.values(typeUsage).forEach((row: any) => {
       const netTrans = (row.transferIn || 0) - (row.transferOut || 0)
       lines.push([
         `"${row.name}"`,
-        `"${row.incoming.toFixed(2)}"`,
-        `"${row.usage.toFixed(2)}"`,
-        `"${netTrans > 0 ? '+' : ''}${netTrans.toFixed(2)}"`,
-        `"${row.wastage.toFixed(2)}"`
+        `"${fmtQtyNum(row.incoming, unit)}"`,
+        `"${fmtQtyNum(row.usage, unit)}"`,
+        `"${netTrans > 0 ? '+' : ''}${fmtQtyNum(netTrans, unit)}"`,
+        `"${fmtQtyNum(row.wastage, unit)}"`
       ].join(','))
     })
     lines.push('')
 
     // 6. Usage & Suspension by Project
     lines.push('"USAGE & SUSPENSION BY PROJECT"')
-    lines.push('"Project Name","Project Type","Usage (T)","Suspended (T)"')
+    lines.push(`"Project Name","Project Type","Usage (${uLabel})","Suspended (${uLabel})"`)
     Object.values(projectUsage).forEach((row: any) => {
       lines.push([
         `"${row.name}"`,
         `"${row.typeName}"`,
-        `"${row.usage.toFixed(2)}"`,
-        `"${row.suspended.toFixed(2)}"`
+        `"${fmtQtyNum(row.usage, unit)}"`,
+        `"${fmtQtyNum(row.suspended, unit)}"`
       ].join(','))
     })
 

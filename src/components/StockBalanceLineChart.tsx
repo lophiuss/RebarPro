@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useMemo } from 'react'
+import { toDisplayUnit, unitLabel, fmtQtyNum, type DefaultUnit } from '@/lib/utils/unit'
 
 interface TransactionItem {
   quantity: number
@@ -41,12 +42,12 @@ interface Props {
   sizes: RebarSize[]
   projectTypes: ProjectType[]
   projects: Project[]
+  unit?: DefaultUnit
 }
 
 type RangeOption = '14_days' | 'this_month' | '30_days' | '60_days'
 type MultiMetric = 'usable' | 'total'
 
-// Distinct color palette for multi-line view
 const SIZE_COLORS = [
   '#2563eb', // blue
   '#7c3aed', // purple
@@ -69,11 +70,10 @@ export default function StockBalanceLineChart({
   stockTakes,
   sizes,
   projectTypes,
-  projects
+  projects,
+  unit = 'kg'
 }: Props) {
-  // 'all_multi' = Multi-line (each size one line)
-  // 'all_total' = Combined total
-  // sizeId = Specific size
+  const uLabel = unitLabel(unit)
   const [selectedMode, setSelectedMode] = useState<string>('all_multi')
   const [multiMetric, setMultiMetric] = useState<MultiMetric>('usable')
   const [range, setRange] = useState<RangeOption>('30_days')
@@ -83,7 +83,6 @@ export default function StockBalanceLineChart({
   const today = new Date()
   const todayStr = today.toISOString().split('T')[0]
 
-  // Generate date list based on selected range
   const dateList = useMemo(() => {
     const dates: string[] = []
 
@@ -106,7 +105,6 @@ export default function StockBalanceLineChart({
     return dates
   }, [range])
 
-  // Precompute balance for each size on each date
   const dailyData = useMemo(() => {
     const knownProjectIds = projects.map(p => p.id)
 
@@ -118,7 +116,6 @@ export default function StockBalanceLineChart({
       sizes.forEach(size => {
         let sizeTotal = 0
 
-        // 1. Across project types anchored to latest prior stock take
         for (const pt of projectTypes) {
           const pIds = projects.filter(p => p.project_type_id === pt.id).map(p => p.id)
           const ptTxs = transactions.filter(t => 
@@ -145,7 +142,6 @@ export default function StockBalanceLineChart({
           }
         }
 
-        // 2. Unassigned transactions
         const unassignedTxs = transactions.filter(t => 
           t.size_id === size.id && 
           !t.project_type_id && 
@@ -154,7 +150,6 @@ export default function StockBalanceLineChart({
         )
         sizeTotal += unassignedTxs.reduce((sum, t) => sum + Number(t.quantity), 0)
 
-        // 3. Suspended
         const sizeTxs = transactions.filter(t => t.size_id === size.id && t.transaction_date <= dateStr)
         let sCount = 0
         sizeTxs.forEach(t => {
@@ -189,7 +184,6 @@ export default function StockBalanceLineChart({
     })
   }, [dateList, sizes, transactions, stockTakes, projectTypes, projects])
 
-  // Filter sizes that actually have active stock in this range
   const activeSizes = useMemo(() => {
     return sizes.map((s, idx) => {
       const color = SIZE_COLORS[idx % SIZE_COLORS.length]
@@ -198,7 +192,6 @@ export default function StockBalanceLineChart({
     }).filter(s => s.maxInPeriod > 0)
   }, [sizes, dailyData])
 
-  // Determine Max Y value
   const maxVal = useMemo(() => {
     if (selectedMode === 'all_total') {
       return Math.max(...dailyData.map(d => d.combinedTotal), 1) * 1.15
@@ -213,10 +206,9 @@ export default function StockBalanceLineChart({
     }
   }, [dailyData, selectedMode, activeSizes, multiMetric])
 
-  // Dimensions
   const width = 900
   const height = 270
-  const paddingLeft = 55
+  const paddingLeft = 65
   const paddingRight = 30
   const paddingTop = 30
   const paddingBottom = 40
@@ -224,16 +216,13 @@ export default function StockBalanceLineChart({
   const plotWidth = width - paddingLeft - paddingRight
   const plotHeight = height - paddingTop - paddingBottom
 
-  // Generate SVG Points
   const points = useMemo(() => {
     return dailyData.map((d, index) => {
       const x = paddingLeft + (index / Math.max(dailyData.length - 1, 1)) * plotWidth
       
-      // Total combined
       const yTotal = paddingTop + plotHeight - (d.combinedTotal / maxVal) * plotHeight
       const yUsable = paddingTop + plotHeight - (d.combinedUsable / maxVal) * plotHeight
 
-      // Per-size coordinates
       const sizeCoords: Record<string, { y: number; val: number }> = {}
       activeSizes.forEach(s => {
         const val = multiMetric === 'usable' 
@@ -243,7 +232,6 @@ export default function StockBalanceLineChart({
         sizeCoords[s.id] = { y, val }
       })
 
-      // Single size coordinates
       let ySingleTotal = 0
       let ySingleUsable = 0
       if (selectedMode !== 'all_multi' && selectedMode !== 'all_total') {
@@ -264,7 +252,6 @@ export default function StockBalanceLineChart({
     })
   }, [dailyData, maxVal, activeSizes, multiMetric, selectedMode])
 
-  // Lines paths for single / combined mode
   const totalPath = points.length > 0
     ? points.reduce((acc, p, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.yTotal.toFixed(1)}`, '')
     : ''
@@ -281,7 +268,6 @@ export default function StockBalanceLineChart({
     ? points.reduce((acc, p, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.ySingleUsable.toFixed(1)}`, '')
     : ''
 
-  // Per-size line paths in multi-line mode
   const multiPaths = useMemo(() => {
     const paths: Record<string, string> = {}
     activeSizes.forEach(s => {
@@ -298,19 +284,17 @@ export default function StockBalanceLineChart({
 
   return (
     <div className="bg-white border rounded-xl shadow-sm p-4 sm:p-6 mb-10">
-      {/* Header Controls */}
       <div className="flex flex-wrap items-center justify-between gap-4 mb-5 border-b pb-4">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Stock Balance Over Time</h2>
           <p className="text-xs text-gray-500 mt-0.5">
-            {selectedMode === 'all_multi' && `Comparing daily stock lines across all rebar sizes (${multiMetric === 'usable' ? 'Usable' : 'Total'} Tonnage)`}
-            {selectedMode === 'all_total' && 'Total combined factory physical balance & usable balance'}
-            {selectedMode !== 'all_multi' && selectedMode !== 'all_total' && `Daily balance for ${sizes.find(s => s.id === selectedMode)?.size || 'Selected Size'}`}
+            {selectedMode === 'all_multi' && `Comparing daily stock lines across all rebar sizes (${multiMetric === 'usable' ? 'Usable' : 'Total'} ${uLabel})`}
+            {selectedMode === 'all_total' && `Total combined factory physical balance & usable balance (${uLabel})`}
+            {selectedMode !== 'all_multi' && selectedMode !== 'all_total' && `Daily balance for ${sizes.find(s => s.id === selectedMode)?.size || 'Selected Size'} (${uLabel})`}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {/* Mode Selector */}
           <div className="flex items-center gap-1.5 text-xs">
             <span className="text-gray-500 font-medium">View:</span>
             <select
@@ -331,7 +315,6 @@ export default function StockBalanceLineChart({
             </select>
           </div>
 
-          {/* Metric toggle in multi-line mode */}
           {selectedMode === 'all_multi' && (
             <div className="flex items-center bg-gray-100 p-1 rounded-lg">
               <button
@@ -349,7 +332,6 @@ export default function StockBalanceLineChart({
             </div>
           )}
 
-          {/* Time Range Selector */}
           <div className="flex items-center bg-gray-100 p-1 rounded-lg">
             <button
               onClick={() => setRange('14_days')}
@@ -379,7 +361,6 @@ export default function StockBalanceLineChart({
         </div>
       </div>
 
-      {/* Interactive Size Legend for Multi-Line Mode */}
       {selectedMode === 'all_multi' && (
         <div className="flex flex-wrap items-center gap-2 mb-4 p-2.5 bg-gray-50 rounded-xl border border-gray-100 text-xs">
           <span className="text-gray-400 font-medium mr-1">Filter Line:</span>
@@ -411,16 +392,15 @@ export default function StockBalanceLineChart({
         </div>
       )}
 
-      {/* Interactive SVG Chart */}
       <div className="relative w-full overflow-x-auto">
         <svg
           viewBox={`0 0 ${width} ${height}`}
           className="w-full h-64 select-none min-w-[650px]"
           onMouseLeave={() => setHoveredPoint(null)}
         >
-          {/* Y-axis Grid */}
           {yTicks.map((tick, i) => {
             const y = paddingTop + plotHeight - (tick / maxVal) * plotHeight
+            const tickDisp = fmtQtyNum(tick, unit)
             return (
               <g key={i}>
                 <line
@@ -439,13 +419,12 @@ export default function StockBalanceLineChart({
                   fill="#94a3b8"
                   fontWeight="500"
                 >
-                  {tick.toFixed(0)} T
+                  {tickDisp} {uLabel}
                 </text>
               </g>
             )
           })}
 
-          {/* MULTI-LINE MODE */}
           {selectedMode === 'all_multi' && (
             <>
               {activeSizes.map(s => {
@@ -468,7 +447,6 @@ export default function StockBalanceLineChart({
             </>
           )}
 
-          {/* COMBINED TOTAL MODE */}
           {selectedMode === 'all_total' && (
             <>
               <path
@@ -490,7 +468,6 @@ export default function StockBalanceLineChart({
             </>
           )}
 
-          {/* SINGLE SIZE MODE */}
           {selectedMode !== 'all_multi' && selectedMode !== 'all_total' && (
             <>
               <path
@@ -512,7 +489,6 @@ export default function StockBalanceLineChart({
             </>
           )}
 
-          {/* Hover Trigger Zones */}
           {points.map((p) => (
             <rect
               key={p.date}
@@ -526,7 +502,6 @@ export default function StockBalanceLineChart({
             />
           ))}
 
-          {/* Active Hover Cursor & Line */}
           {hoveredPoint && (
             <g>
               <line
@@ -569,7 +544,6 @@ export default function StockBalanceLineChart({
             </g>
           )}
 
-          {/* X-axis Date Labels */}
           {points.map((p, idx) => {
             const step = points.length > 40 ? 5 : points.length > 20 ? 3 : 2
             const showLabel = idx % step === 0 || idx === points.length - 1 || p.isToday
@@ -591,7 +565,6 @@ export default function StockBalanceLineChart({
           })}
         </svg>
 
-        {/* Hover Tooltip Overlay */}
         {hoveredPoint && (
           <div
             className="absolute bg-slate-900 text-white text-xs rounded-xl shadow-2xl p-3 z-30 pointer-events-none border border-slate-700 min-w-[200px]"
@@ -618,7 +591,7 @@ export default function StockBalanceLineChart({
                         <span className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
                         {s.size}:
                       </span>
-                      <span className="font-bold text-slate-100">{val.toFixed(2)} T</span>
+                      <span className="font-bold text-slate-100">{fmtQtyNum(val, unit)} {uLabel}</span>
                     </div>
                   )
                 })}
@@ -627,16 +600,16 @@ export default function StockBalanceLineChart({
               <div className="space-y-1">
                 <div className="text-blue-400 font-semibold flex justify-between">
                   <span>Total Stock:</span>
-                  <span>{hoveredPoint.combinedTotal.toFixed(2)} T</span>
+                  <span>{fmtQtyNum(hoveredPoint.combinedTotal, unit)} {uLabel}</span>
                 </div>
                 <div className="text-green-400 font-semibold flex justify-between">
                   <span>Usable Stock:</span>
-                  <span>{hoveredPoint.combinedUsable.toFixed(2)} T</span>
+                  <span>{fmtQtyNum(hoveredPoint.combinedUsable, unit)} {uLabel}</span>
                 </div>
                 {hoveredPoint.combinedSuspended > 0 && (
                   <div className="text-amber-400 text-[11px] pt-1 border-t border-slate-800 flex justify-between">
                     <span>Suspended:</span>
-                    <span>{hoveredPoint.combinedSuspended.toFixed(2)} T</span>
+                    <span>{fmtQtyNum(hoveredPoint.combinedSuspended, unit)} {uLabel}</span>
                   </div>
                 )}
               </div>
@@ -650,16 +623,16 @@ export default function StockBalanceLineChart({
                       <div className="text-slate-300 font-bold mb-1">{sName} Balance:</div>
                       <div className="text-blue-400 font-semibold flex justify-between">
                         <span>Total:</span>
-                        <span>{sData.total.toFixed(2)} T</span>
+                        <span>{fmtQtyNum(sData.total, unit)} {uLabel}</span>
                       </div>
                       <div className="text-green-400 font-semibold flex justify-between">
                         <span>Usable:</span>
-                        <span>{sData.usable.toFixed(2)} T</span>
+                        <span>{fmtQtyNum(sData.usable, unit)} {uLabel}</span>
                       </div>
                       {sData.suspended > 0 && (
                         <div className="text-amber-400 text-[11px] pt-1 border-t border-slate-800 flex justify-between">
                           <span>Suspended:</span>
-                          <span>{sData.suspended.toFixed(2)} T</span>
+                          <span>{fmtQtyNum(sData.suspended, unit)} {uLabel}</span>
                         </div>
                       )}
                     </>

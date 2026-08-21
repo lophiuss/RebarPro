@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import UsageTrendsChart from '@/components/UsageTrendsChart'
 import StockBalanceLineChart from '@/components/StockBalanceLineChart'
 import { naturalSort } from '@/lib/utils/sort'
+import { fmtQty, fmtQtyNum, unitLabel, type DefaultUnit } from '@/lib/utils/unit'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -12,21 +13,22 @@ export default async function DashboardPage() {
   const [txRes, sizesRes, settingsRes, stRes, pTypesRes, projectsRes] = await Promise.all([
     supabase.from('transactions').select('quantity, type, transaction_date, size_id, project_type_id, project_id'),
     supabase.from('rebar_sizes').select('*'),
-    supabase.from('global_settings').select('target_coverage_days').eq('id', 1).single(),
+    supabase.from('global_settings').select('target_coverage_days, default_unit').eq('id', 1).single(),
     supabase.from('stock_takes').select('id, size_id, stock_take_date, physical_count, project_type_id').order('stock_take_date', { ascending: false }),
     supabase.from('project_types').select('id, name'),
     supabase.from('projects').select('id, name, project_type_id')
   ])
 
   const transactions = txRes.data || []
-  // Apply natural sort so H6, H8, H10, H12, H13, H16, H20, H25, H28, H32, H40 sort properly
   const sizes = naturalSort(sizesRes.data || [], s => s.size)
   const targetCoverageDays = settingsRes.data?.target_coverage_days || 14
+  const unit: DefaultUnit = (settingsRes.data?.default_unit as DefaultUnit) || 'kg'
+  const uLabel = unitLabel(unit)
+
   const allStockTakes = stRes.data || []
   const projectTypes = naturalSort(pTypesRes.data || [], pt => pt.name)
   const projects = naturalSort(projectsRes.data || [], p => p.name)
 
-  // Date helpers
   const today = new Date()
   const todayStr = today.toISOString().split('T')[0]
 
@@ -38,13 +40,11 @@ export default async function DashboardPage() {
 
   const sevenDaysAgoStr = daysAgo(7)
 
-  // ── HELPER: calculate accurate stock-take-anchored balance per size ──
   function getSizeBalanceInfo(sizeId: string) {
     let balance = 0
     let latestSTDate: string | null = null
     let hasST = false
 
-    // 1. Process each project type
     for (const pt of projectTypes) {
       const pIds = projects.filter(p => p.project_type_id === pt.id).map(p => p.id)
       
@@ -69,7 +69,6 @@ export default async function DashboardPage() {
       }
     }
 
-    // 2. Add unassigned transactions
     const knownProjectIds = projects.map(p => p.id)
     const unassignedTxs = transactions.filter(t => 
       t.size_id === sizeId && 
@@ -81,7 +80,6 @@ export default async function DashboardPage() {
     return { balance, hasST, latestSTDate }
   }
 
-  // Global KPIs
   let totalBalance = 0
   let totalUsage7d = 0
   let totalIncoming = 0
@@ -117,7 +115,6 @@ export default async function DashboardPage() {
   const avgDailyUsage7d = totalUsage7d / 7
   const globalDaysCoverage = avgDailyUsage7d > 0 ? totalUsableBalance / avgDailyUsage7d : 0
 
-  // Per-size stats with natural sorting
   const sizeStats = sizes.map(size => {
     const sizeTxs = transactions.filter(t => t.size_id === size.id)
     const { balance, hasST, latestSTDate } = getSizeBalanceInfo(size.id)
@@ -162,7 +159,7 @@ export default async function DashboardPage() {
 
     return {
       size: size.size,
-      unit: size.unit || 'T',
+      unit: uLabel,
       balance,
       suspended,
       usableBalance,
@@ -184,27 +181,27 @@ export default async function DashboardPage() {
       {/* Global KPIs */}
       <div className="grid gap-4 grid-cols-2 lg:grid-cols-6 mb-10">
         <div className="border rounded-xl p-5 bg-white shadow-sm">
-          <h3 className="font-semibold text-xs text-gray-500 uppercase">Total Stock</h3>
-          <p className="text-2xl font-bold mt-1 text-slate-800">{totalBalance.toFixed(2)} T</p>
+          <h3 className="font-semibold text-xs text-gray-500 uppercase">Total Stock ({uLabel})</h3>
+          <p className="text-2xl font-bold mt-1 text-slate-800">{fmtQty(totalBalance, unit)}</p>
           <p className="text-xs text-gray-400 mt-1">Physical balance</p>
         </div>
         <div className="border rounded-xl p-5 bg-amber-50/70 border-amber-200 shadow-sm">
-          <h3 className="font-semibold text-xs text-amber-700 uppercase">Suspended</h3>
-          <p className="text-2xl font-bold mt-1 text-amber-800">{totalSuspended.toFixed(2)} T</p>
+          <h3 className="font-semibold text-xs text-amber-700 uppercase">Suspended ({uLabel})</h3>
+          <p className="text-2xl font-bold mt-1 text-amber-800">{fmtQty(totalSuspended, unit)}</p>
           <p className="text-xs text-amber-600 mt-1">Held / Quarantined</p>
         </div>
         <div className="border rounded-xl p-5 bg-blue-50/70 border-blue-200 shadow-sm">
-          <h3 className="font-semibold text-xs text-blue-700 uppercase">Usable Balance</h3>
-          <p className="text-2xl font-bold mt-1 text-blue-900">{totalUsableBalance.toFixed(2)} T</p>
+          <h3 className="font-semibold text-xs text-blue-700 uppercase">Usable Balance ({uLabel})</h3>
+          <p className="text-2xl font-bold mt-1 text-blue-900">{fmtQty(totalUsableBalance, unit)}</p>
           <p className="text-xs text-blue-600 mt-1">Total - Suspended</p>
         </div>
         <div className="border rounded-xl p-5 bg-white shadow-sm">
-          <h3 className="font-semibold text-xs text-gray-500 uppercase">Avg Daily (7d)</h3>
-          <p className="text-2xl font-bold mt-1 text-slate-800">{avgDailyUsage7d.toFixed(2)} T</p>
+          <h3 className="font-semibold text-xs text-gray-500 uppercase">Avg Daily 7d ({uLabel})</h3>
+          <p className="text-2xl font-bold mt-1 text-slate-800">{fmtQty(avgDailyUsage7d, unit)}</p>
         </div>
         <div className="border rounded-xl p-5 bg-white shadow-sm">
-          <h3 className="font-semibold text-xs text-gray-500 uppercase">Total Incoming</h3>
-          <p className="text-2xl font-bold mt-1 text-green-600">+{totalIncoming.toFixed(2)} T</p>
+          <h3 className="font-semibold text-xs text-gray-500 uppercase">Total Incoming ({uLabel})</h3>
+          <p className="text-2xl font-bold mt-1 text-green-600">+{fmtQty(totalIncoming, unit)}</p>
         </div>
         <div className="border rounded-xl p-5 bg-white shadow-sm">
           <h3 className="font-semibold text-xs text-gray-500 uppercase">Usable Coverage</h3>
@@ -214,25 +211,26 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* Stock Balance Line Chart (Total vs Usable over Date) */}
+      {/* Stock Balance Line Chart */}
       <StockBalanceLineChart
         transactions={transactions}
         stockTakes={allStockTakes}
         sizes={sizes}
         projectTypes={projectTypes}
         projects={projects}
+        unit={unit}
       />
 
       {/* Trends Chart */}
       <div className="bg-white border rounded-xl shadow-sm mb-10">
         <div className="px-6 pt-6 pb-2 border-b">
           <h2 className="text-xl font-bold text-slate-900">Inventory Trends (Incoming, Usage & Wastage)</h2>
-          <p className="text-xs text-gray-500 mt-0.5">Historical and custom range activity tracking</p>
+          <p className="text-xs text-gray-500 mt-0.5">Historical and custom range activity tracking ({uLabel})</p>
         </div>
-        <UsageTrendsChart transactions={transactions} />
+        <UsageTrendsChart transactions={transactions} unit={unit} />
       </div>
 
-      {/* Breakdown by Rebar Size */}
+      {/* Breakdown by Rebar Size Table */}
       <h2 className="text-xl font-bold mb-4">Breakdown by Rebar Size</h2>
       <div className="bg-white border rounded-xl shadow-sm overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200">
@@ -240,15 +238,15 @@ export default async function DashboardPage() {
             <tr>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Size</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Stock Level</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Balance</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-amber-700 uppercase bg-amber-50/50">Suspended</th>
-              <th className="px-4 py-3 text-left text-xs font-bold text-blue-800 uppercase bg-blue-50/50">Usable Balance</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Today Usage</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Target Daily</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Avg Daily (7d)</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Balance ({uLabel})</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-amber-700 uppercase bg-amber-50/50">Suspended ({uLabel})</th>
+              <th className="px-4 py-3 text-left text-xs font-bold text-blue-800 uppercase bg-blue-50/50">Usable Balance ({uLabel})</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Today Usage ({uLabel})</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Target Daily ({uLabel}/d)</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Avg Daily 7d ({uLabel}/d)</th>
               <th className="px-4 py-3 text-left text-xs font-bold text-slate-700 uppercase">Usable Coverage</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Last Stock Take</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-blue-50">Req. Order ({targetCoverageDays}d)</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-blue-50">Req. Order ({targetCoverageDays}d, {uLabel})</th>
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
@@ -267,14 +265,14 @@ export default async function DashboardPage() {
                       </span>
                     </div>
                   </td>
-                  <td className="px-4 py-4 text-slate-600 font-medium">{stat.balance.toFixed(2)} {stat.unit}</td>
-                  <td className="px-4 py-4 text-amber-700 font-medium bg-amber-50/30">{stat.suspended > 0 ? `${stat.suspended.toFixed(2)} ${stat.unit}` : '-'}</td>
-                  <td className="px-4 py-4 text-blue-900 font-bold bg-blue-50/30">{stat.usableBalance.toFixed(2)} {stat.unit}</td>
-                  <td className="px-4 py-4 text-red-600 font-medium">{stat.todayUsage > 0 ? stat.todayUsage.toFixed(2) : '-'}</td>
+                  <td className="px-4 py-4 text-slate-600 font-medium">{fmtQty(stat.balance, unit)}</td>
+                  <td className="px-4 py-4 text-amber-700 font-medium bg-amber-50/30">{stat.suspended > 0 ? fmtQty(stat.suspended, unit) : '-'}</td>
+                  <td className="px-4 py-4 text-blue-900 font-bold bg-blue-50/30">{fmtQty(stat.usableBalance, unit)}</td>
+                  <td className="px-4 py-4 text-red-600 font-medium">{stat.todayUsage > 0 ? fmtQty(stat.todayUsage, unit) : '-'}</td>
                   <td className="px-4 py-4 text-slate-500">
-                    {stat.targetDailyUsage > 0 ? `${stat.targetDailyUsage.toFixed(2)} ${stat.unit}/d` : <span className="text-gray-300 italic text-xs">not set</span>}
+                    {stat.targetDailyUsage > 0 ? `${fmtQtyNum(stat.targetDailyUsage, unit)} ${uLabel}/d` : <span className="text-gray-300 italic text-xs">not set</span>}
                   </td>
-                  <td className="px-4 py-4 text-slate-600">{stat.avgDailyUsage.toFixed(2)}</td>
+                  <td className="px-4 py-4 text-slate-600">{fmtQtyNum(stat.avgDailyUsage, unit)}</td>
                   <td className={`px-4 py-4 font-bold ${stat.coverage < 3 ? 'text-red-500' : stat.coverage < 7 ? 'text-yellow-600' : 'text-green-600'}`}>
                     {stat.targetDailyUsage > 0 || stat.avgDailyUsage > 0
                       ? (stat.coverage > 999 ? '∞' : stat.coverage.toFixed(1) + ' Days')
@@ -284,7 +282,7 @@ export default async function DashboardPage() {
                     {stat.hasStockTake ? <span className="text-green-700 font-medium">✓ {stat.lastStockTakeDate}</span> : <span className="text-gray-300">No stock take</span>}
                   </td>
                   <td className={`px-4 py-4 font-bold bg-blue-50 ${stat.requireOrder > 0 ? 'text-blue-600' : 'text-gray-300'}`}>
-                    {stat.requireOrder > 0 ? stat.requireOrder.toFixed(2) : '-'}
+                    {stat.requireOrder > 0 ? fmtQty(stat.requireOrder, unit) : '-'}
                   </td>
                 </tr>
               )

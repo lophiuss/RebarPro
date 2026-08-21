@@ -1,15 +1,17 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Trash2, CheckCircle } from 'lucide-react'
 import { naturalSort } from '@/lib/utils/sort'
+import { toDisplayUnit, toTonnes, fmtQtyNum, unitLabel, type DefaultUnit } from '@/lib/utils/unit'
 
 export default function StockTakePage() {
   const [stockTakes, setStockTakes] = useState<any[]>([])
   const [projectTypes, setProjectTypes] = useState<any[]>([])
   const [sizes, setSizes] = useState<any[]>([])
+  const [unit, setUnit] = useState<DefaultUnit>('kg')
   const [theoreticalBalances, setTheoreticalBalances] = useState<Record<string, number>>({})
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   
@@ -20,6 +22,7 @@ export default function StockTakePage() {
   const [isCalculating, setIsCalculating] = useState(false)
 
   const supabase = createClient()
+  const uLabel = unitLabel(unit)
 
   function showSuccess(msg: string) {
     setSuccessMessage(msg)
@@ -37,12 +40,17 @@ export default function StockTakePage() {
   }, [projectTypeId, date, sizes])
 
   async function fetchData() {
-    const [stRes, pTypesRes, sizeRes] = await Promise.all([
+    const [stRes, pTypesRes, sizeRes, settingsRes] = await Promise.all([
       supabase.from('stock_takes').select('*, rebar_sizes(size), project_types(name)').order('stock_take_date', { ascending: false }),
       supabase.from('project_types').select('*'),
-      supabase.from('rebar_sizes').select('*')
+      supabase.from('rebar_sizes').select('*'),
+      supabase.from('global_settings').select('default_unit').eq('id', 1).single()
     ])
     
+    if (settingsRes.data?.default_unit) {
+      setUnit(settingsRes.data.default_unit as DefaultUnit)
+    }
+
     if (stRes.data) setStockTakes(stRes.data)
     if (pTypesRes.data) {
       const sortedPT = naturalSort(pTypesRes.data, pt => pt.name)
@@ -66,58 +74,48 @@ export default function StockTakePage() {
     }])
   }
 
-  // Load theoretical balances whenever date or projectTypeId changes
   async function loadTheoreticalBalances(forProjectTypeId: string, forDate: string, allSizes: any[]) {
-    if (!forProjectTypeId || allSizes.length === 0) return
-    
-    const { data: projs } = await supabase.from('projects').select('id').eq('project_type_id', forProjectTypeId)
-    const projectIds = (projs || []).map((p: any) => p.id)
-    
-    // Fetch latest prior stock takes for this project type strictly BEFORE forDate
-    const { data: priorSTs } = await supabase
-      .from('stock_takes')
-      .select('size_id, physical_count, stock_take_date')
-      .eq('project_type_id', forProjectTypeId)
-      .lt('stock_take_date', forDate)
-      .order('stock_take_date', { ascending: false })
+    if (!forProjectTypeId || !forDate || allSizes.length === 0) return
+
+    const { data: pTypeProjects } = await supabase.from('projects').select('id').eq('project_type_id', forProjectTypeId)
+    const pTypeProjectIds = (pTypeProjects || []).map(p => p.id)
 
     const balances: Record<string, number> = {}
-    
-    for (const s of allSizes) {
-      const latestPrior = (priorSTs || []).find((st: any) => st.size_id === s.id)
-      const anchorDate = latestPrior ? latestPrior.stock_take_date : null
-      const baseCount = latestPrior ? Number(latestPrior.physical_count) : 0
 
-      let q1 = supabase
+    for (const s of allSizes) {
+      const { data: priorSTs } = await supabase
+        .from('stock_takes')
+        .select('physical_count, stock_take_date')
+        .eq('project_type_id', forProjectTypeId)
+        .eq('size_id', s.id)
+        .lt('stock_take_date', forDate)
+        .order('stock_take_date', { ascending: false })
+        .limit(1)
+
+      const latestPriorST = priorSTs?.[0]
+      const baseCount = latestPriorST ? Number(latestPriorST.physical_count) : 0
+      const anchorDate = latestPriorST ? latestPriorST.stock_take_date : '1970-01-01'
+
+      const { data: txs1 } = await supabase
         .from('transactions')
         .select('quantity')
         .eq('project_type_id', forProjectTypeId)
         .eq('size_id', s.id)
+        .gt('transaction_date', anchorDate)
         .lte('transaction_date', forDate)
-      
-      if (anchorDate) {
-        q1 = q1.gt('transaction_date', anchorDate)
-      }
-
-      const { data: txs1 } = await q1
 
       let txs2: any[] = []
-      if (projectIds.length > 0) {
-        let q2 = supabase
+      if (pTypeProjectIds.length > 0) {
+        const { data: projTxs } = await supabase
           .from('transactions')
           .select('quantity')
-          .in('project_id', projectIds)
+          .in('project_id', pTypeProjectIds)
           .eq('size_id', s.id)
+          .gt('transaction_date', anchorDate)
           .lte('transaction_date', forDate)
-        
-        if (anchorDate) {
-          q2 = q2.gt('transaction_date', anchorDate)
-        }
-
-        const { data: res2 } = await q2
-        if (res2) txs2 = res2
+        txs2 = projTxs || []
       }
-      
+
       const txSum = (txs1 || []).concat(txs2).reduce((sum: number, tx: any) => sum + Number(tx.quantity), 0)
       balances[s.id] = baseCount + txSum
     }
@@ -139,17 +137,18 @@ export default function StockTakePage() {
 
     let savedCount = 0
     for (const [sizeId, val] of entriesToProcess) {
-      const count = parseFloat(val)
-      const systemBalance = theoreticalBalances[sizeId] ?? 0
-      const variance = count - systemBalance
+      const inputCount = parseFloat(val)
+      const countTonnes = toTonnes(inputCount, unit)
+      const systemBalanceTonnes = theoreticalBalances[sizeId] ?? 0
+      const varianceTonnes = countTonnes - systemBalanceTonnes
 
       const { data, error } = await supabase.from('stock_takes').insert([{
         project_type_id: projectTypeId,
         size_id: sizeId,
         stock_take_date: date,
-        physical_count: count,
-        system_balance: systemBalance,
-        variance: variance
+        physical_count: countTonnes,
+        system_balance: systemBalanceTonnes,
+        variance: varianceTonnes
       }]).select()
 
       if (!error && data) {
@@ -193,7 +192,6 @@ export default function StockTakePage() {
     }
   }
 
-  // Aggregate stock takes by Date + Project Type (including legacy/unassigned)
   const groupedStockTakes: Record<string, any> = {}
   
   stockTakes.forEach(st => {
@@ -222,7 +220,6 @@ export default function StockTakePage() {
     <div className="p-4 md:p-8 max-w-[90rem] mx-auto">
       <h1 className="text-3xl font-bold mb-6">Monthly Stock Take</h1>
 
-      {/* Success Banner */}
       {successMessage && (
         <div className="mb-6 flex items-center gap-3 bg-green-50 border border-green-300 text-green-800 rounded-xl px-5 py-4 shadow-sm">
           <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
@@ -259,7 +256,7 @@ export default function StockTakePage() {
         </div>
 
         <div className="flex items-center justify-between mb-3 border-b pb-2">
-          <h3 className="font-medium text-sm text-gray-700">Enter Physical Count (Theoretical system balance shown above each box)</h3>
+          <h3 className="font-medium text-sm text-gray-700">Enter Physical Count in {uLabel} (Theoretical system balance shown above each box)</h3>
           <button 
             type="button" 
             onClick={() => loadTheoreticalBalances(projectTypeId, date, sizes)} 
@@ -277,8 +274,8 @@ export default function StockTakePage() {
               <div key={s.id} className="flex flex-col">
                 <span className="text-xs font-bold text-slate-700 mb-1">{s.size}</span>
                 {hasTheoretical ? (
-                  <div className="mb-1 px-2 py-1 bg-blue-50 border border-blue-200 rounded text-xs text-blue-700 font-medium text-center">
-                    System: {Number(theoretical).toFixed(2)}
+                  <div className="mb-1 px-2 py-1 bg-blue-50 border border-blue-200 rounded text-xs text-blue-700 font-medium text-center truncate">
+                    Sys: {fmtQtyNum(Number(theoretical), unit)} {uLabel}
                   </div>
                 ) : (
                   <div className="mb-1 px-2 py-1 bg-gray-50 border border-dashed border-gray-200 rounded text-xs text-gray-400 text-center">
@@ -291,7 +288,7 @@ export default function StockTakePage() {
                   value={sizeInputs[s.id] || ''} 
                   onChange={(e) => setSizeInputs({...sizeInputs, [s.id]: e.target.value})} 
                   className="w-full border rounded-md px-3 py-2 text-sm" 
-                  placeholder="Physical count" 
+                  placeholder={`Count (${uLabel})`} 
                 />
               </div>
             )
@@ -311,11 +308,11 @@ export default function StockTakePage() {
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase sticky left-24 bg-gray-50 z-10">Project Type</th>
               {sizes.map(s => (
                 <th key={s.id} className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase border-l">
-                  {s.size} <br/><span className="text-[10px] text-gray-400 font-normal">Count / Var</span>
+                  {s.size} <br/><span className="text-[10px] text-gray-400 font-normal">Count / Var ({uLabel})</span>
                 </th>
               ))}
-              <th className="px-4 py-3 text-center text-xs font-bold text-gray-700 uppercase border-l bg-gray-100">Total Count</th>
-              <th className="px-4 py-3 text-center text-xs font-bold text-gray-700 uppercase bg-gray-100">Total Variance</th>
+              <th className="px-4 py-3 text-center text-xs font-bold text-gray-700 uppercase border-l bg-gray-100">Total Count ({uLabel})</th>
+              <th className="px-4 py-3 text-center text-xs font-bold text-gray-700 uppercase bg-gray-100">Total Variance ({uLabel})</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
             </tr>
           </thead>
@@ -328,20 +325,23 @@ export default function StockTakePage() {
                 {sizes.map(s => {
                   const cell = group.sizes[s.id]
                   if (!cell) return <td key={s.id} className="px-4 py-3 text-center text-sm text-gray-300 border-l">-</td>
+                  const physDisp = fmtQtyNum(Number(cell.physical), unit)
+                  const varDisp = fmtQtyNum(Number(cell.variance), unit)
+                  const v = Number(cell.variance)
                   return (
                     <td key={s.id} className="px-4 py-3 text-center text-sm border-l whitespace-nowrap">
-                      <span className="font-medium">{Number(cell.physical).toFixed(2)}</span>
+                      <span className="font-medium">{physDisp}</span>
                       <br/>
-                      <span className={`text-xs font-bold ${cell.variance < 0 ? 'text-red-500' : cell.variance > 0 ? 'text-blue-500' : 'text-gray-400'}`}>
-                        {cell.variance > 0 ? '+' : ''}{Number(cell.variance).toFixed(2)}
+                      <span className={`text-xs font-bold ${v < 0 ? 'text-red-500' : v > 0 ? 'text-blue-500' : 'text-gray-400'}`}>
+                        {v > 0 ? '+' : ''}{varDisp}
                       </span>
                     </td>
                   )
                 })}
 
-                <td className="px-4 py-3 text-center text-sm font-bold border-l bg-gray-50">{group.total_physical.toFixed(2)}</td>
+                <td className="px-4 py-3 text-center text-sm font-bold border-l bg-gray-50">{fmtQtyNum(group.total_physical, unit)}</td>
                 <td className={`px-4 py-3 text-center text-sm font-bold bg-gray-50 ${group.total_variance < 0 ? 'text-red-600' : group.total_variance > 0 ? 'text-blue-600' : 'text-gray-500'}`}>
-                  {group.total_variance.toFixed(2)}
+                  {group.total_variance > 0 ? '+' : ''}{fmtQtyNum(group.total_variance, unit)}
                 </td>
                 <td className="px-4 py-3 text-center">
                   <button onClick={() => deleteStockTakeGroup(group.date, group.project_type_id)} className="text-red-500 hover:text-red-700 p-1"><Trash2 className="w-4 h-4" /></button>

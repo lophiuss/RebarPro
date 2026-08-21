@@ -154,7 +154,10 @@ export default function SettingsPage() {
   // Global Settings
   async function saveGlobalSettings(e: React.FormEvent) {
     e.preventDefault()
-    const { error } = await supabase.from('global_settings').update({ target_coverage_days: globalSettings.target_coverage_days }).eq('id', 1)
+    const { error } = await supabase.from('global_settings').update({
+      target_coverage_days: globalSettings.target_coverage_days,
+      default_unit: globalSettings.default_unit || 'kg'
+    }).eq('id', 1)
     if (!error) {
       alert("Settings saved!")
     } else {
@@ -169,22 +172,55 @@ export default function SettingsPage() {
       {/* Global Settings */}
       <div className="mb-12">
         <h2 className="text-xl font-bold mb-4">Global Preferences</h2>
-        <form onSubmit={saveGlobalSettings} className="flex gap-4 items-end border p-4 rounded-xl bg-white shadow-sm">
-          <div className="flex-1">
-            <label className="block text-sm font-medium mb-1">Target Coverage (Days)</label>
-            <input 
-              type="number"
-              required 
-              value={globalSettings.target_coverage_days} 
-              onChange={(e) => setGlobalSettings({...globalSettings, target_coverage_days: Number(e.target.value)})}
-              className="w-full border rounded-md px-3 py-2" 
-            />
-            <p className="text-xs text-gray-500 mt-1">Used to calculate "Require Order" on the Dashboard.</p>
+        <form onSubmit={saveGlobalSettings} className="border p-4 rounded-xl bg-white shadow-sm space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
+            <div>
+              <label className="block text-sm font-medium mb-1">Target Coverage (Days)</label>
+              <input 
+                type="number"
+                required 
+                value={globalSettings.target_coverage_days} 
+                onChange={(e) => setGlobalSettings({...globalSettings, target_coverage_days: Number(e.target.value)})}
+                className="w-full border rounded-md px-3 py-2" 
+                min={1}
+              />
+              <p className="text-xs text-gray-500 mt-1">Used to calculate "Require Order" on the Dashboard.</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Default Unit</label>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setGlobalSettings({...globalSettings, default_unit: 'kg'})}
+                  className={`flex-1 py-2 rounded-lg border-2 text-sm font-bold transition ${
+                    (globalSettings.default_unit || 'kg') === 'kg'
+                      ? 'bg-blue-600 text-white border-blue-600 shadow'
+                      : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'
+                  }`}
+                >
+                  kg
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGlobalSettings({...globalSettings, default_unit: 'ton'})}
+                  className={`flex-1 py-2 rounded-lg border-2 text-sm font-bold transition ${
+                    globalSettings.default_unit === 'ton'
+                      ? 'bg-blue-600 text-white border-blue-600 shadow'
+                      : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'
+                  }`}
+                >
+                  ton
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">All quantities across the system will display in this unit.</p>
+            </div>
           </div>
-          <Button type="submit">Save</Button>
+          <div className="pt-2">
+            <Button type="submit">Save Settings</Button>
+          </div>
         </form>
       </div>
-      
+
       {/* Project Types */}
       <div className="mb-12">
         <h2 className="text-xl font-bold mb-4">Manage Project Types</h2>
