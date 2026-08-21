@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Plus, Trash2, Pencil, X, Check, CheckCircle, ArrowRight } from 'lucide-react'
+import { naturalSort } from '@/lib/utils/sort'
 
 export default function TransactionsPage() {
   const [transactions, setTransactions] = useState<any[]>([])
@@ -43,29 +44,30 @@ export default function TransactionsPage() {
   async function fetchData() {
     const [txRes, projRes, pTypesRes, sizeRes] = await Promise.all([
       supabase.from('transactions').select('*, rebar_sizes(size), projects(name), project_types(name)').order('transaction_date', { ascending: false }),
-      supabase.from('projects').select('*').order('name'),
-      supabase.from('project_types').select('*').order('name'),
-      supabase.from('rebar_sizes').select('*').order('size')
+      supabase.from('projects').select('*'),
+      supabase.from('project_types').select('*'),
+      supabase.from('rebar_sizes').select('*')
     ])
     
     if (txRes.data) setTransactions(txRes.data)
-    if (projRes.data) {
-      setProjects(projRes.data)
-      if (projRes.data.length > 0 && !projectId) setProjectId(projRes.data[0].id)
+    
+    const sortedProjects = naturalSort(projRes.data || [], p => p.name)
+    const sortedProjectTypes = naturalSort(pTypesRes.data || [], pt => pt.name)
+    const sortedSizes = naturalSort(sizeRes.data || [], s => s.size)
+
+    setProjects(sortedProjects)
+    if (sortedProjects.length > 0 && !projectId) setProjectId(sortedProjects[0].id)
+
+    setProjectTypes(sortedProjectTypes)
+    if (sortedProjectTypes.length > 0) {
+      if (!projectTypeId) setProjectTypeId(sortedProjectTypes[0].id)
+      if (!fromProjectTypeId) setFromProjectTypeId(sortedProjectTypes[0].id)
+      if (!toProjectTypeId && sortedProjectTypes.length > 1) setToProjectTypeId(sortedProjectTypes[1].id)
     }
-    if (pTypesRes.data) {
-      setProjectTypes(pTypesRes.data)
-      if (pTypesRes.data.length > 0) {
-        if (!projectTypeId) setProjectTypeId(pTypesRes.data[0].id)
-        if (!fromProjectTypeId) setFromProjectTypeId(pTypesRes.data[0].id)
-        if (!toProjectTypeId && pTypesRes.data.length > 1) setToProjectTypeId(pTypesRes.data[1].id)
-      }
-    }
-    if (sizeRes.data) {
-      setSizes(sizeRes.data)
-      if (sizeRes.data.length > 0 && entries[0].sizeId === '') {
-        setEntries([{ sizeId: sizeRes.data[0].id, qty: '' }])
-      }
+
+    setSizes(sortedSizes)
+    if (sortedSizes.length > 0 && entries[0].sizeId === '') {
+      setEntries([{ sizeId: sortedSizes[0].id, qty: '' }])
     }
   }
 
@@ -84,7 +86,7 @@ export default function TransactionsPage() {
   async function addTransaction(e: React.FormEvent) {
     e.preventDefault()
     
-    // TRANSFER SPECIAL HANDLING: creates outflow (-qty on From) and inflow (+qty on To)
+    // TRANSFER SPECIAL HANDLING
     if (type === 'transfer') {
       if (fromProjectTypeId === toProjectTypeId) {
         alert('Source and Destination Project Types must be different.')
@@ -103,7 +105,6 @@ export default function TransactionsPage() {
       const rowsToInsert: any[] = []
       validEntries.forEach(ent => {
         const qty = Math.abs(parseFloat(ent.qty))
-        // 1. Outflow from source project type
         rowsToInsert.push({
           project_id: null,
           project_type_id: fromProjectTypeId,
@@ -114,7 +115,6 @@ export default function TransactionsPage() {
           do_number: doNumber || null,
           notes: `Transfer to ${toTypeName}${notes ? ' - ' + notes : ''}`
         })
-        // 2. Inflow into destination project type
         rowsToInsert.push({
           project_id: null,
           project_type_id: toProjectTypeId,
@@ -141,8 +141,7 @@ export default function TransactionsPage() {
       return
     }
 
-    // Standard transactions (incoming, usage, ordering, suspended, unsuspend, wastage)
-    const isProjectTypeLevel = ['incoming', 'ordering', 'wastage'].includes(type)
+    const isProjectTypeLevel = ['incoming', 'wastage'].includes(type)
     
     const rowsToInsert = entries.filter(ent => ent.qty && (ent.sizeId || type === 'wastage')).map(ent => {
       let numericQty = parseFloat(ent.qty)
@@ -204,7 +203,7 @@ export default function TransactionsPage() {
       numericQty = -numericQty
     }
 
-    const isProjectTypeLevel = ['incoming', 'ordering', 'transfer', 'wastage'].includes(editData.type)
+    const isProjectTypeLevel = ['incoming', 'transfer', 'wastage'].includes(editData.type)
 
     const updatePayload = {
       transaction_date: editData.transaction_date,
@@ -269,7 +268,6 @@ export default function TransactionsPage() {
             <select value={type} onChange={(e) => setType(e.target.value)} className="w-full border rounded-md px-3 py-2 bg-white font-medium">
               <option value="incoming">Incoming</option>
               <option value="usage">Usage</option>
-              <option value="ordering">Ordering</option>
               <option value="transfer">Transfer (Between Project Types)</option>
               <option value="suspended">Suspended (Hold / Quarantine)</option>
               <option value="unsuspend">Unsuspend (Release back to Active)</option>
@@ -292,7 +290,7 @@ export default function TransactionsPage() {
                 </select>
               </div>
             </>
-          ) : ['incoming', 'ordering', 'wastage'].includes(type) ? (
+          ) : ['incoming', 'wastage'].includes(type) ? (
             <div>
               <label className="block text-sm font-medium mb-1">Project Type</label>
               <select value={projectTypeId} onChange={(e) => setProjectTypeId(e.target.value)} className="w-full border rounded-md px-3 py-2 bg-white">
@@ -479,7 +477,6 @@ function TransactionTable({
             <option value="">All Types</option>
             <option value="incoming">Incoming</option>
             <option value="usage">Usage</option>
-            <option value="ordering">Ordering</option>
             <option value="transfer">Transfer</option>
             <option value="suspended">Suspended</option>
             <option value="unsuspend">Unsuspend</option>
@@ -528,7 +525,7 @@ function TransactionTable({
                 <>
                   <td className="px-4 py-2"><input type="date" value={editData.transaction_date} onChange={e => setEditData({...editData, transaction_date: e.target.value})} className="border rounded px-2 py-1 w-full text-sm" /></td>
                   <td className="px-4 py-2">
-                    {['incoming', 'ordering', 'transfer', 'wastage'].includes(editData.type) ? (
+                    {['incoming', 'transfer', 'wastage'].includes(editData.type) ? (
                       <select value={editData.project_type_id} onChange={e => setEditData({...editData, project_type_id: e.target.value})} className="border rounded px-2 py-1 w-full text-sm bg-white">
                         <option value="">(None)</option>
                         {projectTypes.map((pt: any) => <option key={pt.id} value={pt.id}>{pt.name}</option>)}
@@ -550,7 +547,6 @@ function TransactionTable({
                     <select value={editData.type} onChange={e => setEditData({...editData, type: e.target.value})} className="border rounded px-2 py-1 w-full text-sm bg-white">
                       <option value="incoming">Incoming</option>
                       <option value="usage">Usage</option>
-                      <option value="ordering">Ordering</option>
                       <option value="transfer">Transfer</option>
                       <option value="suspended">Suspended</option>
                       <option value="unsuspend">Unsuspend</option>

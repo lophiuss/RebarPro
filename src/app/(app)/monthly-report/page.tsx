@@ -3,6 +3,8 @@ export const revalidate = 0
 
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
+import { naturalSort } from '@/lib/utils/sort'
+import ExportMonthlyReportButton from '@/components/ExportMonthlyReportButton'
 
 interface SearchParams { month?: string }
 
@@ -13,6 +15,7 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
   const selectedMonth = rawMonth || defaultMonth
 
   const [year, mon] = selectedMonth.split('-').map(Number)
+  const monthName = new Date(year, mon - 1).toLocaleString('default', { month: 'long', year: 'numeric' })
   const startDate = `${selectedMonth}-01`
   const endDay = new Date(year, mon, 0).getDate()
   const endDate = `${selectedMonth}-${String(endDay).padStart(2, '0')}`
@@ -24,11 +27,11 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
     supabase.from('transactions')
       .select('quantity, type, transaction_date, size_id, project_id, project_type_id, rebar_sizes(size), projects(name, project_type_id), project_types(name)')
       .lte('transaction_date', endDate),
-    supabase.from('rebar_sizes').select('*').order('size'),
+    supabase.from('rebar_sizes').select('*'),
     supabase.from('projects').select('id, name, project_type_id'),
-    supabase.from('project_types').select('id, name').order('name'),
+    supabase.from('project_types').select('id, name'),
     // Stock takes IN this month (ordered ascending to find first and latest)
-    supabase.from('stock_takes').select('id, size_id, physical_count, system_balance, variance, stock_take_date, project_type_id, project_types(name)')
+    supabase.from('stock_takes').select('id, size_id, physical_count, system_balance, variance, stock_take_date, project_type_id, project_types(name), rebar_sizes(size)')
       .gte('stock_take_date', startDate)
       .lte('stock_take_date', endDate)
       .order('stock_take_date', { ascending: true }),
@@ -40,9 +43,9 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
 
   const allTxs = txRes.data || []
   const txs = allTxs.filter(t => t.transaction_date >= startDate && t.transaction_date <= endDate)
-  const sizes = sizesRes.data || []
-  const projects = projRes.data || []
-  const projectTypes = pTypeRes.data || []
+  const sizes = naturalSort(sizesRes.data || [], s => s.size)
+  const projects = naturalSort(projRes.data || [], p => p.name)
+  const projectTypes = naturalSort(pTypeRes.data || [], pt => pt.name)
   const stockTakesThisMonth = stRes.data || []
   const allPrevSTs = prevStRes.data || []
 
@@ -58,7 +61,7 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
         (t.project_type_id === pt.id || (t.project_id && pIds.includes(t.project_id)))
       )
 
-      // 1. Check if there was a stock take BEFORE this month (prior month closing)
+      // 1. Check if there was a stock take BEFORE this month
       const prevST = allPrevSTs.find(st => st.size_id === sizeId && st.project_type_id === pt.id)
       if (prevST) {
         hasSource = true
@@ -68,11 +71,10 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
         continue
       }
 
-      // 2. If no prior stock take, check if there is a FIRST stock take of this month
+      // 2. Check if there is a FIRST stock take of this month
       const firstMonthST = stockTakesThisMonth.find(st => st.size_id === sizeId && st.project_type_id === pt.id)
       if (firstMonthST) {
         hasSource = true
-        // Opening at start of month = physical count on stock take date minus transactions that occurred before the stock take
         const txsBeforeST = ptTxs.filter(t => t.transaction_date >= startDate && t.transaction_date <= firstMonthST.stock_take_date)
         const txSumBefore = txsBeforeST.reduce((sum, t) => sum + Number(t.quantity), 0)
         balance += Number(firstMonthST.physical_count) - txSumBefore
@@ -84,7 +86,6 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
       balance += txsBefore.reduce((sum, t) => sum + Number(t.quantity), 0)
     }
 
-    // Add unassigned pre-month transactions
     const knownProjectIds = projects.map(p => p.id)
     const unassignedTxs = allTxs.filter(t => 
       t.size_id === sizeId && 
@@ -101,13 +102,12 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
   const sizeRows = sizes.map(size => {
     const sizeTxs = txs.filter(t => t.size_id === size.id)
 
-    let incoming = 0, ordering = 0, transfer = 0, usage = 0, suspended = 0, wastage = 0
+    let incoming = 0, transfer = 0, usage = 0, suspended = 0, wastage = 0
 
     sizeTxs.forEach(t => {
       const q = Number(t.quantity)
       switch (t.type) {
         case 'incoming':  incoming  += q; break
-        case 'ordering':  ordering  += q; break
         case 'transfer':  transfer  += q; break
         case 'usage':     usage     += Math.abs(q); break
         case 'suspended': suspended += Math.abs(q); break
@@ -118,13 +118,12 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
 
     const { balance: opening } = getOpeningBalance(size.id)
     
-    // Calculated theoretical expected closing balance: Opening + Incoming + Transfer - Usage - Wastage
+    // Theoretical expected closing: Opening + Incoming + Transfer - Usage - Wastage
     const expectedClosing = opening + incoming + transfer - usage - wastage
 
     // Find LATEST stock take in this month for this size
     const monthSTsForSize = stockTakesThisMonth.filter(st => st.size_id === size.id)
     const hasStockTake = monthSTsForSize.length > 0
-    // Last element is latest because stockTakesThisMonth is sorted ascending
     const latestST = monthSTsForSize.length > 0 ? monthSTsForSize[monthSTsForSize.length - 1] : null
     const stPhysical = latestST ? Number(latestST.physical_count) : null
 
@@ -134,13 +133,15 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
     // Wastage % = (Wastage / Usage) * 100
     const wastagePct = usage > 0 ? (wastage / usage) * 100 : 0
 
+    // Variance % = Variance / Usage (as requested)
+    const variancePct = (variance !== null && usage > 0) ? (variance / usage) * 100 : (variance !== null && variance === 0 ? 0 : null)
+
     return {
       sizeId: size.id,
       size: size.size,
       unit: size.unit || 'T',
       opening,
       incoming,
-      ordering,
       transfer,
       usage,
       suspended: Math.max(suspended, 0),
@@ -149,9 +150,10 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
       expectedClosing,
       hasStockTake,
       stPhysical,
-      variance
+      variance,
+      variancePct
     }
-  }).filter(r => r.opening > 0 || r.incoming > 0 || r.usage > 0 || r.wastage > 0 || r.transfer !== 0 || r.ordering > 0 || r.hasStockTake)
+  }).filter(r => r.opening > 0 || r.incoming > 0 || r.usage > 0 || r.wastage > 0 || r.transfer !== 0 || r.hasStockTake)
 
   // Overall Wastage without specific size
   const unassignedWastageTxs = txs.filter(t => t.type === 'wastage' && !t.size_id)
@@ -161,7 +163,6 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
   const totals = sizeRows.reduce((acc, r) => ({
     opening: acc.opening + r.opening,
     incoming: acc.incoming + r.incoming,
-    ordering: acc.ordering + r.ordering,
     transfer: acc.transfer + r.transfer,
     usage: acc.usage + r.usage,
     suspended: acc.suspended + r.suspended,
@@ -169,13 +170,14 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
     expectedClosing: acc.expectedClosing + r.expectedClosing,
     variance: acc.variance + (r.variance || 0)
   }), { 
-    opening: 0, incoming: 0, ordering: 0, transfer: 0, usage: 0, suspended: 0, 
+    opening: 0, incoming: 0, transfer: 0, usage: 0, suspended: 0, 
     wastage: unassignedWastageQty, 
     expectedClosing: -unassignedWastageQty,
     variance: 0
   })
 
   const totalWastagePct = totals.usage > 0 ? (totals.wastage / totals.usage) * 100 : 0
+  const totalVariancePct = totals.usage > 0 ? (totals.variance / totals.usage) * 100 : 0
 
   // Per-project usage breakdown
   const projectUsage: Record<string, { name: string; typeName: string; usage: number; suspended: number }> = {}
@@ -214,28 +216,42 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
 
   return (
     <div className="p-4 md:p-8 max-w-[96rem] mx-auto pb-20">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+      {/* Header with Export Button */}
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-3xl font-bold">Monthly Report</h1>
-          <p className="text-gray-500 mt-1">Full breakdown for {new Date(year, mon - 1).toLocaleString('default', { month: 'long', year: 'numeric' })}</p>
+          <h1 className="text-3xl font-bold text-slate-900">Monthly Report</h1>
+          <p className="text-gray-500 mt-1">Full breakdown for {monthName}</p>
         </div>
-        <form method="GET" className="flex items-center gap-3">
-          <label className="text-sm font-medium">Month:</label>
-          <input
-            type="month"
-            name="month"
-            defaultValue={selectedMonth}
-            className="border rounded-lg px-3 py-2 text-sm"
+
+        <div className="flex flex-wrap items-center gap-3">
+          <form method="GET" className="flex items-center gap-2">
+            <input
+              type="month"
+              name="month"
+              defaultValue={selectedMonth}
+              className="border rounded-lg px-3 py-2 text-sm bg-white shadow-xs"
+            />
+            <button type="submit" className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm hover:bg-slate-700 font-medium shadow-xs">
+              Load
+            </button>
+          </form>
+
+          {/* Export Complete Report */}
+          <ExportMonthlyReportButton
+            monthName={monthName}
+            selectedMonth={selectedMonth}
+            totals={totals}
+            sizeRows={sizeRows}
+            unassignedWastageQty={unassignedWastageQty}
+            stockTakes={stockTakesThisMonth}
+            typeUsage={typeUsage}
+            projectUsage={projectUsage}
           />
-          <button type="submit" className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm hover:bg-slate-700 font-medium shadow-sm">
-            Load Report
-          </button>
-        </form>
+        </div>
       </div>
 
       {/* Summary KPIs */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4 mb-10">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-10">
         {[
           { label: 'Opening Balance', value: totals.opening.toFixed(2), color: 'text-slate-700' },
           { label: 'Incoming', value: `+${totals.incoming.toFixed(2)}`, color: 'text-green-600' },
@@ -244,7 +260,7 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
           { label: 'Expected Closing', value: totals.expectedClosing.toFixed(2), color: 'text-slate-700 font-bold' },
           { 
             label: 'Total Variance', 
-            value: (totals.variance > 0 ? `+${totals.variance.toFixed(2)}` : totals.variance.toFixed(2)), 
+            value: `${totals.variance > 0 ? `+${totals.variance.toFixed(2)}` : totals.variance.toFixed(2)} (${totalVariancePct > 0 ? '+' : ''}${totalVariancePct.toFixed(1)}%)`, 
             color: totals.variance < 0 ? 'text-red-600 font-bold' : totals.variance > 0 ? 'text-green-600 font-bold' : 'text-slate-700' 
           },
         ].map(kpi => (
@@ -272,56 +288,50 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
               <th className="px-3 py-3 text-right text-xs font-bold text-slate-700 uppercase border-l bg-slate-50">Expected Closing</th>
               <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase border-l">ST Physical</th>
               <th className="px-3 py-3 text-right text-xs font-bold text-gray-800 uppercase border-l bg-gray-100">Variance</th>
-              <th className="px-3 py-3 text-right text-xs font-bold text-gray-800 uppercase border-l bg-gray-100">Variance %</th>
+              <th className="px-3 py-3 text-right text-xs font-bold text-gray-800 uppercase border-l bg-gray-100">Variance % (Var/Use)</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {sizeRows.map(r => {
-              const varPct = (r.variance !== null && r.expectedClosing > 0)
-                ? (r.variance / r.expectedClosing) * 100
-                : (r.variance !== null && r.variance !== 0 ? (r.variance > 0 ? 100 : -100) : 0)
-
-              return (
-                <tr key={r.sizeId} className="hover:bg-gray-50">
-                  <td className="px-3 py-3 font-bold text-slate-700 sticky left-0 bg-white border-r">{r.size}</td>
-                  <td className="px-3 py-3 text-right text-gray-700 font-medium border-l">{r.opening.toFixed(2)}</td>
-                  <td className="px-3 py-3 text-right text-green-700 font-medium border-l">{fmt(r.incoming)}</td>
-                  <td className={`px-3 py-3 text-right font-medium border-l ${r.transfer < 0 ? 'text-red-600' : r.transfer > 0 ? 'text-green-600' : 'text-gray-400'}`}>
-                    {r.transfer > 0 ? `+${r.transfer.toFixed(2)}` : r.transfer < 0 ? r.transfer.toFixed(2) : '-'}
-                  </td>
-                  <td className="px-3 py-3 text-right text-red-700 font-medium border-l bg-red-50/30">{fmt(r.usage)}</td>
-                  <td className="px-3 py-3 text-right text-amber-700 border-l">{r.suspended > 0 ? r.suspended.toFixed(2) : '-'}</td>
-                  <td className="px-3 py-3 text-right text-orange-700 border-l">{fmt(r.wastage)}</td>
-                  <td className="px-3 py-3 text-right text-orange-600 border-l text-xs font-medium">
-                    {r.wastage > 0 ? `${r.wastagePct.toFixed(1)}%` : '-'}
-                  </td>
-                  <td className="px-3 py-3 text-right font-bold text-slate-800 border-l bg-slate-50">{r.expectedClosing.toFixed(2)}</td>
-                  <td className="px-3 py-3 text-right text-gray-700 font-medium border-l">
-                    {r.hasStockTake ? r.stPhysical?.toFixed(2) : <span className="text-gray-300 text-xs italic">No ST</span>}
-                  </td>
-                  <td className={`px-3 py-3 text-right font-bold border-l bg-gray-50/50 ${
-                    r.variance === null ? 'text-gray-300' :
-                    r.variance < 0 ? 'text-red-600' :
-                    r.variance > 0 ? 'text-green-600' :
-                    'text-green-600'
-                  }`}>
-                    {r.variance === null ? '—' : 
-                     r.variance === 0 ? <span className="text-green-600">✓ Match (0.00)</span> :
-                     (r.variance > 0 ? `+${r.variance.toFixed(2)}` : r.variance.toFixed(2))}
-                  </td>
-                  <td className={`px-3 py-3 text-right font-bold border-l bg-gray-50/50 text-xs ${
-                    r.variance === null ? 'text-gray-300' :
-                    r.variance < 0 ? 'text-red-600' :
-                    r.variance > 0 ? 'text-green-600' :
-                    'text-green-600'
-                  }`}>
-                    {r.variance === null ? '—' : 
-                     r.variance === 0 ? '0.0%' :
-                     (varPct > 0 ? `+${varPct.toFixed(1)}%` : `${varPct.toFixed(1)}%`)}
-                  </td>
-                </tr>
-              )
-            })}
+            {sizeRows.map(r => (
+              <tr key={r.sizeId} className="hover:bg-gray-50">
+                <td className="px-3 py-3 font-bold text-slate-700 sticky left-0 bg-white border-r">{r.size}</td>
+                <td className="px-3 py-3 text-right text-gray-700 font-medium border-l">{r.opening.toFixed(2)}</td>
+                <td className="px-3 py-3 text-right text-green-700 font-medium border-l">{fmt(r.incoming)}</td>
+                <td className={`px-3 py-3 text-right font-medium border-l ${r.transfer < 0 ? 'text-red-600' : r.transfer > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                  {r.transfer > 0 ? `+${r.transfer.toFixed(2)}` : r.transfer < 0 ? r.transfer.toFixed(2) : '-'}
+                </td>
+                <td className="px-3 py-3 text-right text-red-700 font-medium border-l bg-red-50/30">{fmt(r.usage)}</td>
+                <td className="px-3 py-3 text-right text-amber-700 border-l">{r.suspended > 0 ? r.suspended.toFixed(2) : '-'}</td>
+                <td className="px-3 py-3 text-right text-orange-700 border-l">{fmt(r.wastage)}</td>
+                <td className="px-3 py-3 text-right text-orange-600 border-l text-xs font-medium">
+                  {r.wastage > 0 ? `${r.wastagePct.toFixed(1)}%` : '-'}
+                </td>
+                <td className="px-3 py-3 text-right font-bold text-slate-800 border-l bg-slate-50">{r.expectedClosing.toFixed(2)}</td>
+                <td className="px-3 py-3 text-right text-gray-700 font-medium border-l">
+                  {r.hasStockTake ? r.stPhysical?.toFixed(2) : <span className="text-gray-300 text-xs italic">No ST</span>}
+                </td>
+                <td className={`px-3 py-3 text-right font-bold border-l bg-gray-50/50 ${
+                  r.variance === null ? 'text-gray-300' :
+                  r.variance < 0 ? 'text-red-600' :
+                  r.variance > 0 ? 'text-green-600' :
+                  'text-green-600'
+                }`}>
+                  {r.variance === null ? '—' : 
+                   r.variance === 0 ? <span className="text-green-600">✓ Match (0.00)</span> :
+                   (r.variance > 0 ? `+${r.variance.toFixed(2)}` : r.variance.toFixed(2))}
+                </td>
+                <td className={`px-3 py-3 text-right font-bold border-l bg-gray-50/50 text-xs ${
+                  r.variancePct === null ? 'text-gray-300' :
+                  r.variancePct < 0 ? 'text-red-600' :
+                  r.variancePct > 0 ? 'text-green-600' :
+                  'text-green-600'
+                }`}>
+                  {r.variancePct === null ? '—' : 
+                   r.variancePct === 0 ? '0.0%' :
+                   (r.variancePct > 0 ? `+${r.variancePct.toFixed(1)}%` : `${r.variancePct.toFixed(1)}%`)}
+                </td>
+              </tr>
+            ))}
 
             {/* General / Combined Wastage Row */}
             {unassignedWastageQty > 0 && (
@@ -359,7 +369,7 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
                 {totals.variance > 0 ? `+${totals.variance.toFixed(2)}` : totals.variance.toFixed(2)}
               </td>
               <td className={`px-3 py-3 text-right border-l font-bold text-xs ${totals.variance < 0 ? 'text-red-700' : totals.variance > 0 ? 'text-green-700' : 'text-slate-800'}`}>
-                {totals.expectedClosing > 0 ? `${((totals.variance / totals.expectedClosing) * 100).toFixed(1)}%` : '-'}
+                {totalVariancePct !== 0 ? (totalVariancePct > 0 ? `+${totalVariancePct.toFixed(1)}%` : `${totalVariancePct.toFixed(1)}%`) : '0.0%'}
               </td>
             </tr>
 
@@ -393,7 +403,6 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {stockTakesThisMonth.map((st: any, i: number) => {
-                  const size = sizes.find(s => s.id === st.size_id)
                   const pTypeName = st.project_types?.name || (st.project_type_id ? 'Unknown Type' : 'Unassigned / Legacy')
                   return (
                     <tr key={i} className="hover:bg-gray-50">
@@ -403,7 +412,7 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
                           {pTypeName}
                         </span>
                       </td>
-                      <td className="px-4 py-3 font-semibold">{size?.size || '-'}</td>
+                      <td className="px-4 py-3 font-semibold">{st.rebar_sizes?.size || '-'}</td>
                       <td className="px-4 py-3 text-right font-medium">{Number(st.physical_count).toFixed(2)}</td>
                       <td className="px-4 py-3 text-right text-gray-600">{Number(st.system_balance).toFixed(2)}</td>
                       <td className={`px-4 py-3 text-right font-bold ${Number(st.variance) < 0 ? 'text-red-600' : Number(st.variance) > 0 ? 'text-green-600' : 'text-gray-400'}`}>

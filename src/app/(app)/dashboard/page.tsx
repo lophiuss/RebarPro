@@ -3,25 +3,28 @@ export const revalidate = 0
 
 import { createClient } from '@/lib/supabase/server'
 import UsageTrendsChart from '@/components/UsageTrendsChart'
+import RebarStockChart from '@/components/RebarStockChart'
+import { naturalSort } from '@/lib/utils/sort'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
 
   const [txRes, sizesRes, settingsRes, stRes, pTypesRes, projectsRes] = await Promise.all([
     supabase.from('transactions').select('quantity, type, transaction_date, size_id, project_type_id, project_id'),
-    supabase.from('rebar_sizes').select('*').order('size'),
+    supabase.from('rebar_sizes').select('*'),
     supabase.from('global_settings').select('target_coverage_days').eq('id', 1).single(),
     supabase.from('stock_takes').select('id, size_id, stock_take_date, physical_count, project_type_id').order('stock_take_date', { ascending: false }),
     supabase.from('project_types').select('id, name'),
-    supabase.from('projects').select('id, project_type_id')
+    supabase.from('projects').select('id, name, project_type_id')
   ])
 
   const transactions = txRes.data || []
-  const sizes = sizesRes.data || []
+  // Apply natural sort so H6, H8, H10, H12, H13, H16, H20, H25, H28, H32, H40 sort properly
+  const sizes = naturalSort(sizesRes.data || [], s => s.size)
   const targetCoverageDays = settingsRes.data?.target_coverage_days || 14
   const allStockTakes = stRes.data || []
-  const projectTypes = pTypesRes.data || []
-  const projects = projectsRes.data || []
+  const projectTypes = naturalSort(pTypesRes.data || [], pt => pt.name)
+  const projects = naturalSort(projectsRes.data || [], p => p.name)
 
   // Date helpers
   const today = new Date()
@@ -114,7 +117,7 @@ export default async function DashboardPage() {
   const avgDailyUsage7d = totalUsage7d / 7
   const globalDaysCoverage = avgDailyUsage7d > 0 ? totalUsableBalance / avgDailyUsage7d : 0
 
-  // Per-size stats
+  // Per-size stats with natural sorting
   const sizeStats = sizes.map(size => {
     const sizeTxs = transactions.filter(t => t.size_id === size.id)
     const { balance, hasST, latestSTDate } = getSizeBalanceInfo(size.id)
@@ -145,17 +148,14 @@ export default async function DashboardPage() {
     const avgDailyUsage = usage7d / 7
     const targetDailyUsage = Number(size.target_daily_usage) || 0
 
-    // Coverage = USABLE BALANCE / target daily usage (if set), otherwise usable balance / avg daily usage
     const coverage = targetDailyUsage > 0
       ? (usableBalance / targetDailyUsage)
       : (avgDailyUsage > 0 ? (usableBalance / avgDailyUsage) : 0)
 
-    // Effective daily demand for required order calculation
     const dailyDemand = targetDailyUsage > 0 ? targetDailyUsage : avgDailyUsage
     const requiredForTarget = targetCoverageDays * dailyDemand
     const requireOrder = requiredForTarget > usableBalance ? (requiredForTarget - usableBalance) : 0
 
-    // Stock level percentage: (coverage / targetCoverageDays) * 100
     const stockLevelPct = targetCoverageDays > 0
       ? Math.min(Math.max((coverage / targetCoverageDays) * 100, 0), 100)
       : 0
@@ -178,7 +178,7 @@ export default async function DashboardPage() {
   }).filter(s => s.balance !== 0 || s.usableBalance !== 0 || s.avgDailyUsage > 0 || s.targetDailyUsage > 0 || s.todayUsage > 0)
 
   return (
-    <div className="p-4 md:p-8">
+    <div className="p-4 md:p-8 max-w-7xl mx-auto">
       <h1 className="text-3xl font-bold mb-8">Dashboard</h1>
 
       {/* Global KPIs */}
@@ -214,9 +214,15 @@ export default async function DashboardPage() {
         </div>
       </div>
 
+      {/* Visual Rebar Stock Graph */}
+      <RebarStockChart stats={sizeStats} />
+
       {/* Trends Chart */}
-      <h2 className="text-xl font-bold mb-3">Inventory Trends (Incoming, Usage & Wastage)</h2>
       <div className="bg-white border rounded-xl shadow-sm mb-10">
+        <div className="px-6 pt-6 pb-2 border-b">
+          <h2 className="text-xl font-bold text-slate-900">Inventory Trends (Incoming, Usage & Wastage)</h2>
+          <p className="text-xs text-gray-500 mt-0.5">Historical and custom range activity tracking</p>
+        </div>
         <UsageTrendsChart transactions={transactions} />
       </div>
 

@@ -18,7 +18,6 @@ export default function UsageTrendsChart({ transactions }: Props) {
   const today = new Date()
   const todayStr = today.toISOString().split('T')[0]
   
-  // Default start date for custom range = start of current month
   const firstDayCurrentMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0]
 
   const [period, setPeriod] = useState<Period>('current_month')
@@ -31,7 +30,6 @@ export default function UsageTrendsChart({ transactions }: Props) {
 
   const chartData = useMemo(() => {
     if (period === 'current_month') {
-      // Days from 1st of current month to end of current month
       const y = today.getFullYear()
       const m = today.getMonth()
       const lastDay = new Date(y, m + 1, 0).getDate()
@@ -40,7 +38,7 @@ export default function UsageTrendsChart({ transactions }: Props) {
       for (let dayNum = 1; dayNum <= lastDay; dayNum++) {
         const dStr = `${y}-${String(m + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`
         days.push({
-          label: String(dayNum),
+          label: `${m + 1}/${dayNum}`,
           key: dStr,
           incoming: 0,
           usage: 0,
@@ -108,7 +106,6 @@ export default function UsageTrendsChart({ transactions }: Props) {
 
       return days
     } else if (period === 'monthly') {
-      // Past 12 months
       const months: { label: string; key: string; incoming: number; usage: number; wastage: number; isCurrent: boolean }[] = []
       for (let i = 11; i >= 0; i--) {
         const d = new Date(today.getFullYear(), today.getMonth() - i, 1)
@@ -133,7 +130,6 @@ export default function UsageTrendsChart({ transactions }: Props) {
 
       return months
     } else {
-      // Yearly: Past 5 years
       const currentYear = today.getFullYear()
       const years: { label: string; key: string; incoming: number; usage: number; wastage: number; isCurrent: boolean }[] = []
       for (let y = currentYear - 4; y <= currentYear; y++) {
@@ -170,7 +166,7 @@ export default function UsageTrendsChart({ transactions }: Props) {
   )
 
   return (
-    <div className="p-6">
+    <div className="p-4 sm:p-6">
       {/* Controls Header */}
       <div className="flex flex-wrap items-center justify-between gap-4 mb-6 border-b pb-4">
         {/* Period Switcher Tabs */}
@@ -228,7 +224,7 @@ export default function UsageTrendsChart({ transactions }: Props) {
         )}
 
         {/* Metric Toggles / Legend */}
-        <div className="flex items-center gap-4 text-xs font-medium">
+        <div className="flex flex-wrap items-center gap-4 text-xs font-medium">
           <label className="flex items-center gap-1.5 cursor-pointer text-slate-700">
             <input
               type="checkbox"
@@ -236,7 +232,7 @@ export default function UsageTrendsChart({ transactions }: Props) {
               onChange={e => setShowIncoming(e.target.checked)}
               className="accent-green-500 rounded"
             />
-            <span className="w-2.5 h-2.5 bg-green-500 rounded-sm inline-block" />
+            <span className="w-2.5 h-2.5 bg-green-500 rounded-xs inline-block" />
             Incoming ({totalIn.toFixed(1)}T)
           </label>
 
@@ -247,7 +243,7 @@ export default function UsageTrendsChart({ transactions }: Props) {
               onChange={e => setShowUsage(e.target.checked)}
               className="accent-red-500 rounded"
             />
-            <span className="w-2.5 h-2.5 bg-red-500 rounded-sm inline-block" />
+            <span className="w-2.5 h-2.5 bg-red-500 rounded-xs inline-block" />
             Usage ({totalUse.toFixed(1)}T)
           </label>
 
@@ -258,14 +254,14 @@ export default function UsageTrendsChart({ transactions }: Props) {
               onChange={e => setShowWastage(e.target.checked)}
               className="accent-orange-500 rounded"
             />
-            <span className="w-2.5 h-2.5 bg-orange-500 rounded-sm inline-block" />
+            <span className="w-2.5 h-2.5 bg-orange-500 rounded-xs inline-block" />
             Wastage ({totalWaste.toFixed(1)}T)
           </label>
         </div>
       </div>
 
       {/* Bar Chart Area */}
-      <div className="flex items-end gap-1 sm:gap-1.5 h-52 pt-6 overflow-x-auto">
+      <div className="flex items-end gap-1 sm:gap-2 h-56 pt-10 pb-2 overflow-x-auto">
         {chartData.map((item: any) => {
           const inH = showIncoming ? (item.incoming / maxVal) * 100 : 0
           const useH = showUsage ? (item.usage / maxVal) * 100 : 0
@@ -274,10 +270,10 @@ export default function UsageTrendsChart({ transactions }: Props) {
           return (
             <div
               key={item.key}
-              className={`flex-1 min-w-[18px] flex flex-col justify-end h-full group relative ${item.isToday || item.isCurrent ? 'bg-blue-50/70 rounded-t' : ''}`}
+              className={`flex-1 min-w-[22px] flex flex-col justify-end h-full group relative ${item.isToday || item.isCurrent ? 'bg-blue-50/80 rounded-t' : ''}`}
             >
               {/* Tooltip */}
-              <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs rounded-lg shadow-xl p-2.5 opacity-0 group-hover:opacity-100 transition-all whitespace-nowrap z-20 pointer-events-none border border-slate-700 min-w-[130px]">
+              <div className="absolute bottom-full mb-3 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs rounded-lg shadow-xl p-2.5 opacity-0 group-hover:opacity-100 transition-all whitespace-nowrap z-30 pointer-events-none border border-slate-700 min-w-[130px]">
                 <div className="font-bold border-b border-slate-700 pb-1 mb-1 text-slate-200">{item.key}</div>
                 {item.incoming > 0 && <div className="text-green-400">↑ Incoming: {item.incoming.toFixed(2)} T</div>}
                 {item.usage > 0 && <div className="text-red-400">↓ Usage: {item.usage.toFixed(2)} T</div>}
@@ -291,19 +287,19 @@ export default function UsageTrendsChart({ transactions }: Props) {
               <div className="flex items-end justify-center gap-0.5 w-full h-full px-0.5">
                 {showIncoming && (
                   <div
-                    className="flex-1 bg-green-500 rounded-t-sm transition-all duration-300 hover:brightness-110 min-h-[2px]"
+                    className="flex-1 bg-green-500 rounded-t-xs transition-all duration-300 hover:brightness-110 min-h-[2px]"
                     style={{ height: `${Math.max(inH, item.incoming > 0 ? 3 : 0)}%` }}
                   />
                 )}
                 {showUsage && (
                   <div
-                    className="flex-1 bg-red-500 rounded-t-sm transition-all duration-300 hover:brightness-110 min-h-[2px]"
+                    className="flex-1 bg-red-500 rounded-t-xs transition-all duration-300 hover:brightness-110 min-h-[2px]"
                     style={{ height: `${Math.max(useH, item.usage > 0 ? 3 : 0)}%` }}
                   />
                 )}
                 {showWastage && (
                   <div
-                    className="flex-1 bg-orange-500 rounded-t-sm transition-all duration-300 hover:brightness-110 min-h-[2px]"
+                    className="flex-1 bg-orange-500 rounded-t-xs transition-all duration-300 hover:brightness-110 min-h-[2px]"
                     style={{ height: `${Math.max(wasteH, item.wastage > 0 ? 3 : 0)}%` }}
                   />
                 )}
@@ -317,10 +313,10 @@ export default function UsageTrendsChart({ transactions }: Props) {
       </div>
 
       {/* X-axis labels */}
-      <div className="flex gap-1 sm:gap-1.5 mt-2 border-t pt-2 overflow-x-auto">
+      <div className="flex gap-1 sm:gap-2 mt-2 border-t pt-2 overflow-x-auto">
         {chartData.map((item: any) => (
-          <div key={item.key} className="flex-1 min-w-[18px] text-center">
-            <span className={`text-[10px] block truncate ${item.isToday || item.isCurrent ? 'text-blue-600 font-bold' : 'text-gray-400'}`}>
+          <div key={item.key} className="flex-1 min-w-[22px] text-center">
+            <span className={`text-[10px] block truncate font-medium ${item.isToday || item.isCurrent ? 'text-blue-600 font-bold' : 'text-gray-500'}`}>
               {item.label}
             </span>
           </div>

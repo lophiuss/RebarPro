@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Trash2, CheckCircle } from 'lucide-react'
+import { naturalSort } from '@/lib/utils/sort'
 
 export default function StockTakePage() {
   const [stockTakes, setStockTakes] = useState<any[]>([])
@@ -38,17 +39,18 @@ export default function StockTakePage() {
   async function fetchData() {
     const [stRes, pTypesRes, sizeRes] = await Promise.all([
       supabase.from('stock_takes').select('*, rebar_sizes(size), project_types(name)').order('stock_take_date', { ascending: false }),
-      supabase.from('project_types').select('*').order('name'),
-      supabase.from('rebar_sizes').select('*').order('size')
+      supabase.from('project_types').select('*'),
+      supabase.from('rebar_sizes').select('*')
     ])
     
     if (stRes.data) setStockTakes(stRes.data)
     if (pTypesRes.data) {
-      setProjectTypes(pTypesRes.data)
-      if (pTypesRes.data.length > 0 && !projectTypeId) setProjectTypeId(pTypesRes.data[0].id)
+      const sortedPT = naturalSort(pTypesRes.data, pt => pt.name)
+      setProjectTypes(sortedPT)
+      if (sortedPT.length > 0 && !projectTypeId) setProjectTypeId(sortedPT[0].id)
     }
     if (sizeRes.data) {
-      setSizes(sizeRes.data)
+      setSizes(naturalSort(sizeRes.data, s => s.size))
     }
   }
 

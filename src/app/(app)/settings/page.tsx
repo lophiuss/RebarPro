@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Pencil, Trash2, Check, X } from 'lucide-react'
+import { naturalSort } from '@/lib/utils/sort'
 
 export default function SettingsPage() {
   const [projects, setProjects] = useState<any[]>([])
@@ -42,11 +43,12 @@ export default function SettingsPage() {
       supabase.from('global_settings').select('*').eq('id', 1).single()
     ])
     if (pTypesRes.data) {
-      setProjectTypes(pTypesRes.data)
-      if (pTypesRes.data.length > 0 && !projectTypeId) setProjectTypeId(pTypesRes.data[0].id)
+      const sortedPT = naturalSort(pTypesRes.data, pt => pt.name)
+      setProjectTypes(sortedPT)
+      if (sortedPT.length > 0 && !projectTypeId) setProjectTypeId(sortedPT[0].id)
     }
-    if (projRes.data) setProjects(projRes.data)
-    if (sizeRes.data) setSizes(sizeRes.data)
+    if (projRes.data) setProjects(naturalSort(projRes.data, p => p.name))
+    if (sizeRes.data) setSizes(naturalSort(sizeRes.data, s => s.size))
     if (settingsRes.data) setGlobalSettings(settingsRes.data)
   }
 
