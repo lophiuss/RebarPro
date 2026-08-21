@@ -7,8 +7,6 @@ import { createClient } from '@/lib/supabase/server'
 export async function login(formData: FormData) {
   const supabase = await createClient()
 
-  // type-casting here for convenience
-  // in practice, you should validate your inputs
   const data = {
     email: formData.get('email') as string,
     password: formData.get('password') as string,
@@ -17,7 +15,7 @@ export async function login(formData: FormData) {
   const { error } = await supabase.auth.signInWithPassword(data)
 
   if (error) {
-    redirect('/login?message=Could not authenticate user')
+    redirect(`/login?message=${encodeURIComponent(error.message)}`)
   }
 
   revalidatePath('/', 'layout')
@@ -37,10 +35,15 @@ export async function signup(formData: FormData) {
     }
   }
 
-  const { error } = await supabase.auth.signUp(data)
+  const { error, data: authData } = await supabase.auth.signUp(data)
 
   if (error) {
-    redirect('/login?message=Could not authenticate user')
+    redirect(`/login?message=${encodeURIComponent(error.message)}`)
+  }
+
+  // If email confirmation is enabled, session will be null
+  if (authData.user && !authData.session) {
+      redirect('/login?message=Check your email for the confirmation link.')
   }
 
   revalidatePath('/', 'layout')

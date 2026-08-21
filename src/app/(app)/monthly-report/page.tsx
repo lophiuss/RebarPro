@@ -1,0 +1,486 @@
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
+import { createClient } from '@/lib/supabase/server'
+import Link from 'next/link'
+
+interface SearchParams { month?: string }
+
+export default async function MonthlyReportPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  const { month: rawMonth } = await searchParams
+  const now = new Date()
+  const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  const selectedMonth = rawMonth || defaultMonth
+
+  const [year, mon] = selectedMonth.split('-').map(Number)
+  const startDate = `${selectedMonth}-01`
+  const endDay = new Date(year, mon, 0).getDate()
+  const endDate = `${selectedMonth}-${String(endDay).padStart(2, '0')}`
+
+  const supabase = await createClient()
+
+  const [txRes, sizesRes, projRes, pTypeRes, stRes, prevStRes] = await Promise.all([
+    // All transactions up to end of this month
+    supabase.from('transactions')
+      .select('quantity, type, transaction_date, size_id, project_id, project_type_id, rebar_sizes(size), projects(name, project_type_id), project_types(name)')
+      .lte('transaction_date', endDate),
+    supabase.from('rebar_sizes').select('*').order('size'),
+    supabase.from('projects').select('id, name, project_type_id'),
+    supabase.from('project_types').select('id, name').order('name'),
+    // Stock takes IN this month (ordered ascending to find first and latest)
+    supabase.from('stock_takes').select('id, size_id, physical_count, system_balance, variance, stock_take_date, project_type_id, project_types(name)')
+      .gte('stock_take_date', startDate)
+      .lte('stock_take_date', endDate)
+      .order('stock_take_date', { ascending: true }),
+    // All stock takes BEFORE this month (for prior closing balance)
+    supabase.from('stock_takes').select('size_id, physical_count, stock_take_date, project_type_id')
+      .lt('stock_take_date', startDate)
+      .order('stock_take_date', { ascending: false })
+  ])
+
+  const allTxs = txRes.data || []
+  const txs = allTxs.filter(t => t.transaction_date >= startDate && t.transaction_date <= endDate)
+  const sizes = sizesRes.data || []
+  const projects = projRes.data || []
+  const projectTypes = pTypeRes.data || []
+  const stockTakesThisMonth = stRes.data || []
+  const allPrevSTs = prevStRes.data || []
+
+  // ── HELPER: Opening balance = Last month closing OR First stock take of this month ──
+  function getOpeningBalance(sizeId: string): { balance: number; source: string } {
+    let balance = 0
+    let hasSource = false
+
+    for (const pt of projectTypes) {
+      const pIds = projects.filter(p => p.project_type_id === pt.id).map(p => p.id)
+      const ptTxs = allTxs.filter(t => 
+        t.size_id === sizeId && 
+        (t.project_type_id === pt.id || (t.project_id && pIds.includes(t.project_id)))
+      )
+
+      // 1. Check if there was a stock take BEFORE this month (prior month closing)
+      const prevST = allPrevSTs.find(st => st.size_id === sizeId && st.project_type_id === pt.id)
+      if (prevST) {
+        hasSource = true
+        const txsBetween = ptTxs.filter(t => t.transaction_date > prevST.stock_take_date && t.transaction_date < startDate)
+        const txSum = txsBetween.reduce((sum, t) => sum + Number(t.quantity), 0)
+        balance += Number(prevST.physical_count) + txSum
+        continue
+      }
+
+      // 2. If no prior stock take, check if there is a FIRST stock take of this month
+      const firstMonthST = stockTakesThisMonth.find(st => st.size_id === sizeId && st.project_type_id === pt.id)
+      if (firstMonthST) {
+        hasSource = true
+        // Opening at start of month = physical count on stock take date minus transactions that occurred before the stock take
+        const txsBeforeST = ptTxs.filter(t => t.transaction_date >= startDate && t.transaction_date <= firstMonthST.stock_take_date)
+        const txSumBefore = txsBeforeST.reduce((sum, t) => sum + Number(t.quantity), 0)
+        balance += Number(firstMonthST.physical_count) - txSumBefore
+        continue
+      }
+
+      // 3. Fallback: sum of all transactions before startDate
+      const txsBefore = ptTxs.filter(t => t.transaction_date < startDate)
+      balance += txsBefore.reduce((sum, t) => sum + Number(t.quantity), 0)
+    }
+
+    // Add unassigned pre-month transactions
+    const knownProjectIds = projects.map(p => p.id)
+    const unassignedTxs = allTxs.filter(t => 
+      t.size_id === sizeId && 
+      !t.project_type_id && 
+      (!t.project_id || !knownProjectIds.includes(t.project_id)) &&
+      t.transaction_date < startDate
+    )
+    balance += unassignedTxs.reduce((sum, t) => sum + Number(t.quantity), 0)
+
+    return { balance: Math.max(balance, 0), source: hasSource ? 'Stock Take' : 'Transactions' }
+  }
+
+  // Build per-size stats
+  const sizeRows = sizes.map(size => {
+    const sizeTxs = txs.filter(t => t.size_id === size.id)
+
+    let incoming = 0, ordering = 0, transfer = 0, usage = 0, suspended = 0, wastage = 0
+
+    sizeTxs.forEach(t => {
+      const q = Number(t.quantity)
+      switch (t.type) {
+        case 'incoming':  incoming  += q; break
+        case 'ordering':  ordering  += q; break
+        case 'transfer':  transfer  += q; break
+        case 'usage':     usage     += Math.abs(q); break
+        case 'suspended': suspended += Math.abs(q); break
+        case 'unsuspend': suspended -= Math.abs(q); break
+        case 'wastage':   wastage   += Math.abs(q); break
+      }
+    })
+
+    const { balance: opening } = getOpeningBalance(size.id)
+    
+    // Calculated theoretical expected closing balance: Opening + Incoming + Transfer - Usage - Wastage
+    const expectedClosing = opening + incoming + transfer - usage - wastage
+
+    // Find LATEST stock take in this month for this size
+    const monthSTsForSize = stockTakesThisMonth.filter(st => st.size_id === size.id)
+    const hasStockTake = monthSTsForSize.length > 0
+    // Last element is latest because stockTakesThisMonth is sorted ascending
+    const latestST = monthSTsForSize.length > 0 ? monthSTsForSize[monthSTsForSize.length - 1] : null
+    const stPhysical = latestST ? Number(latestST.physical_count) : null
+
+    // Variance = Latest Physical Count - Theoretical Expected Closing
+    const variance = (hasStockTake && stPhysical !== null) ? (stPhysical - expectedClosing) : null
+
+    // Wastage % = (Wastage / Usage) * 100
+    const wastagePct = usage > 0 ? (wastage / usage) * 100 : 0
+
+    return {
+      sizeId: size.id,
+      size: size.size,
+      unit: size.unit || 'T',
+      opening,
+      incoming,
+      ordering,
+      transfer,
+      usage,
+      suspended: Math.max(suspended, 0),
+      wastage,
+      wastagePct,
+      expectedClosing,
+      hasStockTake,
+      stPhysical,
+      variance
+    }
+  }).filter(r => r.opening > 0 || r.incoming > 0 || r.usage > 0 || r.wastage > 0 || r.transfer !== 0 || r.ordering > 0 || r.hasStockTake)
+
+  // Overall Wastage without specific size
+  const unassignedWastageTxs = txs.filter(t => t.type === 'wastage' && !t.size_id)
+  const unassignedWastageQty = unassignedWastageTxs.reduce((sum, t) => sum + Math.abs(Number(t.quantity)), 0)
+
+  // Totals row
+  const totals = sizeRows.reduce((acc, r) => ({
+    opening: acc.opening + r.opening,
+    incoming: acc.incoming + r.incoming,
+    ordering: acc.ordering + r.ordering,
+    transfer: acc.transfer + r.transfer,
+    usage: acc.usage + r.usage,
+    suspended: acc.suspended + r.suspended,
+    wastage: acc.wastage + r.wastage,
+    expectedClosing: acc.expectedClosing + r.expectedClosing,
+    variance: acc.variance + (r.variance || 0)
+  }), { 
+    opening: 0, incoming: 0, ordering: 0, transfer: 0, usage: 0, suspended: 0, 
+    wastage: unassignedWastageQty, 
+    expectedClosing: -unassignedWastageQty,
+    variance: 0
+  })
+
+  const totalWastagePct = totals.usage > 0 ? (totals.wastage / totals.usage) * 100 : 0
+
+  // Per-project usage breakdown
+  const projectUsage: Record<string, { name: string; typeName: string; usage: number; suspended: number }> = {}
+  txs.filter(t => t.project_id && (t.type === 'usage' || t.type === 'suspended' || t.type === 'unsuspend')).forEach(t => {
+    const pid = t.project_id!
+    if (!projectUsage[pid]) {
+      const proj = projects.find(p => p.id === pid)
+      const pt = projectTypes.find(pt => pt.id === proj?.project_type_id)
+      projectUsage[pid] = { name: proj?.name || 'Unknown', typeName: pt?.name || '-', usage: 0, suspended: 0 }
+    }
+    if (t.type === 'usage') projectUsage[pid].usage += Math.abs(Number(t.quantity))
+    if (t.type === 'suspended') projectUsage[pid].suspended += Math.abs(Number(t.quantity))
+    if (t.type === 'unsuspend') projectUsage[pid].suspended -= Math.abs(Number(t.quantity))
+  })
+
+  // Per-project-type breakdown
+  const typeUsage: Record<string, { name: string; incoming: number; usage: number; wastage: number; transferIn: number; transferOut: number }> = {}
+  txs.forEach((t: any) => {
+    const projObj = Array.isArray(t.projects) ? t.projects[0] : t.projects
+    const projTypeObj = Array.isArray(t.project_types) ? t.project_types[0] : t.project_types
+    const typeId = t.project_type_id || projObj?.project_type_id
+    if (!typeId) return
+    const ptName = projTypeObj?.name || projectTypes.find(pt => pt.id === typeId)?.name || 'Unknown'
+    if (!typeUsage[typeId]) typeUsage[typeId] = { name: ptName, incoming: 0, usage: 0, wastage: 0, transferIn: 0, transferOut: 0 }
+    const q = Number(t.quantity)
+    if (t.type === 'incoming') typeUsage[typeId].incoming += q
+    if (t.type === 'usage') typeUsage[typeId].usage += Math.abs(q)
+    if (t.type === 'wastage') typeUsage[typeId].wastage += Math.abs(q)
+    if (t.type === 'transfer') {
+      if (q > 0) typeUsage[typeId].transferIn += q
+      else typeUsage[typeId].transferOut += Math.abs(q)
+    }
+  })
+
+  function fmt(n: number) { return n === 0 ? '-' : n.toFixed(2) }
+
+  return (
+    <div className="p-4 md:p-8 max-w-[96rem] mx-auto pb-20">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-3xl font-bold">Monthly Report</h1>
+          <p className="text-gray-500 mt-1">Full breakdown for {new Date(year, mon - 1).toLocaleString('default', { month: 'long', year: 'numeric' })}</p>
+        </div>
+        <form method="GET" className="flex items-center gap-3">
+          <label className="text-sm font-medium">Month:</label>
+          <input
+            type="month"
+            name="month"
+            defaultValue={selectedMonth}
+            className="border rounded-lg px-3 py-2 text-sm"
+          />
+          <button type="submit" className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm hover:bg-slate-700 font-medium shadow-sm">
+            Load Report
+          </button>
+        </form>
+      </div>
+
+      {/* Summary KPIs */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4 mb-10">
+        {[
+          { label: 'Opening Balance', value: totals.opening.toFixed(2), color: 'text-slate-700' },
+          { label: 'Incoming', value: `+${totals.incoming.toFixed(2)}`, color: 'text-green-600' },
+          { label: 'Usage', value: `-${totals.usage.toFixed(2)}`, color: 'text-red-600' },
+          { label: 'Wastage (Total)', value: `-${totals.wastage.toFixed(2)} (${totalWastagePct.toFixed(1)}%)`, color: 'text-orange-600' },
+          { label: 'Expected Closing', value: totals.expectedClosing.toFixed(2), color: 'text-slate-700 font-bold' },
+          { 
+            label: 'Total Variance', 
+            value: (totals.variance > 0 ? `+${totals.variance.toFixed(2)}` : totals.variance.toFixed(2)), 
+            color: totals.variance < 0 ? 'text-red-600 font-bold' : totals.variance > 0 ? 'text-green-600 font-bold' : 'text-slate-700' 
+          },
+        ].map(kpi => (
+          <div key={kpi.label} className="bg-white border rounded-xl p-4 shadow-sm">
+            <p className="text-xs text-gray-500 font-medium uppercase">{kpi.label}</p>
+            <p className={`text-xl font-bold mt-1 ${kpi.color}`}>{kpi.value} {kpi.label.includes('%') ? '' : 'T'}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Main breakdown by size */}
+      <h2 className="text-xl font-bold mb-4">Breakdown by Rebar Size</h2>
+      <div className="bg-white border rounded-xl shadow-sm overflow-x-auto mb-10">
+        <table className="min-w-full divide-y divide-gray-200 text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-3 py-3 text-left text-xs font-bold text-gray-600 uppercase sticky left-0 bg-gray-50">Size</th>
+              <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase border-l">Opening</th>
+              <th className="px-3 py-3 text-right text-xs font-medium text-green-600 uppercase border-l">Incoming</th>
+              <th className="px-3 py-3 text-right text-xs font-medium text-purple-600 uppercase border-l">Transfer (Net)</th>
+              <th className="px-3 py-3 text-right text-xs font-medium text-red-600 uppercase border-l bg-red-50/50">Usage</th>
+              <th className="px-3 py-3 text-right text-xs font-medium text-amber-600 uppercase border-l">Net Suspended</th>
+              <th className="px-3 py-3 text-right text-xs font-medium text-orange-600 uppercase border-l">Wastage</th>
+              <th className="px-3 py-3 text-right text-xs font-medium text-orange-600 uppercase border-l">Wastage %</th>
+              <th className="px-3 py-3 text-right text-xs font-bold text-slate-700 uppercase border-l bg-slate-50">Expected Closing</th>
+              <th className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase border-l">ST Physical</th>
+              <th className="px-3 py-3 text-right text-xs font-bold text-gray-800 uppercase border-l bg-gray-100">Variance</th>
+              <th className="px-3 py-3 text-right text-xs font-bold text-gray-800 uppercase border-l bg-gray-100">Variance %</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {sizeRows.map(r => {
+              const varPct = (r.variance !== null && r.expectedClosing > 0)
+                ? (r.variance / r.expectedClosing) * 100
+                : (r.variance !== null && r.variance !== 0 ? (r.variance > 0 ? 100 : -100) : 0)
+
+              return (
+                <tr key={r.sizeId} className="hover:bg-gray-50">
+                  <td className="px-3 py-3 font-bold text-slate-700 sticky left-0 bg-white border-r">{r.size}</td>
+                  <td className="px-3 py-3 text-right text-gray-700 font-medium border-l">{r.opening.toFixed(2)}</td>
+                  <td className="px-3 py-3 text-right text-green-700 font-medium border-l">{fmt(r.incoming)}</td>
+                  <td className={`px-3 py-3 text-right font-medium border-l ${r.transfer < 0 ? 'text-red-600' : r.transfer > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                    {r.transfer > 0 ? `+${r.transfer.toFixed(2)}` : r.transfer < 0 ? r.transfer.toFixed(2) : '-'}
+                  </td>
+                  <td className="px-3 py-3 text-right text-red-700 font-medium border-l bg-red-50/30">{fmt(r.usage)}</td>
+                  <td className="px-3 py-3 text-right text-amber-700 border-l">{r.suspended > 0 ? r.suspended.toFixed(2) : '-'}</td>
+                  <td className="px-3 py-3 text-right text-orange-700 border-l">{fmt(r.wastage)}</td>
+                  <td className="px-3 py-3 text-right text-orange-600 border-l text-xs font-medium">
+                    {r.wastage > 0 ? `${r.wastagePct.toFixed(1)}%` : '-'}
+                  </td>
+                  <td className="px-3 py-3 text-right font-bold text-slate-800 border-l bg-slate-50">{r.expectedClosing.toFixed(2)}</td>
+                  <td className="px-3 py-3 text-right text-gray-700 font-medium border-l">
+                    {r.hasStockTake ? r.stPhysical?.toFixed(2) : <span className="text-gray-300 text-xs italic">No ST</span>}
+                  </td>
+                  <td className={`px-3 py-3 text-right font-bold border-l bg-gray-50/50 ${
+                    r.variance === null ? 'text-gray-300' :
+                    r.variance < 0 ? 'text-red-600' :
+                    r.variance > 0 ? 'text-green-600' :
+                    'text-green-600'
+                  }`}>
+                    {r.variance === null ? '—' : 
+                     r.variance === 0 ? <span className="text-green-600">✓ Match (0.00)</span> :
+                     (r.variance > 0 ? `+${r.variance.toFixed(2)}` : r.variance.toFixed(2))}
+                  </td>
+                  <td className={`px-3 py-3 text-right font-bold border-l bg-gray-50/50 text-xs ${
+                    r.variance === null ? 'text-gray-300' :
+                    r.variance < 0 ? 'text-red-600' :
+                    r.variance > 0 ? 'text-green-600' :
+                    'text-green-600'
+                  }`}>
+                    {r.variance === null ? '—' : 
+                     r.variance === 0 ? '0.0%' :
+                     (varPct > 0 ? `+${varPct.toFixed(1)}%` : `${varPct.toFixed(1)}%`)}
+                  </td>
+                </tr>
+              )
+            })}
+
+            {/* General / Combined Wastage Row */}
+            {unassignedWastageQty > 0 && (
+              <tr className="bg-orange-50/50 hover:bg-orange-50">
+                <td className="px-3 py-3 font-semibold text-orange-800 sticky left-0 bg-orange-50 border-r italic">Overall Scrap (Combined)</td>
+                <td className="px-3 py-3 text-right text-gray-400 border-l">-</td>
+                <td className="px-3 py-3 text-right text-gray-400 border-l">-</td>
+                <td className="px-3 py-3 text-right text-gray-400 border-l">-</td>
+                <td className="px-3 py-3 text-right text-gray-400 border-l bg-red-50/30">-</td>
+                <td className="px-3 py-3 text-right text-gray-400 border-l">-</td>
+                <td className="px-3 py-3 text-right text-orange-700 font-bold border-l">{unassignedWastageQty.toFixed(2)}</td>
+                <td className="px-3 py-3 text-right text-orange-600 border-l text-xs">-</td>
+                <td className="px-3 py-3 text-right font-semibold text-orange-800 border-l bg-slate-50">-{unassignedWastageQty.toFixed(2)}</td>
+                <td className="px-3 py-3 text-right text-gray-400 border-l">-</td>
+                <td className="px-3 py-3 text-right text-gray-400 border-l">-</td>
+                <td className="px-3 py-3 text-right text-gray-400 border-l">-</td>
+              </tr>
+            )}
+
+            {/* Totals row */}
+            <tr className="bg-slate-100 font-bold border-t-2 border-slate-300">
+              <td className="px-3 py-3 sticky left-0 bg-slate-100 border-r">TOTAL</td>
+              <td className="px-3 py-3 text-right border-l">{totals.opening.toFixed(2)}</td>
+              <td className="px-3 py-3 text-right text-green-700 border-l">{totals.incoming.toFixed(2)}</td>
+              <td className={`px-3 py-3 text-right border-l ${totals.transfer < 0 ? 'text-red-600' : totals.transfer > 0 ? 'text-green-600' : 'text-gray-600'}`}>
+                {totals.transfer > 0 ? `+${totals.transfer.toFixed(2)}` : totals.transfer < 0 ? totals.transfer.toFixed(2) : '-'}
+              </td>
+              <td className="px-3 py-3 text-right text-red-700 border-l bg-red-50">{totals.usage.toFixed(2)}</td>
+              <td className="px-3 py-3 text-right text-amber-700 border-l">{totals.suspended > 0 ? totals.suspended.toFixed(2) : '-'}</td>
+              <td className="px-3 py-3 text-right text-orange-700 border-l">{totals.wastage.toFixed(2)}</td>
+              <td className="px-3 py-3 text-right text-orange-700 border-l text-xs font-bold">{totalWastagePct.toFixed(1)}%</td>
+              <td className="px-3 py-3 text-right border-l bg-slate-200">{totals.expectedClosing.toFixed(2)}</td>
+              <td className="px-3 py-3 border-l" />
+              <td className={`px-3 py-3 text-right border-l font-bold ${totals.variance < 0 ? 'text-red-700' : totals.variance > 0 ? 'text-green-700' : 'text-slate-800'}`}>
+                {totals.variance > 0 ? `+${totals.variance.toFixed(2)}` : totals.variance.toFixed(2)}
+              </td>
+              <td className={`px-3 py-3 text-right border-l font-bold text-xs ${totals.variance < 0 ? 'text-red-700' : totals.variance > 0 ? 'text-green-700' : 'text-slate-800'}`}>
+                {totals.expectedClosing > 0 ? `${((totals.variance / totals.expectedClosing) * 100).toFixed(1)}%` : '-'}
+              </td>
+            </tr>
+
+            {sizeRows.length === 0 && (
+              <tr><td colSpan={12} className="px-4 py-8 text-center text-gray-500">No active stock or transactions for this month.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Stock Take Summary this month */}
+      {stockTakesThisMonth.length > 0 && (
+        <div className="mb-10">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold">Stock Takes Recorded This Month</h2>
+            <Link href="/stock-take" className="text-sm text-blue-600 hover:text-blue-800 underline">
+              Manage in Stock Take →
+            </Link>
+          </div>
+          <div className="bg-white border rounded-xl shadow-sm overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200 text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Project Type</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Size</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Physical Count</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">System Balance</th>
+                  <th className="px-4 py-3 text-right text-xs font-bold text-gray-800 uppercase">Variance</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {stockTakesThisMonth.map((st: any, i: number) => {
+                  const size = sizes.find(s => s.id === st.size_id)
+                  const pTypeName = st.project_types?.name || (st.project_type_id ? 'Unknown Type' : 'Unassigned / Legacy')
+                  return (
+                    <tr key={i} className="hover:bg-gray-50">
+                      <td className="px-4 py-3">{st.stock_take_date}</td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-0.5 rounded text-xs font-medium ${!st.project_type_id ? 'bg-amber-100 text-amber-800' : 'text-slate-700'}`}>
+                          {pTypeName}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 font-semibold">{size?.size || '-'}</td>
+                      <td className="px-4 py-3 text-right font-medium">{Number(st.physical_count).toFixed(2)}</td>
+                      <td className="px-4 py-3 text-right text-gray-600">{Number(st.system_balance).toFixed(2)}</td>
+                      <td className={`px-4 py-3 text-right font-bold ${Number(st.variance) < 0 ? 'text-red-600' : Number(st.variance) > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                        {Number(st.variance) > 0 ? `+${Number(st.variance).toFixed(2)}` : Number(st.variance).toFixed(2)}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Project type breakdown & Project usage */}
+      <div className="grid md:grid-cols-2 gap-8 mb-10">
+        <div>
+          <h2 className="text-xl font-bold mb-4">Activity by Project Type</h2>
+          <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
+            <table className="min-w-full divide-y divide-gray-200 text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-green-600 uppercase">Incoming</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-red-600 uppercase">Usage</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-purple-600 uppercase">Transfer Net</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-orange-600 uppercase">Wastage</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {Object.values(typeUsage).map((row, i) => {
+                  const netTrans = row.transferIn - row.transferOut
+                  return (
+                    <tr key={i} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 font-medium">{row.name}</td>
+                      <td className="px-4 py-3 text-right text-green-700">{row.incoming > 0 ? row.incoming.toFixed(2) : '-'}</td>
+                      <td className="px-4 py-3 text-right text-red-700">{row.usage > 0 ? row.usage.toFixed(2) : '-'}</td>
+                      <td className={`px-4 py-3 text-right font-medium ${netTrans < 0 ? 'text-red-600' : netTrans > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+                        {netTrans > 0 ? `+${netTrans.toFixed(2)}` : netTrans < 0 ? netTrans.toFixed(2) : '-'}
+                      </td>
+                      <td className="px-4 py-3 text-right text-orange-700">{row.wastage > 0 ? row.wastage.toFixed(2) : '-'}</td>
+                    </tr>
+                  )
+                })}
+                {Object.keys(typeUsage).length === 0 && <tr><td colSpan={5} className="px-4 py-4 text-center text-gray-400">No data</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div>
+          <h2 className="text-xl font-bold mb-4">Usage & Suspension by Project</h2>
+          <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
+            <table className="min-w-full divide-y divide-gray-200 text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-red-600 uppercase">Usage (T)</th>
+                  <th className="px-4 py-3 text-right text-xs font-medium text-amber-600 uppercase">Suspended (T)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {Object.values(projectUsage).sort((a, b) => b.usage - a.usage).map((row, i) => (
+                  <tr key={i} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 font-medium">{row.name}</td>
+                    <td className="px-4 py-3 text-gray-500">{row.typeName}</td>
+                    <td className="px-4 py-3 text-right text-red-700 font-medium">{row.usage.toFixed(2)}</td>
+                    <td className="px-4 py-3 text-right text-amber-700 font-medium">{row.suspended !== 0 ? row.suspended.toFixed(2) : '-'}</td>
+                  </tr>
+                ))}
+                {Object.keys(projectUsage).length === 0 && <tr><td colSpan={4} className="px-4 py-4 text-center text-gray-400">No project usage this month</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

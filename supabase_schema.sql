@@ -1,6 +1,16 @@
 -- Enable UUID extension
 create extension if not exists "uuid-ossp";
 
+-- Drop existing tables/triggers to ensure a clean slate for this project
+drop trigger if exists on_auth_user_created on auth.users;
+drop function if exists public.handle_new_user cascade;
+drop table if exists public.stock_takes cascade;
+drop table if exists public.transactions cascade;
+drop table if exists public.targets cascade;
+drop table if exists public.rebar_sizes cascade;
+drop table if exists public.projects cascade;
+drop table if exists public.profiles cascade;
+
 -- 1. Profiles Table
 create table public.profiles (
   id uuid references auth.users on delete cascade not null primary key,
@@ -20,7 +30,7 @@ create table public.projects (
 -- 3. Rebar Sizes Table
 create table public.rebar_sizes (
   id uuid default uuid_generate_v4() primary key,
-  size text not null unique, -- e.g., H6, H8, H10...
+  size text not null unique,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
@@ -47,7 +57,7 @@ create table public.transactions (
   project_id uuid references public.projects(id) on delete cascade not null,
   size_id uuid references public.rebar_sizes(id) on delete cascade not null,
   type text not null check (type in ('ordering', 'incoming', 'usage', 'outgoing', 'transfer', 'suspended', 'wastage', 'variance')),
-  quantity numeric not null, -- Positive for incoming, ordering, transfer (in). Negative for usage, outgoing, wastage.
+  quantity numeric not null,
   notes text,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
@@ -60,7 +70,7 @@ create table public.stock_takes (
   size_id uuid references public.rebar_sizes(id) on delete cascade not null,
   physical_count numeric not null,
   system_balance numeric not null,
-  variance numeric not null, -- physical_count - system_balance
+  variance numeric not null,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 

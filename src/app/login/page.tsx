@@ -1,11 +1,14 @@
 import { login, signup } from './actions'
 import { Button } from '@/components/ui/button'
 
-export default function LoginPage({
+export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: { message: string }
+  searchParams: Promise<{ message?: string }>
 }) {
+  const resolvedSearchParams = await searchParams;
+  const message = resolvedSearchParams?.message;
+
   return (
     <div className="flex-1 flex flex-col w-full px-8 sm:max-w-md justify-center gap-2 mt-20 mx-auto">
       <h1 className="text-2xl font-semibold text-center mb-6">RebarPro Login</h1>
@@ -29,15 +32,15 @@ export default function LoginPage({
           placeholder="••••••••"
           required
         />
-        <Button formAction={login} className="mb-2">
+        <Button formAction={login} className="mb-2" type="submit">
           Sign In
         </Button>
-        <Button formAction={signup} variant="outline" className="mb-2">
+        <Button formAction={signup} variant="outline" className="mb-2" type="submit">
           Sign Up
         </Button>
-        {searchParams?.message && (
+        {message && (
           <p className="mt-4 p-4 bg-foreground/10 text-foreground text-center">
-            {searchParams.message}
+            {message}
           </p>
         )}
       </form>
