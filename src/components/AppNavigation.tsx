@@ -18,7 +18,6 @@ export default function AppNavigation({ userEmail, children }: Props) {
     { href: '/dashboard', label: 'Dashboard', icon: Home },
     { href: '/transactions', label: 'Transactions', icon: List },
     { href: '/stock-take', label: 'Stock Take', icon: ClipboardCheck },
-    { href: '/reports', label: 'Reports', icon: BarChart3 },
     { href: '/monthly-report', label: 'Monthly Report', icon: FileBarChart2 },
   ]
 

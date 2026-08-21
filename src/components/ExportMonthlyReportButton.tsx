@@ -6,6 +6,7 @@ import { Download } from 'lucide-react'
 interface Props {
   monthName: string
   selectedMonth: string
+  projectTypeName?: string
   totals: any
   sizeRows: any[]
   unassignedWastageQty: number
@@ -17,6 +18,7 @@ interface Props {
 export default function ExportMonthlyReportButton({
   monthName,
   selectedMonth,
+  projectTypeName,
   totals,
   sizeRows,
   unassignedWastageQty,
@@ -27,8 +29,10 @@ export default function ExportMonthlyReportButton({
   function exportReport() {
     const lines: string[] = []
 
+    const typeSuffix = projectTypeName ? ` - [PROJECT TYPE: ${projectTypeName.toUpperCase()}]` : ' - [ALL PROJECT TYPES]'
+
     // 1. Title & Header
-    lines.push(`"REBARPRO MONTHLY INVENTORY REPORT - ${monthName.toUpperCase()}"`)
+    lines.push(`"REBARPRO MONTHLY INVENTORY REPORT - ${monthName.toUpperCase()}${typeSuffix}"`)
     lines.push(`"Generated on: ${new Date().toLocaleString()}"`)
     lines.push('')
 
@@ -135,7 +139,8 @@ export default function ExportMonthlyReportButton({
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.setAttribute('href', url)
-    link.setAttribute('download', `RebarPro_Monthly_Report_${selectedMonth}.csv`)
+    const safeTypeName = projectTypeName ? `_${projectTypeName.replace(/\s+/g, '_')}` : ''
+    link.setAttribute('download', `RebarPro_Monthly_Report_${selectedMonth}${safeTypeName}.csv`)
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
@@ -145,7 +150,7 @@ export default function ExportMonthlyReportButton({
   return (
     <button
       onClick={exportReport}
-      className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition shadow-sm"
+      className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition shadow-xs"
       title="Download complete detailed monthly report spreadsheet"
     >
       <Download className="w-4 h-4" />

@@ -6,13 +6,17 @@ import Link from 'next/link'
 import { naturalSort } from '@/lib/utils/sort'
 import ExportMonthlyReportButton from '@/components/ExportMonthlyReportButton'
 
-interface SearchParams { month?: string }
+interface SearchParams {
+  month?: string
+  project_type?: string
+}
 
 export default async function MonthlyReportPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
-  const { month: rawMonth } = await searchParams
+  const { month: rawMonth, project_type: rawProjectType } = await searchParams
   const now = new Date()
   const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   const selectedMonth = rawMonth || defaultMonth
+  const selectedProjectType = rawProjectType || 'all'
 
   const [year, mon] = selectedMonth.split('-').map(Number)
   const monthName = new Date(year, mon - 1).toLocaleString('default', { month: 'long', year: 'numeric' })
@@ -30,33 +34,68 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
     supabase.from('rebar_sizes').select('*'),
     supabase.from('projects').select('id, name, project_type_id'),
     supabase.from('project_types').select('id, name'),
-    // Stock takes IN this month (ordered ascending to find first and latest)
+    // Stock takes IN this month
     supabase.from('stock_takes').select('id, size_id, physical_count, system_balance, variance, stock_take_date, project_type_id, project_types(name), rebar_sizes(size)')
       .gte('stock_take_date', startDate)
       .lte('stock_take_date', endDate)
       .order('stock_take_date', { ascending: true }),
-    // All stock takes BEFORE this month (for prior closing balance)
+    // All stock takes BEFORE this month
     supabase.from('stock_takes').select('size_id, physical_count, stock_take_date, project_type_id')
       .lt('stock_take_date', startDate)
       .order('stock_take_date', { ascending: false })
   ])
 
-  const allTxs = txRes.data || []
-  const txs = allTxs.filter(t => t.transaction_date >= startDate && t.transaction_date <= endDate)
-  const sizes = naturalSort(sizesRes.data || [], s => s.size)
-  const projects = naturalSort(projRes.data || [], p => p.name)
-  const projectTypes = naturalSort(pTypeRes.data || [], pt => pt.name)
-  const stockTakesThisMonth = stRes.data || []
-  const allPrevSTs = prevStRes.data || []
+  const allRawTxs = txRes.data || []
+  const rawSizes = sizesRes.data || []
+  const rawProjects = projRes.data || []
+  const rawProjectTypes = pTypeRes.data || []
+  const rawStockTakesThisMonth = stRes.data || []
+  const rawPrevSTs = prevStRes.data || []
 
-  // ── HELPER: Opening balance = Last month closing OR First stock take of this month ──
+  const sizes = naturalSort(rawSizes, s => s.size)
+  const projects = naturalSort(rawProjects, p => p.name)
+  const projectTypes = naturalSort(rawProjectTypes, pt => pt.name)
+
+  // Determine active project types & projects based on filter
+  const isTypeFiltered = selectedProjectType !== 'all'
+  const activeProjectTypes = isTypeFiltered
+    ? projectTypes.filter(pt => pt.id === selectedProjectType)
+    : projectTypes
+
+  const activeProjectIds = isTypeFiltered
+    ? projects.filter(p => p.project_type_id === selectedProjectType).map(p => p.id)
+    : projects.map(p => p.id)
+
+  const selectedProjectTypeName = isTypeFiltered
+    ? projectTypes.find(pt => pt.id === selectedProjectType)?.name
+    : undefined
+
+  // Filter transactions to only active project type scope
+  const filteredAllTxs = allRawTxs.filter(t => {
+    if (!isTypeFiltered) return true
+    if (t.project_type_id === selectedProjectType) return true
+    if (t.project_id && activeProjectIds.includes(t.project_id)) return true
+    return false
+  })
+
+  const txs = filteredAllTxs.filter(t => t.transaction_date >= startDate && t.transaction_date <= endDate)
+
+  const stockTakesThisMonth = isTypeFiltered
+    ? rawStockTakesThisMonth.filter(st => st.project_type_id === selectedProjectType)
+    : rawStockTakesThisMonth
+
+  const allPrevSTs = isTypeFiltered
+    ? rawPrevSTs.filter(st => st.project_type_id === selectedProjectType)
+    : rawPrevSTs
+
+  // ── HELPER: Opening balance anchored to stock takes within active project type scope ──
   function getOpeningBalance(sizeId: string): { balance: number; source: string } {
     let balance = 0
     let hasSource = false
 
-    for (const pt of projectTypes) {
+    for (const pt of activeProjectTypes) {
       const pIds = projects.filter(p => p.project_type_id === pt.id).map(p => p.id)
-      const ptTxs = allTxs.filter(t => 
+      const ptTxs = allRawTxs.filter(t => 
         t.size_id === sizeId && 
         (t.project_type_id === pt.id || (t.project_id && pIds.includes(t.project_id)))
       )
@@ -86,19 +125,22 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
       balance += txsBefore.reduce((sum, t) => sum + Number(t.quantity), 0)
     }
 
-    const knownProjectIds = projects.map(p => p.id)
-    const unassignedTxs = allTxs.filter(t => 
-      t.size_id === sizeId && 
-      !t.project_type_id && 
-      (!t.project_id || !knownProjectIds.includes(t.project_id)) &&
-      t.transaction_date < startDate
-    )
-    balance += unassignedTxs.reduce((sum, t) => sum + Number(t.quantity), 0)
+    // Add unassigned only when viewing all
+    if (!isTypeFiltered) {
+      const knownProjectIds = projects.map(p => p.id)
+      const unassignedTxs = allRawTxs.filter(t => 
+        t.size_id === sizeId && 
+        !t.project_type_id && 
+        (!t.project_id || !knownProjectIds.includes(t.project_id)) &&
+        t.transaction_date < startDate
+      )
+      balance += unassignedTxs.reduce((sum, t) => sum + Number(t.quantity), 0)
+    }
 
     return { balance: Math.max(balance, 0), source: hasSource ? 'Stock Take' : 'Transactions' }
   }
 
-  // Build per-size stats
+  // Build per-size rows
   const sizeRows = sizes.map(size => {
     const sizeTxs = txs.filter(t => t.size_id === size.id)
 
@@ -118,22 +160,16 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
 
     const { balance: opening } = getOpeningBalance(size.id)
     
-    // Theoretical expected closing: Opening + Incoming + Transfer - Usage - Wastage
     const expectedClosing = opening + incoming + transfer - usage - wastage
 
-    // Find LATEST stock take in this month for this size
+    // Find latest stock take in this month for this size
     const monthSTsForSize = stockTakesThisMonth.filter(st => st.size_id === size.id)
     const hasStockTake = monthSTsForSize.length > 0
     const latestST = monthSTsForSize.length > 0 ? monthSTsForSize[monthSTsForSize.length - 1] : null
     const stPhysical = latestST ? Number(latestST.physical_count) : null
 
-    // Variance = Latest Physical Count - Theoretical Expected Closing
     const variance = (hasStockTake && stPhysical !== null) ? (stPhysical - expectedClosing) : null
-
-    // Wastage % = (Wastage / Usage) * 100
     const wastagePct = usage > 0 ? (wastage / usage) * 100 : 0
-
-    // Variance % = Variance / Usage (as requested)
     const variancePct = (variance !== null && usage > 0) ? (variance / usage) * 100 : (variance !== null && variance === 0 ? 0 : null)
 
     return {
@@ -216,23 +252,44 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
 
   return (
     <div className="p-4 md:p-8 max-w-[96rem] mx-auto pb-20">
-      {/* Header with Export Button */}
+      {/* Header with Month & Project Type Filters + Export */}
       <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Monthly Report</h1>
-          <p className="text-gray-500 mt-1">Full breakdown for {monthName}</p>
+          <p className="text-gray-500 mt-1">
+            Full inventory breakdown for <strong>{monthName}</strong>
+            {selectedProjectTypeName && (
+              <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
+                Type: {selectedProjectTypeName}
+              </span>
+            )}
+          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <form method="GET" className="flex items-center gap-2">
+          {/* Filter Form */}
+          <form method="GET" className="flex flex-wrap items-center gap-2 bg-white p-1.5 rounded-xl border shadow-xs">
             <input
               type="month"
               name="month"
               defaultValue={selectedMonth}
-              className="border rounded-lg px-3 py-2 text-sm bg-white shadow-xs"
+              className="border rounded-lg px-3 py-1.5 text-sm bg-white"
             />
-            <button type="submit" className="bg-slate-800 text-white px-4 py-2 rounded-lg text-sm hover:bg-slate-700 font-medium shadow-xs">
-              Load
+            <select
+              name="project_type"
+              defaultValue={selectedProjectType}
+              className="border rounded-lg px-3 py-1.5 text-sm bg-white font-medium text-slate-800"
+            >
+              <option value="all">All Project Types</option>
+              {projectTypes.map(pt => (
+                <option key={pt.id} value={pt.id}>{pt.name}</option>
+              ))}
+            </select>
+            <button
+              type="submit"
+              className="bg-slate-800 text-white px-4 py-1.5 rounded-lg text-sm hover:bg-slate-700 font-medium transition shadow-xs"
+            >
+              Filter
             </button>
           </form>
 
@@ -240,6 +297,7 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
           <ExportMonthlyReportButton
             monthName={monthName}
             selectedMonth={selectedMonth}
+            projectTypeName={selectedProjectTypeName}
             totals={totals}
             sizeRows={sizeRows}
             unassignedWastageQty={unassignedWastageQty}
@@ -272,7 +330,14 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
       </div>
 
       {/* Main breakdown by size */}
-      <h2 className="text-xl font-bold mb-4">Breakdown by Rebar Size</h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl font-bold">Breakdown by Rebar Size</h2>
+        {selectedProjectTypeName && (
+          <span className="text-xs text-blue-700 font-medium bg-blue-50 px-2.5 py-1 rounded-md border border-blue-200">
+            Filtered by: {selectedProjectTypeName}
+          </span>
+        )}
+      </div>
       <div className="bg-white border rounded-xl shadow-sm overflow-x-auto mb-10">
         <table className="min-w-full divide-y divide-gray-200 text-sm">
           <thead className="bg-gray-50">
@@ -334,7 +399,7 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
             ))}
 
             {/* General / Combined Wastage Row */}
-            {unassignedWastageQty > 0 && (
+            {unassignedWastageQty > 0 && !isTypeFiltered && (
               <tr className="bg-orange-50/50 hover:bg-orange-50">
                 <td className="px-3 py-3 font-semibold text-orange-800 sticky left-0 bg-orange-50 border-r italic">Overall Scrap (Combined)</td>
                 <td className="px-3 py-3 text-right text-gray-400 border-l">-</td>
@@ -374,7 +439,7 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
             </tr>
 
             {sizeRows.length === 0 && (
-              <tr><td colSpan={12} className="px-4 py-8 text-center text-gray-500">No active stock or transactions for this month.</td></tr>
+              <tr><td colSpan={12} className="px-4 py-8 text-center text-gray-500">No active stock or transactions for this filter.</td></tr>
             )}
           </tbody>
         </table>
