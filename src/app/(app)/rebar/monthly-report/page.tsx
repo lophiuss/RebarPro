@@ -433,7 +433,7 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
         <div className="mb-10">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-bold">Stock Takes Recorded This Month</h2>
-            <Link href="/stock-take" className="text-sm text-blue-600 hover:text-blue-800 underline">
+            <Link href="/rebar/stock-take" className="text-sm text-blue-600 hover:text-blue-800 underline">
               Manage in Stock Take →
             </Link>
           </div>

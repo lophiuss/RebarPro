@@ -5,8 +5,8 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "RebarPro",
-  description: "Rebar monitoring and management system",
+  title: "PlantVision",
+  description: "Rebar and cement plant monitoring and management system",
 };
 
 export default function RootLayout({
