@@ -14,10 +14,10 @@ export default async function AppLayout({
     redirect('/login')
   }
 
-  const { data: access } = await supabase
-    .from('user_department_access')
-    .select('department, role')
-    .eq('user_id', user.id)
+  const [{ data: access }, { data: navPerms }] = await Promise.all([
+    supabase.from('user_department_access').select('department, role').eq('user_id', user.id),
+    supabase.from('department_nav_permissions').select('department, role, nav_key'),
+  ])
 
   const departments = access ?? []
 
@@ -41,7 +41,7 @@ export default async function AppLayout({
   }
 
   return (
-    <AppNavigation userEmail={user.email || ''} departments={departments}>
+    <AppNavigation userEmail={user.email || ''} departments={departments} navPermissions={navPerms ?? []}>
       {children}
     </AppNavigation>
   )

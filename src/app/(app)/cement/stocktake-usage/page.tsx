@@ -13,9 +13,22 @@ type Row = {
   unit_name: string | null
 }
 
+function formatDateLabel(iso: string) {
+  const d = new Date(iso + 'T00:00:00')
+  const day = d.getDate()
+  const month = d.toLocaleDateString('en-US', { month: 'short' })
+  const year = d.getFullYear()
+  const weekday = d.toLocaleDateString('en-US', { weekday: 'short' })
+  return `${day} ${month} ${year} ${weekday}`
+}
+
+function yesterdayIso() {
+  return new Date(Date.now() - 86400000).toISOString().split('T')[0]
+}
+
 export default function StocktakeUsagePage() {
   const supabase = createClient()
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0])
+  const [date, setDate] = useState(yesterdayIso())
   const [mode, setMode] = useState<'stock' | 'usage'>('stock')
   const [rows, setRows] = useState<Row[]>([])
   const [values, setValues] = useState<Record<number, string>>({})
@@ -82,34 +95,52 @@ export default function StocktakeUsagePage() {
     if (error) { alert('Error saving: ' + error.message); return }
     alert('Saved successfully')
 
-    // Same trigger point as the legacy app: only after a stock-take (closing)
-    // save, check whether every silo is now closed for the day and email any
-    // new variance breaches.
-    if (mode === 'stock') {
-      const { data: newAlerts } = await supabase.rpc('cement_process_daily_closing', { check_date: date })
-      if (newAlerts && newAlerts.length > 0) {
-        supabase.functions.invoke('send-variance-alerts', { body: { alerts: newAlerts } })
-          .catch(err => console.error('Failed to send variance alert email(s):', err))
-      }
-    }
+    // Variance checking no longer happens here on every save — it's a single
+    // combined report sent once each morning (see Alert Setting) so closing a
+    // stock take doesn't fire off its own separate email.
   }
 
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto">
       <h1 className="text-3xl font-bold mb-6 flex items-center gap-2"><ClipboardList className="w-7 h-7 text-blue-600" /> Daily Stock Take / Usage</h1>
 
-      <div className="bg-white border rounded-xl p-5 mb-6 grid grid-cols-2 gap-4">
+      <div className="bg-white border rounded-xl p-5 mb-4 grid grid-cols-2 gap-4">
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">Date</label>
           <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full border rounded-md px-3 py-2" />
+          <p className="text-xs text-gray-500 mt-1">{formatDateLabel(date)}</p>
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">Mode</label>
-          <select value={mode} onChange={e => setMode(e.target.value as 'stock' | 'usage')} className="w-full border rounded-md px-3 py-2 bg-white">
-            <option value="stock">Daily Actual Stock Take (Closing)</option>
-            <option value="usage">Daily Usage</option>
-          </select>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setMode('stock')}
+              className={`rounded-lg px-3 py-2 text-sm font-semibold border-2 transition ${
+                mode === 'stock' ? 'bg-blue-600 border-blue-600 text-white shadow-sm' : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
+              }`}
+            >
+              Stock Take
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('usage')}
+              className={`rounded-lg px-3 py-2 text-sm font-semibold border-2 transition ${
+                mode === 'usage' ? 'bg-amber-500 border-amber-500 text-white shadow-sm' : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'
+              }`}
+            >
+              Usage
+            </button>
+          </div>
         </div>
+      </div>
+
+      {/* Prominent, always-visible reminder of which mode is currently active */}
+      <div className={`rounded-xl px-5 py-3 mb-6 font-bold text-sm flex items-center gap-2 ${
+        mode === 'stock' ? 'bg-blue-50 text-blue-800 border border-blue-200' : 'bg-amber-50 text-amber-800 border border-amber-200'
+      }`}>
+        <span className={`w-2.5 h-2.5 rounded-full ${mode === 'stock' ? 'bg-blue-600' : 'bg-amber-500'}`} />
+        You are recording: {mode === 'stock' ? 'DAILY ACTUAL STOCK TAKE (CLOSING)' : 'DAILY USAGE'}
       </div>
 
       <div className="bg-white border rounded-xl shadow-sm overflow-hidden">

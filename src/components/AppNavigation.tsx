@@ -10,10 +10,12 @@ import {
 } from 'lucide-react'
 
 export type DepartmentAccess = { department: 'rebar' | 'cement'; role: string }
+export type NavPermission = { department: 'rebar' | 'cement'; role: string; nav_key: string }
 
 interface Props {
   userEmail: string
   departments: DepartmentAccess[]
+  navPermissions: NavPermission[]
   children: React.ReactNode
 }
 
@@ -30,31 +32,35 @@ const DEPARTMENT_HOME: Record<DepartmentAccess['department'], string> = {
 // Cement's real pages land here module-by-module (see the merge plan's build order).
 // Until then, /cement is a single placeholder page rather than a set of 404s.
 //
-// `roles` mirrors the data-role visibility rules from the legacy cement-app's
-// sidebar.html (undefined = visible to every role in the department).
-type NavItem = { href: string; label: string; icon: any; roles?: string[] }
-const NAV_ITEMS: Record<DepartmentAccess['department'], NavItem[]> = {
+// Which roles can see which of these (per department) is configured in the
+// department_nav_permissions table, editable by department admins from
+// /admin/access — not fixed here. Settings is included so it's configurable
+// the same way (it used to be a special-cased admin-only check for cement).
+type NavItem = { href: string; label: string; icon: any }
+export const NAV_ITEMS: Record<DepartmentAccess['department'], NavItem[]> = {
   rebar: [
     { href: '/rebar/dashboard', label: 'Dashboard', icon: Home },
     { href: '/rebar/transactions', label: 'Transactions', icon: List },
     { href: '/rebar/stock-take', label: 'Stock Take', icon: ClipboardCheck },
     { href: '/rebar/monthly-report', label: 'Monthly Report', icon: FileBarChart2 },
+    { href: '/rebar/settings', label: 'Settings', icon: Settings },
   ],
   cement: [
-    { href: '/cement', label: 'Overview', icon: Boxes, roles: ['supervisor', 'manager', 'admin'] },
-    { href: '/cement/planning', label: 'Planning', icon: Factory, roles: ['supervisor', 'manager', 'admin'] },
+    { href: '/cement', label: 'Overview', icon: Boxes },
+    { href: '/cement/planning', label: 'Planning', icon: Factory },
     { href: '/cement/weight-in', label: 'Weight In', icon: Scale },
     { href: '/cement/unloading', label: 'Unloading', icon: PackageOpen },
     { href: '/cement/weight-out', label: 'Weight Out', icon: Scale },
     { href: '/cement/records', label: 'Records', icon: ScrollText },
-    { href: '/cement/report', label: 'Report', icon: BarChart3, roles: ['manager', 'admin'] },
-    { href: '/cement/transfer', label: 'Transfer', icon: ArrowLeftRight, roles: ['supervisor', 'manager', 'admin'] },
-    { href: '/cement/stocktake-usage', label: 'Stock Take / Usage', icon: ClipboardList, roles: ['supervisor', 'manager', 'admin'] },
-    { href: '/cement/alert-setting', label: 'Alert Setting', icon: AlertTriangle, roles: ['manager', 'admin'] },
+    { href: '/cement/report', label: 'Report', icon: BarChart3 },
+    { href: '/cement/transfer', label: 'Transfer', icon: ArrowLeftRight },
+    { href: '/cement/stocktake-usage', label: 'Stock Take / Usage', icon: ClipboardList },
+    { href: '/cement/alert-setting', label: 'Alert Setting', icon: AlertTriangle },
+    { href: '/cement/settings', label: 'Settings', icon: Settings },
   ],
 }
 
-export default function AppNavigation({ userEmail, departments, children }: Props) {
+export default function AppNavigation({ userEmail, departments, navPermissions, children }: Props) {
   const [isOpen, setIsOpen] = useState(false)
   const pathname = usePathname()
 
@@ -65,13 +71,18 @@ export default function AppNavigation({ userEmail, departments, children }: Prop
     : departments[0]?.department ?? null
 
   const activeRole = departments.find(d => d.department === activeDept)?.role
-  const navItems = activeDept
-    ? NAV_ITEMS[activeDept].filter(item => !item.roles || (activeRole && item.roles.includes(activeRole)))
-    : []
+
+  // Admins always see every page in their department, regardless of what's
+  // configured in department_nav_permissions — so an admin can never lock
+  // themselves (or every admin) out while editing role permissions.
+  const isAllowed = (navKey: string) =>
+    activeRole === 'admin' ||
+    (!!activeDept && !!activeRole && navPermissions.some(p => p.department === activeDept && p.role === activeRole && p.nav_key === navKey))
+
+  const navItems = activeDept ? NAV_ITEMS[activeDept].filter(item => item.href !== `/${activeDept}/settings` && isAllowed(item.href)) : []
   const isAdminAnywhere = departments.some(d => d.role === 'admin')
   const settingsHref = activeDept === 'cement' ? '/cement/settings' : '/rebar/settings'
-  // Cement settings was admin-only in the legacy app; rebar settings has no such history, keep it open to all rebar members.
-  const canSeeSettings = activeDept !== 'cement' || activeRole === 'admin'
+  const canSeeSettings = !!activeDept && isAllowed(settingsHref)
 
   const closeSidebar = () => setIsOpen(false)
 

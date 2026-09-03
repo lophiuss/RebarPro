@@ -4,8 +4,10 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ShieldCheck, Trash2, UserPlus } from 'lucide-react'
 import { listPeople, type Person } from './actions'
+import { NAV_ITEMS } from '@/components/AppNavigation'
 
 type AccessRow = { user_id: string; department: 'rebar' | 'cement'; role: string }
+type NavPermRow = { department: 'rebar' | 'cement'; role: string; nav_key: string }
 
 const ROLES: Record<'rebar' | 'cement', string[]> = {
   rebar: ['admin', 'manager', 'user'],
@@ -15,6 +17,7 @@ const ROLES: Record<'rebar' | 'cement', string[]> = {
 export default function AccessControlPage() {
   const [profiles, setProfiles] = useState<Person[]>([])
   const [access, setAccess] = useState<AccessRow[]>([])
+  const [navPerms, setNavPerms] = useState<NavPermRow[]>([])
   const [myId, setMyId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [grantUserId, setGrantUserId] = useState('')
@@ -32,13 +35,15 @@ export default function AccessControlPage() {
     const { data: { user } } = await supabase.auth.getUser()
     setMyId(user?.id ?? null)
 
-    const [people, accessRes] = await Promise.all([
+    const [people, accessRes, navPermRes] = await Promise.all([
       listPeople(),
       supabase.from('user_department_access').select('user_id, department, role'),
+      supabase.from('department_nav_permissions').select('department, role, nav_key'),
     ])
 
     setProfiles(people)
     if (accessRes.data) setAccess(accessRes.data)
+    if (navPermRes.data) setNavPerms(navPermRes.data)
     setLoading(false)
   }
 
@@ -75,6 +80,23 @@ export default function AccessControlPage() {
       return
     }
     load()
+  }
+
+  function isNavAllowed(dept: 'rebar' | 'cement', role: string, navKey: string) {
+    return navPerms.some(p => p.department === dept && p.role === role && p.nav_key === navKey)
+  }
+
+  async function toggleNav(dept: 'rebar' | 'cement', role: string, navKey: string, allow: boolean) {
+    // Optimistic update so the checkbox responds immediately.
+    setNavPerms(prev => allow
+      ? [...prev, { department: dept, role, nav_key: navKey }]
+      : prev.filter(p => !(p.department === dept && p.role === role && p.nav_key === navKey)))
+
+    const { error } = allow
+      ? await supabase.from('department_nav_permissions').insert([{ department: dept, role, nav_key: navKey }])
+      : await supabase.from('department_nav_permissions').delete().eq('department', dept).eq('role', role).eq('nav_key', navKey)
+
+    if (error) { alert('Error: ' + error.message); load() }
   }
 
   if (loading) return <div className="p-8 text-gray-500">Loading…</div>
@@ -180,6 +202,55 @@ export default function AccessControlPage() {
             ))}
           </tbody>
         </table>
+      </div>
+
+      {/* Role permissions: which pages each role can open, per department */}
+      <div className="mt-10 space-y-8">
+        <div>
+          <h2 className="text-xl font-bold">Role Permissions</h2>
+          <p className="text-sm text-gray-500 mt-1">
+            Choose which pages each role can open. Admin always sees every page and isn&apos;t shown here,
+            so a department can never lock out its own admins.
+          </p>
+        </div>
+
+        {myAdminDepts.map(dept => {
+          const roles = ROLES[dept].filter(r => r !== 'admin')
+          return (
+            <div key={dept} className="bg-white border rounded-xl shadow-sm overflow-x-auto">
+              <div className="px-4 py-3 border-b bg-gray-50">
+                <h3 className="text-sm font-bold text-slate-700">{dept === 'rebar' ? 'Rebar' : 'Cement'}</h3>
+              </div>
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead>
+                  <tr>
+                    <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Page</th>
+                    {roles.map(r => (
+                      <th key={r} className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase capitalize">{r}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {NAV_ITEMS[dept].map(item => (
+                    <tr key={item.href}>
+                      <td className="px-4 py-2 text-sm font-medium">{item.label}</td>
+                      {roles.map(r => (
+                        <td key={r} className="px-4 py-2 text-center">
+                          <input
+                            type="checkbox"
+                            checked={isNavAllowed(dept, r, item.href)}
+                            onChange={e => toggleNav(dept, r, item.href, e.target.checked)}
+                            className="w-4 h-4 accent-blue-600 cursor-pointer"
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
