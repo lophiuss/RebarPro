@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { BarChart3, Download } from 'lucide-react'
 
@@ -33,6 +33,16 @@ const MAX_ROWS = 200
 const CHART_PALETTE = ['#2563eb', '#dc2626', '#059669', '#d97706', '#9333ea', '#0891b2', '#db2777', '#65a30d']
 type ChartViewMode = 'all' | 'plant' | 'material'
 
+// Turns a mousemove on the chart's <svg> into the nearest period index, so
+// the caller can show a tooltip that follows the cursor.
+function hoverIndexFromEvent(e: MouseEvent<SVGSVGElement>, viewBoxWidth: number, padL: number, plotW: number, count: number) {
+  const svg = e.currentTarget
+  const ratio = e.nativeEvent.offsetX / svg.clientWidth
+  const svgX = ratio * viewBoxWidth
+  const idx = Math.round(((svgX - padL) / plotW) * (count - 1))
+  return Math.max(0, Math.min(count - 1, idx))
+}
+
 export default function ReportPage() {
   const supabase = createClient()
   const today = new Date().toISOString().split('T')[0]
@@ -49,6 +59,7 @@ export default function ReportPage() {
   const [chartViewMode, setChartViewMode] = useState<ChartViewMode>('all')
   const [chartPlant, setChartPlant] = useState('')
   const [chartMaterial, setChartMaterial] = useState('')
+  const [chartHoverIdx, setChartHoverIdx] = useState<number | null>(null)
 
   useEffect(() => { load() }, [])
 
@@ -125,12 +136,14 @@ export default function ReportPage() {
     const series = groups.map((g, i) => {
       const byPeriod = byGroup.get(g)!
       const actData = periods.map(p => byPeriod.get(p)?.actual ?? 0)
+      const theoData = periods.map(p => byPeriod.get(p)?.theoretical ?? 0)
       return {
         group: g,
         color: chartViewMode === 'all' ? '#2563eb' : CHART_PALETTE[i % CHART_PALETTE.length],
-        theoPath: toPath(periods.map(p => byPeriod.get(p)?.theoretical ?? 0)),
+        theoPath: toPath(theoData),
         actPath: toPath(actData),
         actPoints: toPoints(actData),
+        theoPoints: toPoints(theoData),
       }
     })
 
@@ -143,7 +156,9 @@ export default function ReportPage() {
       return { x: x(idx), label }
     })
 
-    return { periods, series, width, height, padL, padT, padB, plotH, maxVal, xTicks }
+    const xPositions = periods.map((_, i) => x(i))
+
+    return { periods, series, width, height, padL, padT, padB, plotH, plotW, maxVal, xTicks, xPositions }
   }, [filtered, chartViewMode, type])
 
   // --- Material Summary (Global) ---
@@ -325,35 +340,73 @@ export default function ReportPage() {
           </div>
           <p className="text-xs text-gray-400 mb-2">
             {chartViewMode === 'all' ? 'Totals across the current filters.' : chartViewMode === 'plant' ? `Materials at ${chartPlant || '—'}.` : `Plants using ${chartMaterial || '—'}.`}
-            {' '}Hover a point for its exact value.
+            {' '}Hover the chart for exact values.
           </p>
           <div className="overflow-x-auto">
-            <svg viewBox={`0 0 ${chart.width} ${chart.height}`} className="w-full h-56 min-w-[700px]">
-              {[0, 0.25, 0.5, 0.75, 1].map(f => {
-                const val = chart.maxVal * f
-                const yy = chart.padT + chart.plotH - f * chart.plotH
+            <div className="relative min-w-[700px]">
+              <svg
+                viewBox={`0 0 ${chart.width} ${chart.height}`}
+                className="w-full h-56"
+                onMouseMove={e => setChartHoverIdx(hoverIndexFromEvent(e, chart.width, chart.padL, chart.plotW, chart.periods.length))}
+                onMouseLeave={() => setChartHoverIdx(null)}
+              >
+                {[0, 0.25, 0.5, 0.75, 1].map(f => {
+                  const val = chart.maxVal * f
+                  const yy = chart.padT + chart.plotH - f * chart.plotH
+                  return (
+                    <g key={f}>
+                      <line x1={chart.padL} y1={yy} x2={chart.width - 10} y2={yy} stroke="#e2e8f0" strokeDasharray="4 4" />
+                      <text x={chart.padL - 6} y={yy + 3} textAnchor="end" fontSize="9" fill="#94a3b8">{fmt(val)}</text>
+                    </g>
+                  )
+                })}
+                {chartHoverIdx !== null && (
+                  <line x1={chart.xPositions[chartHoverIdx]} x2={chart.xPositions[chartHoverIdx]} y1={chart.padT} y2={chart.height - chart.padB} stroke="#94a3b8" strokeDasharray="3 3" />
+                )}
+                {chart.series.map(s => (
+                  <Fragment key={s.group}>
+                    <path d={s.theoPath} fill="none" stroke={s.color} strokeWidth={1.5} strokeDasharray="5 5" opacity={0.55} />
+                    <path d={s.actPath} fill="none" stroke={s.color} strokeWidth={2.5} />
+                    {s.actPoints.map((p, i) => (
+                      <circle key={i} cx={p.x} cy={p.y} r={chartHoverIdx !== null && chart.periods[chartHoverIdx] === p.period ? 4.5 : 3} fill={s.color} />
+                    ))}
+                  </Fragment>
+                ))}
+                {chart.xTicks.map((t, i) => (
+                  <text key={i} x={t.x} y={chart.height - chart.padB + 16} textAnchor="middle" fontSize="9" fill="#94a3b8">{t.label}</text>
+                ))}
+              </svg>
+              {chartHoverIdx !== null && (() => {
+                const period = chart.periods[chartHoverIdx]
+                const rows = chart.series
+                  .map(s => ({ ...s, act: s.actPoints.find(p => p.period === period), theo: s.theoPoints.find(p => p.period === period) }))
+                  .filter(s => s.act || s.theo)
+                if (rows.length === 0) return null
+                const leftPct = Math.min(92, Math.max(8, (chart.xPositions[chartHoverIdx] / chart.width) * 100))
                 return (
-                  <g key={f}>
-                    <line x1={chart.padL} y1={yy} x2={chart.width - 10} y2={yy} stroke="#e2e8f0" strokeDasharray="4 4" />
-                    <text x={chart.padL - 6} y={yy + 3} textAnchor="end" fontSize="9" fill="#94a3b8">{fmt(val)}</text>
-                  </g>
+                  <div
+                    className="absolute top-2 -translate-x-1/2 bg-slate-900 text-white text-xs rounded-lg shadow-lg px-3 py-2 pointer-events-none z-10 max-w-[240px]"
+                    style={{ left: `${leftPct}%` }}
+                  >
+                    <div className="font-semibold mb-1">{period}</div>
+                    <div className="space-y-1">
+                      {rows.map(r => (
+                        <div key={r.group}>
+                          {chartViewMode !== 'all' && (
+                            <div className="flex items-center gap-1.5 text-slate-300">
+                              <span className="w-2 h-2 rounded-full inline-block flex-shrink-0" style={{ backgroundColor: r.color }} />
+                              {r.group}
+                            </div>
+                          )}
+                          <div className="flex justify-between gap-3"><span className="text-slate-300">Actual</span><span className="font-semibold">{r.act ? fmt(r.act.value) : '-'}</span></div>
+                          <div className="flex justify-between gap-3"><span className="text-slate-300">Theoretical</span><span className="font-semibold">{r.theo ? fmt(r.theo.value) : '-'}</span></div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )
-              })}
-              {chart.series.map(s => (
-                <Fragment key={s.group}>
-                  <path d={s.theoPath} fill="none" stroke={s.color} strokeWidth={1.5} strokeDasharray="5 5" opacity={0.55} />
-                  <path d={s.actPath} fill="none" stroke={s.color} strokeWidth={2.5} />
-                  {s.actPoints.map((p, i) => (
-                    <circle key={i} cx={p.x} cy={p.y} r={3} fill={s.color} className="cursor-pointer">
-                      <title>{`${s.group} — ${p.period}: ${fmt(p.value)} actual`}</title>
-                    </circle>
-                  ))}
-                </Fragment>
-              ))}
-              {chart.xTicks.map((t, i) => (
-                <text key={i} x={t.x} y={chart.height - chart.padB + 16} textAnchor="middle" fontSize="9" fill="#94a3b8">{t.label}</text>
-              ))}
-            </svg>
+              })()}
+            </div>
           </div>
           {chartViewMode === 'all' ? (
             <div className="flex gap-4 mt-2 text-xs text-gray-600">

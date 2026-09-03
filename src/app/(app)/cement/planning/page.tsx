@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { LineChart, Factory } from 'lucide-react'
 
@@ -11,6 +11,17 @@ type UsageRow = { usage_date: string; usage: number; plant: string; material: st
 const PALETTE = ['#2563eb', '#dc2626', '#059669', '#d97706', '#9333ea', '#0891b2', '#db2777', '#65a30d', '#4f46e5', '#be123c', '#0d9488', '#8b5cf6']
 
 type ViewMode = 'all' | 'plant' | 'material'
+type RollingWindow = 7 | 14
+
+// Turns a mousemove on the chart's <svg> into the nearest day/period index,
+// so the caller can show a tooltip that follows the cursor.
+function hoverIndexFromEvent(e: MouseEvent<SVGSVGElement>, viewBoxWidth: number, padL: number, plotW: number, count: number) {
+  const svg = e.currentTarget
+  const ratio = e.nativeEvent.offsetX / svg.clientWidth
+  const svgX = ratio * viewBoxWidth
+  const idx = Math.round(((svgX - padL) / plotW) * (count - 1))
+  return Math.max(0, Math.min(count - 1, idx))
+}
 
 function isoDaysAgo(n: number) {
   return new Date(Date.now() - n * 86400000).toISOString().split('T')[0]
@@ -44,6 +55,9 @@ export default function PlanningPage() {
   const [pickedMaterial, setPickedMaterial] = useState('')
   const [fromDate, setFromDate] = useState(isoDaysAgo(30))
   const [toDate, setToDate] = useState(isoDaysAgo(0))
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null)
+  const [rollingWindow, setRollingWindow] = useState<RollingWindow>(7)
+  const [rollingHoverIdx, setRollingHoverIdx] = useState<number | null>(null)
 
   useEffect(() => { loadStatic() }, [])
   useEffect(() => { loadUsage() }, [fromDate, toDate])
@@ -142,7 +156,9 @@ export default function PlanningPage() {
       return { x: x(idx), label }
     })
 
-    return { days, series, width, height, padL, padT, padB, plotH, maxVal, xTicks }
+    const xPositions = days.map((_, i) => x(i))
+
+    return { days, series, width, height, padL, padT, padB, plotH, plotW, maxVal, xTicks, xPositions }
   }, [scopedUsage, viewMode])
 
   // --- Rolling average: 7-day and 14-day, over every calendar day in range
@@ -170,14 +186,16 @@ export default function PlanningPage() {
       const byDay = new Map<string, number>()
       scopedUsage.filter(u => keyOf(u) === group).forEach(u => byDay.set(u.usage_date, (byDay.get(u.usage_date) || 0) + u.usage))
       const daily = allDays.map(d => byDay.get(d) ?? 0)
-      return { group, color: PALETTE[i % PALETTE.length], ma7: movingAvg(daily, 7), ma14: movingAvg(daily, 14) }
+      return { group, color: PALETTE[i % PALETTE.length], values: movingAvg(daily, rollingWindow) }
     })
 
-    const maxVal = Math.max(1, ...perGroup.flatMap(g => [...g.ma7, ...g.ma14]))
+    const maxVal = Math.max(1, ...perGroup.flatMap(g => g.values))
     const y = (v: number) => padT + plotH - (v / maxVal) * plotH
-    const toSeries = (values: number[]) => buildSeries(allDays, new Map(allDays.map((d, i) => [d, values[i]])), x, y)
-
-    const series = perGroup.map(g => ({ group: g.group, color: g.color, ma7: toSeries(g.ma7), ma14: toSeries(g.ma14) }))
+    const series = perGroup.map(g => ({
+      group: g.group,
+      color: g.color,
+      ...buildSeries(allDays, new Map(allDays.map((d, i) => [d, g.values[i]])), x, y),
+    }))
 
     const tickCount = Math.min(6, allDays.length)
     const xTicks = Array.from({ length: tickCount }, (_, i) => {
@@ -186,8 +204,10 @@ export default function PlanningPage() {
       return { x: x(idx), label }
     })
 
-    return { series, width, height, padL, padT, padB, plotH, xTicks }
-  }, [scopedUsage, viewMode, fromDate, toDate])
+    const xPositions = allDays.map((_, i) => x(i))
+
+    return { days: allDays, series, width, height, padL, padT, padB, plotH, plotW, maxVal, xTicks, xPositions }
+  }, [scopedUsage, viewMode, fromDate, toDate, rollingWindow])
 
   const byPlant = new Map<string, SiloStock[]>()
   for (const s of silos) {
@@ -232,34 +252,67 @@ export default function PlanningPage() {
         </div>
         <p className="text-xs text-gray-400 mb-2">
           {viewMode === 'all' ? 'Every plant + material combination.' : viewMode === 'plant' ? `Materials used at ${pickedPlant || '—'}.` : `Plants using ${pickedMaterial || '—'}.`}
-          {' '}Hover a point for its exact value. Days with no usage recorded are left off the axis.
+          {' '}Hover the chart for exact values. Days with no usage recorded are left off the axis.
         </p>
         <div className="overflow-x-auto">
-          <svg viewBox={`0 0 ${chart.width} ${chart.height}`} className="w-full h-64 min-w-[700px]">
-            {[0, 0.25, 0.5, 0.75, 1].map(f => {
-              const val = chart.maxVal * f
-              const yy = chart.padT + chart.plotH - f * chart.plotH
-              return (
-                <g key={f}>
-                  <line x1={chart.padL} y1={yy} x2={chart.width - 10} y2={yy} stroke="#e2e8f0" strokeDasharray="4 4" />
-                  <text x={chart.padL - 6} y={yy + 3} textAnchor="end" fontSize="9" fill="#94a3b8">{val.toFixed(0)}</text>
+          <div className="relative min-w-[700px]">
+            <svg
+              viewBox={`0 0 ${chart.width} ${chart.height}`}
+              className="w-full h-64"
+              onMouseMove={e => setHoverIdx(hoverIndexFromEvent(e, chart.width, chart.padL, chart.plotW, chart.days.length))}
+              onMouseLeave={() => setHoverIdx(null)}
+            >
+              {[0, 0.25, 0.5, 0.75, 1].map(f => {
+                const val = chart.maxVal * f
+                const yy = chart.padT + chart.plotH - f * chart.plotH
+                return (
+                  <g key={f}>
+                    <line x1={chart.padL} y1={yy} x2={chart.width - 10} y2={yy} stroke="#e2e8f0" strokeDasharray="4 4" />
+                    <text x={chart.padL - 6} y={yy + 3} textAnchor="end" fontSize="9" fill="#94a3b8">{val.toFixed(0)}</text>
+                  </g>
+                )
+              })}
+              {hoverIdx !== null && (
+                <line x1={chart.xPositions[hoverIdx]} x2={chart.xPositions[hoverIdx]} y1={chart.padT} y2={chart.height - chart.padB} stroke="#94a3b8" strokeDasharray="3 3" />
+              )}
+              {chart.series.map(s => (
+                <g key={s.combo}>
+                  <path d={s.d} fill="none" stroke={s.color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                  {s.points.map((p, i) => (
+                    <circle key={i} cx={p.x} cy={p.y} r={hoverIdx !== null && chart.days[hoverIdx] === p.day ? 4.5 : 3} fill={s.color} />
+                  ))}
                 </g>
+              ))}
+              {chart.xTicks.map((t, i) => (
+                <text key={i} x={t.x} y={chart.height - chart.padB + 16} textAnchor="middle" fontSize="9" fill="#94a3b8">{t.label}</text>
+              ))}
+            </svg>
+            {hoverIdx !== null && (() => {
+              const day = chart.days[hoverIdx]
+              const rows = chart.series.map(s => ({ ...s, point: s.points.find(p => p.day === day) })).filter(s => s.point)
+              if (rows.length === 0) return null
+              const leftPct = Math.min(92, Math.max(8, (chart.xPositions[hoverIdx] / chart.width) * 100))
+              return (
+                <div
+                  className="absolute top-2 -translate-x-1/2 bg-slate-900 text-white text-xs rounded-lg shadow-lg px-3 py-2 pointer-events-none z-10 max-w-[220px]"
+                  style={{ left: `${leftPct}%` }}
+                >
+                  <div className="font-semibold mb-1">{new Date(day + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+                  <div className="space-y-0.5">
+                    {rows.map(r => (
+                      <div key={r.combo} className="flex items-center justify-between gap-3">
+                        <span className="flex items-center gap-1.5 text-slate-300 truncate">
+                          <span className="w-2 h-2 rounded-full inline-block flex-shrink-0" style={{ backgroundColor: r.color }} />
+                          {r.combo}
+                        </span>
+                        <span className="font-semibold flex-shrink-0">{r.point!.value.toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )
-            })}
-            {chart.series.map(s => (
-              <g key={s.combo}>
-                <path d={s.d} fill="none" stroke={s.color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-                {s.points.map((p, i) => (
-                  <circle key={i} cx={p.x} cy={p.y} r={3} fill={s.color} className="cursor-pointer">
-                    <title>{`${s.combo} — ${new Date(p.day + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}: ${p.value.toLocaleString()}`}</title>
-                  </circle>
-                ))}
-              </g>
-            ))}
-            {chart.xTicks.map((t, i) => (
-              <text key={i} x={t.x} y={chart.height - chart.padB + 16} textAnchor="middle" fontSize="9" fill="#94a3b8">{t.label}</text>
-            ))}
-          </svg>
+            })()}
+          </div>
         </div>
         <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3 text-xs">
           {chart.series.map(s => (
@@ -275,25 +328,80 @@ export default function PlanningPage() {
       {/* Rolling Average */}
       {rollingChart && rollingChart.series.length > 0 && (
         <div className="bg-white border rounded-xl shadow-sm p-6">
-          <h2 className="text-lg font-bold mb-1">Usage Rolling Average (7 &amp; 14 Day)</h2>
-          <p className="text-xs text-gray-400 mb-2">Solid = 7-day average, dashed = 14-day average. Same plant/material scope as the chart above.</p>
+          <div className="flex items-center justify-between flex-wrap gap-3 mb-1">
+            <h2 className="text-lg font-bold">Usage Rolling Average</h2>
+            <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+              {([7, 14] as RollingWindow[]).map(w => (
+                <button
+                  key={w}
+                  onClick={() => setRollingWindow(w)}
+                  className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${rollingWindow === w ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  {w}-Day
+                </button>
+              ))}
+            </div>
+          </div>
+          <p className="text-xs text-gray-400 mb-2">Same plant/material scope as the chart above. Hover for exact values.</p>
           <div className="overflow-x-auto">
-            <svg viewBox={`0 0 ${rollingChart.width} ${rollingChart.height}`} className="w-full h-56 min-w-[700px]">
-              {rollingChart.series.map(s => (
-                <g key={s.group}>
-                  <path d={s.ma14.d} fill="none" stroke={s.color} strokeWidth={1.5} strokeDasharray="5 5" opacity={0.6} />
-                  <path d={s.ma7.d} fill="none" stroke={s.color} strokeWidth={2.5} />
-                  {s.ma7.points.map((p, i) => (
-                    <circle key={i} cx={p.x} cy={p.y} r={2.5} fill={s.color}>
-                      <title>{`${s.group} — 7d avg on ${new Date(p.day + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}: ${p.value.toFixed(1)}`}</title>
-                    </circle>
-                  ))}
-                </g>
-              ))}
-              {rollingChart.xTicks.map((t, i) => (
-                <text key={i} x={t.x} y={rollingChart.height - rollingChart.padB + 16} textAnchor="middle" fontSize="9" fill="#94a3b8">{t.label}</text>
-              ))}
-            </svg>
+            <div className="relative min-w-[700px]">
+              <svg
+                viewBox={`0 0 ${rollingChart.width} ${rollingChart.height}`}
+                className="w-full h-56"
+                onMouseMove={e => setRollingHoverIdx(hoverIndexFromEvent(e, rollingChart.width, rollingChart.padL, rollingChart.plotW, rollingChart.days.length))}
+                onMouseLeave={() => setRollingHoverIdx(null)}
+              >
+                {[0, 0.25, 0.5, 0.75, 1].map(f => {
+                  const val = rollingChart.maxVal * f
+                  const yy = rollingChart.padT + rollingChart.plotH - f * rollingChart.plotH
+                  return (
+                    <g key={f}>
+                      <line x1={rollingChart.padL} y1={yy} x2={rollingChart.width - 10} y2={yy} stroke="#e2e8f0" strokeDasharray="4 4" />
+                      <text x={rollingChart.padL - 6} y={yy + 3} textAnchor="end" fontSize="9" fill="#94a3b8">{val.toFixed(1)}</text>
+                    </g>
+                  )
+                })}
+                {rollingHoverIdx !== null && (
+                  <line x1={rollingChart.xPositions[rollingHoverIdx]} x2={rollingChart.xPositions[rollingHoverIdx]} y1={rollingChart.padT} y2={rollingChart.height - rollingChart.padB} stroke="#94a3b8" strokeDasharray="3 3" />
+                )}
+                {rollingChart.series.map(s => (
+                  <g key={s.group}>
+                    <path d={s.d} fill="none" stroke={s.color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
+                    {s.points.map((p, i) => (
+                      <circle key={i} cx={p.x} cy={p.y} r={rollingHoverIdx !== null && rollingChart.days[rollingHoverIdx] === p.day ? 4.5 : 2.5} fill={s.color} />
+                    ))}
+                  </g>
+                ))}
+                {rollingChart.xTicks.map((t, i) => (
+                  <text key={i} x={t.x} y={rollingChart.height - rollingChart.padB + 16} textAnchor="middle" fontSize="9" fill="#94a3b8">{t.label}</text>
+                ))}
+              </svg>
+              {rollingHoverIdx !== null && (() => {
+                const day = rollingChart.days[rollingHoverIdx]
+                const rows = rollingChart.series.map(s => ({ ...s, point: s.points.find(p => p.day === day) })).filter(s => s.point)
+                if (rows.length === 0) return null
+                const leftPct = Math.min(92, Math.max(8, (rollingChart.xPositions[rollingHoverIdx] / rollingChart.width) * 100))
+                return (
+                  <div
+                    className="absolute top-2 -translate-x-1/2 bg-slate-900 text-white text-xs rounded-lg shadow-lg px-3 py-2 pointer-events-none z-10 max-w-[220px]"
+                    style={{ left: `${leftPct}%` }}
+                  >
+                    <div className="font-semibold mb-1">{rollingWindow}-day avg — {new Date(day + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+                    <div className="space-y-0.5">
+                      {rows.map(r => (
+                        <div key={r.group} className="flex items-center justify-between gap-3">
+                          <span className="flex items-center gap-1.5 text-slate-300 truncate">
+                            <span className="w-2 h-2 rounded-full inline-block flex-shrink-0" style={{ backgroundColor: r.color }} />
+                            {r.group}
+                          </span>
+                          <span className="font-semibold flex-shrink-0">{r.point!.value.toFixed(1)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3 text-xs">
             {rollingChart.series.map(s => (
