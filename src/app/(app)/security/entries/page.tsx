@@ -24,6 +24,7 @@ type Entry = {
   status: 'pending' | 'in' | 'out'
   time_in: string
   time_out: string | null
+  created_by: string | null
   abnormal_flag: boolean
   abnormal_reason: string | null
 }
@@ -370,7 +371,8 @@ export default function EntriesPage() {
             {detail.abnormal_flag && detail.abnormal_reason && (
               <div className="text-sm bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4 text-amber-800"><strong>Flagged:</strong> {detail.abnormal_reason}</div>
             )}
-            <div className="flex justify-end gap-2">
+            <div className="flex items-center justify-between text-xs text-gray-400">
+              <span>Attended by: {detail.created_by || '-'}</span>
               <button onClick={() => { checkout(detail.id); setDetail(null) }} className="flex items-center gap-1.5 bg-green-600 text-white text-sm font-medium px-3 py-1.5 rounded-lg hover:bg-green-700"><LogOut className="w-3.5 h-3.5" /> Check-out</button>
             </div>
           </div>

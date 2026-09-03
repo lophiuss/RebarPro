@@ -23,7 +23,7 @@ function addDays(dateStr: string, n: number) {
 }
 
 type Section = { title: string; icon?: string; rows: any[]; columns: { key: string; label: string; fmt?: (v: any, row: any) => string }[] }
-type Entry = { id: number; category: string; person_name: string; company: string | null; photo_drive_id: string | null; time_in: string; time_out: string | null; purpose: string | null; looking_for: string | null; vehicle_no: string | null; notes: string | null }
+type Entry = { id: number; category: string; person_name: string; company: string | null; photo_drive_id: string | null; time_in: string; time_out: string | null; purpose: string | null; looking_for: string | null; vehicle_no: string | null; badge_no: string | null; reference_no: string | null; notes: string | null; created_by: string | null }
 type PostLog = { guard_name: string; post_name: string; time_in: string; time_out: string | null }
 
 // One row per guard/post, one cell per hour of the day — a cell is filled if
@@ -64,6 +64,10 @@ export default function AuditPage() {
   const [postTimeline, setPostTimeline] = useState<{ name: string; cells: (string | null)[] }[]>([])
   const [activity, setActivity] = useState<ActivityEvent[]>([])
   const containerRef = useRef<HTMLDivElement>(null)
+  const [showRangeExport, setShowRangeExport] = useState(false)
+  const [rangeFrom, setRangeFrom] = useState(isoToday())
+  const [rangeTo, setRangeTo] = useState(isoToday())
+  const [rangeExporting, setRangeExporting] = useState(false)
 
   useEffect(() => { load() }, [date])
 
@@ -149,6 +153,97 @@ export default function AuditPage() {
     URL.revokeObjectURL(url)
   }
 
+  function csvCell(v: any) {
+    return `"${String(v ?? '-').replace(/"/g, '""')}"`
+  }
+  function csvRow(cells: any[]) {
+    return cells.map(csvCell).join(',') + '\n'
+  }
+
+  // Full log export for an arbitrary date range — separate from the daily
+  // audit view above (which only covers `date`), and queried fresh rather
+  // than reusing that day's already-loaded state.
+  async function exportDateRange() {
+    if (!rangeFrom || !rangeTo || rangeFrom > rangeTo) { alert('Please pick a valid From/To date range.'); return }
+    setRangeExporting(true)
+    try {
+      const rangeStart = new Date(rangeFrom + 'T00:00:00').toISOString()
+      const rangeEnd = new Date(rangeTo + 'T23:59:59.999').toISOString()
+
+      const [
+        { data: entries }, { data: postLogs }, { data: gateEvents }, { data: keyLogs }, { data: incidents }, { data: panics },
+      ] = await Promise.all([
+        supabase.from('security_entries').select('*').gte('time_in', rangeStart).lte('time_in', rangeEnd).order('time_in'),
+        supabase.from('security_post_logs').select('*').gte('time_in', rangeStart).lte('time_in', rangeEnd).order('time_in'),
+        supabase.from('security_gate_events').select('*').gte('created_at', rangeStart).lte('created_at', rangeEnd).order('created_at'),
+        supabase.from('security_key_logs').select('*').gte('time_issued', rangeStart).lte('time_issued', rangeEnd).order('time_issued'),
+        supabase.from('security_incidents').select('*').gte('created_at', rangeStart).lte('created_at', rangeEnd).order('created_at'),
+        supabase.from('security_panic_logs').select('*').gte('created_at', rangeStart).lte('created_at', rangeEnd).order('created_at'),
+      ])
+
+      let csv = csvRow(['Security Log Export'])
+      csv += csvRow(['Date Range', `${rangeFrom} to ${rangeTo}`])
+      csv += csvRow(['Generated', new Date().toLocaleString()])
+      csv += '\n'
+
+      const CAT_LABEL: Record<string, string> = { visitor: 'Visitor', delivery: 'Delivery / Lorry', inhouse: 'In-House' }
+      csv += csvRow([`Visitor / Delivery (Lorry) / In-House Entries (${(entries || []).length})`])
+      csv += csvRow(['Type', 'Name', 'Company', 'Purpose', 'Looking For', 'Vehicle No', 'Badge No', 'Ref/DO No', 'Status', 'Time In', 'Time Out', 'Attended By', 'Abnormal?', 'Abnormal Reason', 'Notes'])
+      for (const e of entries || []) {
+        csv += csvRow([
+          CAT_LABEL[e.category] || e.category, e.person_name, e.company, e.purpose, e.looking_for, e.vehicle_no, e.badge_no, e.reference_no,
+          e.status, new Date(e.time_in).toLocaleString(), e.time_out ? new Date(e.time_out).toLocaleString() : null,
+          e.created_by, e.abnormal_flag ? 'Yes' : 'No', e.abnormal_reason, e.notes,
+        ])
+      }
+      csv += '\n'
+
+      csv += csvRow([`Guard Post Logs (${(postLogs || []).length})`])
+      csv += csvRow(['Post', 'Guard', 'Time In', 'Time Out', 'Notes', 'Logged By'])
+      for (const p of postLogs || []) {
+        csv += csvRow([p.post_name, p.guard_name, new Date(p.time_in).toLocaleString(), p.time_out ? new Date(p.time_out).toLocaleString() : null, p.notes, p.created_by])
+      }
+      csv += '\n'
+
+      csv += csvRow([`Gate Events (${(gateEvents || []).length})`])
+      csv += csvRow(['Gate', 'Action', 'By', 'Time'])
+      for (const g of gateEvents || []) {
+        csv += csvRow([g.gate_name, g.action, g.username, new Date(g.created_at).toLocaleString()])
+      }
+      csv += '\n'
+
+      csv += csvRow([`Key Logs (${(keyLogs || []).length})`])
+      csv += csvRow(['Key', 'Issued To', 'Issued By', 'Purpose', 'Time Out', 'Time In', 'Status', 'Returned By'])
+      for (const k of keyLogs || []) {
+        csv += csvRow([k.key_name, k.issued_to, k.issued_by, k.purpose, new Date(k.time_issued).toLocaleString(), k.time_returned ? new Date(k.time_returned).toLocaleString() : null, k.status, k.returned_by])
+      }
+      csv += '\n'
+
+      csv += csvRow([`Incident Reports (${(incidents || []).length})`])
+      csv += csvRow(['Type', 'Severity', 'Description', 'Location', 'Reported By', 'Status', 'Time'])
+      for (const i of incidents || []) {
+        csv += csvRow([i.type, i.severity, i.description, i.location, i.reported_by, i.status, new Date(i.created_at).toLocaleString()])
+      }
+      csv += '\n'
+
+      csv += csvRow([`Panic Alarms (${(panics || []).length})`])
+      csv += csvRow(['Triggered By', 'Remark', 'Time'])
+      for (const p of panics || []) {
+        csv += csvRow([p.triggered_by, p.remark, new Date(p.created_at).toLocaleString()])
+      }
+
+      const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `Security_Log_Export_${rangeFrom}_to_${rangeTo}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } finally {
+      setRangeExporting(false)
+    }
+  }
+
   const totalFlags = anomalySections.reduce((s, sec) => s + sec.rows.length, 0)
   const isToday = date === isoToday()
 
@@ -200,12 +295,30 @@ export default function AuditPage() {
       <div className="flex items-center justify-between flex-wrap gap-3 mb-6">
         <h1 className="text-3xl font-bold flex items-center gap-2"><ClipboardList className="w-7 h-7 text-blue-600" /> Audit &amp; History</h1>
         <div className="flex items-center gap-2">
-          <button onClick={exportCSV} className="flex items-center gap-1.5 bg-gray-100 text-gray-700 text-sm font-medium px-3 py-2 rounded-lg hover:bg-gray-200"><Download className="w-4 h-4" /> Excel/CSV</button>
+          <button onClick={exportCSV} className="flex items-center gap-1.5 bg-gray-100 text-gray-700 text-sm font-medium px-3 py-2 rounded-lg hover:bg-gray-200" title="Export just this day's audit view"><Download className="w-4 h-4" /> Export Today</button>
+          <button onClick={() => setShowRangeExport(s => !s)} className={`flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg ${showRangeExport ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}><Download className="w-4 h-4" /> Export by Date Range</button>
           <button onClick={() => setDate(d => addDays(d, -1))} className="p-2 bg-gray-100 rounded-lg hover:bg-gray-200"><ChevronLeft className="w-4 h-4" /></button>
           <input type="date" value={date} onChange={e => setDate(e.target.value)} className="border rounded-md px-3 py-2 text-sm" />
           <button onClick={() => setDate(d => addDays(d, 1))} disabled={isToday} className="p-2 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-40"><ChevronRight className="w-4 h-4" /></button>
         </div>
       </div>
+
+      {showRangeExport && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl shadow-sm p-5 mb-6 flex flex-wrap items-end gap-3">
+          <div>
+            <label className="block text-xs font-semibold text-blue-800 mb-1">From</label>
+            <input type="date" value={rangeFrom} onChange={e => setRangeFrom(e.target.value)} max={isoToday()} className="border rounded-md px-3 py-2 text-sm bg-white" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-blue-800 mb-1">To</label>
+            <input type="date" value={rangeTo} onChange={e => setRangeTo(e.target.value)} max={isoToday()} className="border rounded-md px-3 py-2 text-sm bg-white" />
+          </div>
+          <button onClick={exportDateRange} disabled={rangeExporting} className="flex items-center gap-1.5 bg-blue-600 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-blue-700">
+            <Download className="w-4 h-4" /> {rangeExporting ? 'Exporting...' : 'Download Excel/CSV'}
+          </button>
+          <p className="text-xs text-blue-700 basis-full">Includes visitor / delivery (lorry) / in-house entries, guard post logs, gate events, key logs, incidents and panic alarms for the selected range, in one file.</p>
+        </div>
+      )}
 
       <div className="bg-white border rounded-xl shadow-sm p-5 mb-6" data-audit-card>
         <h2 className="text-sm font-bold text-slate-700 mb-3" data-audit-title>🚨 {isToday ? "Today's Anomalies & Incidents" : `Anomalies & Incidents for ${date}`}</h2>
@@ -305,6 +418,8 @@ export default function AuditPage() {
                 <div className="space-y-1">
                   <div><strong>Company:</strong> {entryDetail.company || '-'}</div>
                   <div><strong>Vehicle:</strong> {entryDetail.vehicle_no || '-'}</div>
+                  <div><strong>Badge:</strong> {entryDetail.badge_no || '-'}</div>
+                  <div><strong>Ref/DO:</strong> {entryDetail.reference_no || '-'}</div>
                   <div><strong>In:</strong> {new Date(entryDetail.time_in).toLocaleString()}</div>
                   <div><strong>Out:</strong> {entryDetail.time_out ? new Date(entryDetail.time_out).toLocaleString() : '-'}</div>
                 </div>
@@ -312,7 +427,8 @@ export default function AuditPage() {
             </div>
             {entryDetail.purpose && <div className="text-sm mb-2"><strong>Purpose:</strong> {entryDetail.purpose}</div>}
             {entryDetail.looking_for && <div className="text-sm mb-2"><strong>Looking for:</strong> {entryDetail.looking_for}</div>}
-            {entryDetail.notes && <div className="text-sm bg-gray-50 border rounded-lg px-3 py-2"><strong>Notes:</strong> {entryDetail.notes}</div>}
+            {entryDetail.notes && <div className="text-sm bg-gray-50 border rounded-lg px-3 py-2 mb-3"><strong>Notes:</strong> {entryDetail.notes}</div>}
+            <div className="text-xs text-gray-400 pt-2 border-t">Attended by: {entryDetail.created_by || '-'}</div>
           </div>
         </div>
       )}
