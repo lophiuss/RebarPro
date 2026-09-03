@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { uploadSecurityPhoto } from '../actions'
-import { ClipboardEdit, LogOut, AlertTriangle, Camera, UserCheck, X } from 'lucide-react'
+import { ClipboardEdit, LogOut, AlertTriangle, UserCheck, X } from 'lucide-react'
 import PhotoLightbox from '@/components/PhotoLightbox'
+import PhotoPicker from '@/components/PhotoPicker'
 
 type Category = 'visitor' | 'delivery' | 'inhouse'
 
@@ -68,7 +69,7 @@ export default function EntriesPage() {
   const [approving2, setApproving2] = useState(false)
   const [zoomSrc, setZoomSrc] = useState<string | null>(null)
 
-  const [form, setForm] = useState({ person_name: '', company: '', purpose: '', vehicle_no: '', badge_no: '', reference_no: '', notes: '' })
+  const [form, setForm] = useState({ person_name: '', company: '', purpose: '', looking_for: '', vehicle_no: '', badge_no: '', reference_no: '', notes: '' })
   const [photoFile, setPhotoFile] = useState<File | null>(null)
 
   useEffect(() => { load() }, [category])
@@ -106,6 +107,7 @@ export default function EntriesPage() {
         person_name: form.person_name.trim(),
         company: form.company || null,
         purpose: form.purpose || null,
+        looking_for: form.looking_for || null,
         vehicle_no: form.vehicle_no || null,
         badge_no: form.badge_no || null,
         reference_no: form.reference_no || null,
@@ -117,7 +119,7 @@ export default function EntriesPage() {
       }])
       if (error) throw error
 
-      setForm({ person_name: '', company: '', purpose: '', vehicle_no: '', badge_no: '', reference_no: '', notes: '' })
+      setForm({ person_name: '', company: '', purpose: '', looking_for: '', vehicle_no: '', badge_no: '', reference_no: '', notes: '' })
       setPhotoFile(null)
       await load()
     } catch (err: any) {
@@ -234,6 +236,10 @@ export default function EntriesPage() {
             <label className="block text-xs font-medium text-gray-500 mb-1">Purpose</label>
             <input value={form.purpose} onChange={e => setForm({ ...form, purpose: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
           </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Who Are They Looking For?</label>
+            <input value={form.looking_for} onChange={e => setForm({ ...form, looking_for: e.target.value })} placeholder="Name or department" className="w-full border rounded-md px-3 py-2 text-sm" />
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-gray-500 mb-1">Vehicle No</label>
@@ -252,10 +258,7 @@ export default function EntriesPage() {
             <label className="block text-xs font-medium text-gray-500 mb-1">Notes</label>
             <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" rows={2} />
           </div>
-          <div>
-            <label className="flex items-center gap-1.5 text-xs font-medium text-gray-500 mb-1"><Camera className="w-3.5 h-3.5" /> Photo</label>
-            <input type="file" accept="image/*" capture="environment" onChange={e => setPhotoFile(e.target.files?.[0] ?? null)} className="w-full text-sm" />
-          </div>
+          <PhotoPicker file={photoFile} onChange={setPhotoFile} />
           <button type="submit" disabled={submitting} className="w-full bg-blue-600 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2.5 rounded-lg hover:bg-blue-700 mt-2">
             {submitting ? 'Saving...' : `Check In`}
           </button>
@@ -321,8 +324,7 @@ export default function EntriesPage() {
               {[approving.company, approving.purpose].filter(Boolean).join(' · ') || '-'}
               {approving.looking_for && <div className="mt-1">Looking for: <strong>{approving.looking_for}</strong></div>}
             </div>
-            <label className="flex items-center gap-1.5 text-xs font-medium text-gray-500 mb-1"><Camera className="w-3.5 h-3.5" /> Photo</label>
-            <input type="file" accept="image/*" capture="environment" onChange={e => setApprovePhoto(e.target.files?.[0] ?? null)} className="w-full text-sm mb-4" />
+            <div className="mb-4"><PhotoPicker file={approvePhoto} onChange={setApprovePhoto} /></div>
             <div className="flex justify-end gap-3">
               <button onClick={() => setApproving(null)} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-200">Cancel</button>
               <button onClick={approveVisitor} disabled={approving2} className="bg-green-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-green-700">

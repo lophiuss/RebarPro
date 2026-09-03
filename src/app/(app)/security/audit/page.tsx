@@ -21,7 +21,7 @@ function addDays(dateStr: string, n: number) {
 }
 
 type Section = { title: string; icon?: string; rows: any[]; columns: { key: string; label: string; fmt?: (v: any, row: any) => string }[] }
-type Entry = { id: number; category: string; person_name: string; company: string | null; photo_drive_id: string | null; time_in: string; time_out: string | null; purpose: string | null; vehicle_no: string | null; notes: string | null }
+type Entry = { id: number; category: string; person_name: string; company: string | null; photo_drive_id: string | null; time_in: string; time_out: string | null; purpose: string | null; looking_for: string | null; vehicle_no: string | null; notes: string | null }
 type PostLog = { guard_name: string; post_name: string; time_in: string; time_out: string | null }
 
 // One row per guard/post, one cell per hour of the day — a cell is filled if
@@ -227,12 +227,8 @@ export default function AuditPage() {
             <h3 className="text-xs font-bold text-blue-600 uppercase mb-2">📸 Visitor / Delivery Photos</h3>
             <div className="flex flex-wrap gap-3">
               {photoEntries.map(e => (
-                <button key={e.id} onClick={() => setEntryDetail(e)} className="w-28 border rounded-lg overflow-hidden bg-white shadow-sm hover:shadow-md hover:-translate-y-0.5 transition text-left flex-shrink-0">
-                  <img
-                    src={`/api/security/photo/${e.photo_drive_id}`}
-                    className="w-full h-[85px] object-cover cursor-zoom-in"
-                    onClick={ev => { ev.stopPropagation(); setZoomSrc(`/api/security/photo/${e.photo_drive_id}`) }}
-                  />
+                <button key={e.id} onClick={() => setEntryDetail(e)} title="View check-in / check-out details" className="w-28 border rounded-lg overflow-hidden bg-white shadow-sm hover:shadow-md hover:-translate-y-0.5 transition text-left flex-shrink-0">
+                  <img src={`/api/security/photo/${e.photo_drive_id}`} className="w-full h-[85px] object-cover" />
                   <div className="px-2 py-1.5">
                     <div className="text-xs font-bold text-slate-800 truncate" title={e.person_name}>{e.person_name}</div>
                     <div className="text-[10px] text-gray-500">{new Date(e.time_in).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</div>
@@ -297,6 +293,7 @@ export default function AuditPage() {
               </div>
             </div>
             {entryDetail.purpose && <div className="text-sm mb-2"><strong>Purpose:</strong> {entryDetail.purpose}</div>}
+            {entryDetail.looking_for && <div className="text-sm mb-2"><strong>Looking for:</strong> {entryDetail.looking_for}</div>}
             {entryDetail.notes && <div className="text-sm bg-gray-50 border rounded-lg px-3 py-2"><strong>Notes:</strong> {entryDetail.notes}</div>}
           </div>
         </div>

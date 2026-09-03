@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { uploadSecurityPhoto } from '../actions'
-import { Siren, Camera } from 'lucide-react'
+import { Siren } from 'lucide-react'
 import PhotoLightbox from '@/components/PhotoLightbox'
+import PhotoPicker from '@/components/PhotoPicker'
 
 type Incident = {
   id: number
@@ -130,8 +131,7 @@ export default function IncidentsPage() {
             </select>
           </div>
           <div>
-            <label className="flex items-center gap-1.5 text-xs font-medium text-gray-500 mb-1"><Camera className="w-3.5 h-3.5" /> Photo</label>
-            <input type="file" accept="image/*" capture="environment" onChange={e => setPhotoFile(e.target.files?.[0] ?? null)} className="w-full text-sm" />
+            <PhotoPicker label="Photo Evidence" file={photoFile} onChange={setPhotoFile} />
           </div>
           <button type="submit" disabled={submitting} className="w-full bg-red-600 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2.5 rounded-lg hover:bg-red-700 mt-2">
             {submitting ? 'Saving...' : 'Report Incident'}
