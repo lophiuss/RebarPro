@@ -12,6 +12,27 @@ const PALETTE = ['#2563eb', '#dc2626', '#059669', '#d97706', '#9333ea', '#0891b2
 
 type ViewMode = 'all' | 'plant' | 'material'
 
+function isoDaysAgo(n: number) {
+  return new Date(Date.now() - n * 86400000).toISOString().split('T')[0]
+}
+
+// Builds an SVG path that skips days a group has no data for (a gap in the
+// line) instead of dropping to zero, plus the list of real points for
+// tooltip circles.
+function buildSeries(days: string[], byDay: Map<string, number>, x: (i: number) => number, y: (v: number) => number) {
+  let d = ''
+  let started = false
+  const points: { x: number; y: number; day: string; value: number }[] = []
+  days.forEach((day, i) => {
+    const v = byDay.get(day)
+    if (v === undefined) { started = false; return }
+    d += `${started ? 'L' : 'M'} ${x(i).toFixed(1)} ${y(v).toFixed(1)} `
+    started = true
+    points.push({ x: x(i), y: y(v), day, value: v })
+  })
+  return { d: d.trim(), points }
+}
+
 export default function PlanningPage() {
   const supabase = createClient()
   const [silos, setSilos] = useState<SiloStock[]>([])
@@ -19,25 +40,33 @@ export default function PlanningPage() {
   const [usage, setUsage] = useState<UsageRow[]>([])
   const [reqInputs, setReqInputs] = useState<Record<number, string>>({})
   const [viewMode, setViewMode] = useState<ViewMode>('all')
+  const [pickedPlant, setPickedPlant] = useState('')
+  const [pickedMaterial, setPickedMaterial] = useState('')
+  const [fromDate, setFromDate] = useState(isoDaysAgo(30))
+  const [toDate, setToDate] = useState(isoDaysAgo(0))
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { loadStatic() }, [])
+  useEffect(() => { loadUsage() }, [fromDate, toDate])
 
-  async function load() {
-    const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0]
-
-    const [{ data: stockRows }, { data: matRows }, { data: usageRows }] = await Promise.all([
+  async function loadStatic() {
+    const [{ data: stockRows }, { data: matRows }] = await Promise.all([
       supabase.rpc('cement_silo_stock'),
       supabase.from('cement_materials').select('id, name, batching_req').eq('is_active', true).order('name'),
-      supabase.from('cement_daily_usage')
-        .select('usage_date, usage, cement_silos(name, cement_plants(name), cement_silo_materials(cement_materials(name)))')
-        .gte('usage_date', cutoff),
     ])
-
     setSilos((stockRows || []).map((s: any) => ({ ...s, current_stock: Number(s.current_stock) })))
     setMaterials(matRows || [])
     const reqs: Record<number, string> = {}
     ;(matRows || []).forEach((m: any) => { reqs[m.id] = String(m.batching_req ?? 0) })
     setReqInputs(reqs)
+  }
+
+  async function loadUsage() {
+    if (!fromDate || !toDate) return
+    const { data: usageRows } = await supabase
+      .from('cement_daily_usage')
+      .select('usage_date, usage, cement_silos(name, cement_plants(name), cement_silo_materials(cement_materials(name)))')
+      .gte('usage_date', fromDate)
+      .lte('usage_date', toDate)
 
     const mappedUsage: UsageRow[] = (usageRows || []).map((r: any) => {
       const silo = r.cement_silos
@@ -60,30 +89,52 @@ export default function PlanningPage() {
     alert('Saved!')
   }
 
-  // --- Chart: daily usage, last 30 days. viewMode groups lines by combo / plant / material ---
-  const chart = useMemo(() => {
-    const days: string[] = []
-    for (let i = 29; i >= 0; i--) days.push(new Date(Date.now() - i * 86400000).toISOString().split('T')[0])
+  const availablePlants = useMemo(() => Array.from(new Set(usage.map(u => u.plant))).sort(), [usage])
+  const availableMaterials = useMemo(() => Array.from(new Set(usage.map(u => u.material))).sort(), [usage])
 
-    const keyOf = (u: UsageRow) => viewMode === 'plant' ? u.plant : viewMode === 'material' ? u.material : `${u.plant} - ${u.material}`
-    const groups = Array.from(new Set(usage.map(keyOf))).sort()
-    const series = groups.map((group, i) => {
-      const data = days.map(d => usage.filter(u => u.usage_date === d && keyOf(u) === group).reduce((s, u) => s + u.usage, 0))
-      return { combo: group, color: PALETTE[i % PALETTE.length], data }
-    })
-    const maxVal = Math.max(1, ...series.flatMap(s => s.data))
+  // Default the picker to the first option once data loads, and keep it valid
+  // if the list changes (e.g. a new date range no longer includes it).
+  useEffect(() => {
+    if (viewMode === 'plant' && !availablePlants.includes(pickedPlant)) setPickedPlant(availablePlants[0] || '')
+    if (viewMode === 'material' && !availableMaterials.includes(pickedMaterial)) setPickedMaterial(availableMaterials[0] || '')
+  }, [viewMode, availablePlants, availableMaterials])
+
+  // "All" = every plant+material combo. "By Plant"/"By Material" narrow down
+  // to one specific plant or material (picked below) and break that one down
+  // by the other dimension — not an aggregate across everything.
+  const scopedUsage = useMemo(() => {
+    if (viewMode === 'plant' && pickedPlant) return usage.filter(u => u.plant === pickedPlant)
+    if (viewMode === 'material' && pickedMaterial) return usage.filter(u => u.material === pickedMaterial)
+    return usage
+  }, [usage, viewMode, pickedPlant, pickedMaterial])
+
+  const keyOf = (u: UsageRow) => viewMode === 'plant' ? u.material : viewMode === 'material' ? u.plant : `${u.plant} - ${u.material}`
+
+  // --- Chart: daily usage. Days with no usage recorded at all are left out
+  // of the x-axis entirely, and a group missing data on a day it does show
+  // gets a gap in its line rather than a misleading drop to zero. ---
+  const chart = useMemo(() => {
+    const days = Array.from(new Set(scopedUsage.map(u => u.usage_date))).sort()
+    const groups = Array.from(new Set(scopedUsage.map(keyOf))).sort()
 
     const width = 900, height = 260, padL = 50, padR = 10, padT = 10, padB = 24
     const plotW = width - padL - padR, plotH = height - padT - padB
     const x = (i: number) => padL + (days.length <= 1 ? 0 : (i / (days.length - 1)) * plotW)
+
+    const byDayPerGroup = groups.map(group => {
+      const byDay = new Map<string, number>()
+      scopedUsage.filter(u => keyOf(u) === group).forEach(u => byDay.set(u.usage_date, (byDay.get(u.usage_date) || 0) + u.usage))
+      return { group, byDay }
+    })
+    const maxVal = Math.max(1, ...byDayPerGroup.flatMap(g => Array.from(g.byDay.values())))
     const y = (v: number) => padT + plotH - (v / maxVal) * plotH
 
-    const paths = series.map(s => ({
-      ...s,
-      d: s.data.map((v, i) => `${i === 0 ? 'M' : 'L'} ${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(' '),
+    const series = byDayPerGroup.map((g, i) => ({
+      combo: g.group,
+      color: PALETTE[i % PALETTE.length],
+      ...buildSeries(days, g.byDay, x, y),
     }))
 
-    // A handful of evenly-spaced date labels along the x-axis, rather than all 30.
     const tickCount = Math.min(6, days.length)
     const xTicks = Array.from({ length: tickCount }, (_, i) => {
       const idx = tickCount <= 1 ? 0 : Math.round((i / (tickCount - 1)) * (days.length - 1))
@@ -91,8 +142,52 @@ export default function PlanningPage() {
       return { x: x(idx), label }
     })
 
-    return { days, series: paths, width, height, padL, padT, padB, plotH, maxVal, xTicks }
-  }, [usage, viewMode])
+    return { days, series, width, height, padL, padT, padB, plotH, maxVal, xTicks }
+  }, [scopedUsage, viewMode])
+
+  // --- Rolling average: 7-day and 14-day, over every calendar day in range
+  // (zero-filled) so the average is a true trailing average, not just of the
+  // days that happened to have usage. Follows the same All/Plant/Material
+  // scope as the chart above. ---
+  const rollingChart = useMemo(() => {
+    if (!fromDate || !toDate) return null
+    const allDays: string[] = []
+    for (let d = new Date(fromDate + 'T00:00:00'); d <= new Date(toDate + 'T00:00:00'); d.setDate(d.getDate() + 1)) {
+      allDays.push(d.toISOString().split('T')[0])
+    }
+    const groups = Array.from(new Set(scopedUsage.map(keyOf))).sort()
+
+    const width = 900, height = 240, padL = 50, padR = 10, padT = 10, padB = 24
+    const plotW = width - padL - padR, plotH = height - padT - padB
+    const x = (i: number) => padL + (allDays.length <= 1 ? 0 : (i / (allDays.length - 1)) * plotW)
+
+    const movingAvg = (daily: number[], window: number) => daily.map((_, idx) => {
+      const slice = daily.slice(Math.max(0, idx - window + 1), idx + 1)
+      return slice.reduce((s, v) => s + v, 0) / slice.length
+    })
+
+    const perGroup = groups.map((group, i) => {
+      const byDay = new Map<string, number>()
+      scopedUsage.filter(u => keyOf(u) === group).forEach(u => byDay.set(u.usage_date, (byDay.get(u.usage_date) || 0) + u.usage))
+      const daily = allDays.map(d => byDay.get(d) ?? 0)
+      return { group, color: PALETTE[i % PALETTE.length], ma7: movingAvg(daily, 7), ma14: movingAvg(daily, 14) }
+    })
+
+    const maxVal = Math.max(1, ...perGroup.flatMap(g => [...g.ma7, ...g.ma14]))
+    const y = (v: number) => padT + plotH - (v / maxVal) * plotH
+    const toSeries = (values: number[]) => buildSeries(allDays, new Map(allDays.map((d, i) => [d, values[i]])), x, y)
+
+    const series = perGroup.map(g => ({ group: g.group, color: g.color, ma7: toSeries(g.ma7), ma14: toSeries(g.ma14) }))
+
+    const tickCount = Math.min(6, allDays.length)
+    const xTicks = Array.from({ length: tickCount }, (_, i) => {
+      const idx = tickCount <= 1 ? 0 : Math.round((i / (tickCount - 1)) * (allDays.length - 1))
+      const label = new Date(allDays[idx] + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      return { x: x(idx), label }
+    })
+
+    return { series, width, height, padL, padT, padB, plotH, xTicks }
+  }, [scopedUsage, viewMode, fromDate, toDate])
 
   const byPlant = new Map<string, SiloStock[]>()
   for (const s of silos) {
@@ -107,19 +202,38 @@ export default function PlanningPage() {
       {/* Usage Trend Chart */}
       <div className="bg-white border rounded-xl shadow-sm p-6">
         <div className="flex items-center justify-between flex-wrap gap-3 mb-1">
-          <h2 className="text-lg font-bold flex items-center gap-2"><LineChart className="w-5 h-5 text-blue-600" /> Material Usage Trends (Last 30 Days)</h2>
-          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-            {(['all', 'plant', 'material'] as ViewMode[]).map(mode => (
-              <button
-                key={mode}
-                onClick={() => setViewMode(mode)}
-                className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${viewMode === mode ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-              >
-                {mode === 'all' ? 'See All' : mode === 'plant' ? 'By Plant' : 'By Material'}
-              </button>
-            ))}
+          <h2 className="text-lg font-bold flex items-center gap-2"><LineChart className="w-5 h-5 text-blue-600" /> Material Usage Trends</h2>
+          <div className="flex items-center gap-2 flex-wrap">
+            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="border rounded-md px-2 py-1.5 text-xs" />
+            <span className="text-xs text-gray-400">to</span>
+            <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className="border rounded-md px-2 py-1.5 text-xs" />
+            <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+              {(['all', 'plant', 'material'] as ViewMode[]).map(mode => (
+                <button
+                  key={mode}
+                  onClick={() => setViewMode(mode)}
+                  className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${viewMode === mode ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  {mode === 'all' ? 'See All' : mode === 'plant' ? 'By Plant' : 'By Material'}
+                </button>
+              ))}
+            </div>
+            {viewMode === 'plant' && (
+              <select value={pickedPlant} onChange={e => setPickedPlant(e.target.value)} className="border rounded-md px-2 py-1.5 text-xs bg-white">
+                {availablePlants.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            )}
+            {viewMode === 'material' && (
+              <select value={pickedMaterial} onChange={e => setPickedMaterial(e.target.value)} className="border rounded-md px-2 py-1.5 text-xs bg-white">
+                {availableMaterials.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            )}
           </div>
         </div>
+        <p className="text-xs text-gray-400 mb-2">
+          {viewMode === 'all' ? 'Every plant + material combination.' : viewMode === 'plant' ? `Materials used at ${pickedPlant || '—'}.` : `Plants using ${pickedMaterial || '—'}.`}
+          {' '}Hover a point for its exact value. Days with no usage recorded are left off the axis.
+        </p>
         <div className="overflow-x-auto">
           <svg viewBox={`0 0 ${chart.width} ${chart.height}`} className="w-full h-64 min-w-[700px]">
             {[0, 0.25, 0.5, 0.75, 1].map(f => {
@@ -133,7 +247,14 @@ export default function PlanningPage() {
               )
             })}
             {chart.series.map(s => (
-              <path key={s.combo} d={s.d} fill="none" stroke={s.color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+              <g key={s.combo}>
+                <path d={s.d} fill="none" stroke={s.color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                {s.points.map((p, i) => (
+                  <circle key={i} cx={p.x} cy={p.y} r={3} fill={s.color} className="cursor-pointer">
+                    <title>{`${s.combo} — ${new Date(p.day + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}: ${p.value.toLocaleString()}`}</title>
+                  </circle>
+                ))}
+              </g>
             ))}
             {chart.xTicks.map((t, i) => (
               <text key={i} x={t.x} y={chart.height - chart.padB + 16} textAnchor="middle" fontSize="9" fill="#94a3b8">{t.label}</text>
@@ -147,9 +268,43 @@ export default function PlanningPage() {
               {s.combo}
             </span>
           ))}
-          {chart.series.length === 0 && <span className="text-gray-400">No usage recorded in the last 30 days.</span>}
+          {chart.series.length === 0 && <span className="text-gray-400">No usage recorded in this range.</span>}
         </div>
       </div>
+
+      {/* Rolling Average */}
+      {rollingChart && rollingChart.series.length > 0 && (
+        <div className="bg-white border rounded-xl shadow-sm p-6">
+          <h2 className="text-lg font-bold mb-1">Usage Rolling Average (7 &amp; 14 Day)</h2>
+          <p className="text-xs text-gray-400 mb-2">Solid = 7-day average, dashed = 14-day average. Same plant/material scope as the chart above.</p>
+          <div className="overflow-x-auto">
+            <svg viewBox={`0 0 ${rollingChart.width} ${rollingChart.height}`} className="w-full h-56 min-w-[700px]">
+              {rollingChart.series.map(s => (
+                <g key={s.group}>
+                  <path d={s.ma14.d} fill="none" stroke={s.color} strokeWidth={1.5} strokeDasharray="5 5" opacity={0.6} />
+                  <path d={s.ma7.d} fill="none" stroke={s.color} strokeWidth={2.5} />
+                  {s.ma7.points.map((p, i) => (
+                    <circle key={i} cx={p.x} cy={p.y} r={2.5} fill={s.color}>
+                      <title>{`${s.group} — 7d avg on ${new Date(p.day + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}: ${p.value.toFixed(1)}`}</title>
+                    </circle>
+                  ))}
+                </g>
+              ))}
+              {rollingChart.xTicks.map((t, i) => (
+                <text key={i} x={t.x} y={rollingChart.height - rollingChart.padB + 16} textAnchor="middle" fontSize="9" fill="#94a3b8">{t.label}</text>
+              ))}
+            </svg>
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3 text-xs">
+            {rollingChart.series.map(s => (
+              <span key={s.group} className="flex items-center gap-1.5 text-gray-600">
+                <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: s.color }} />
+                {s.group}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-6">
         {/* Batching Capacity */}

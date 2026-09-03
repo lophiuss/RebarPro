@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ScrollText, X } from 'lucide-react'
+import { ScrollText, X, Download } from 'lucide-react'
 
 type Row = {
   id: number
@@ -83,6 +83,44 @@ export default function RecordsPage() {
   function search() { setPage(1); load() }
   function reset() { setFilters({ date: '', plant_id: '', material_id: '', supplier: '' }); setPage(1) }
 
+  const EXPORT_LIMIT = 5000
+
+  async function exportExcel() {
+    let q = supabase
+      .from('cement_weight_in')
+      .select('lorry_no, weigh_date, plant_id, material_id, material, supplier, do_number, do_weight, weight_in, weight_out, weight_out_operator, cement_plants(name), cement_materials(name)')
+      .not('weight_out', 'is', null)
+      .order('weight_out_time', { ascending: false })
+      .limit(EXPORT_LIMIT)
+
+    if (filters.date) q = q.eq('weigh_date', filters.date)
+    if (filters.plant_id) q = q.eq('plant_id', filters.plant_id)
+    if (filters.material_id) q = q.eq('material_id', filters.material_id)
+    if (filters.supplier) q = q.eq('supplier', filters.supplier)
+
+    const { data, error } = await q
+    if (error) { alert('Error exporting: ' + error.message); return }
+
+    const headers = ['Date', 'Plant', 'Lorry No', 'DO Number', 'Supplier', 'Material', 'Weight In', 'Weight Out', 'Actual', 'DO Weight', 'Diff %', 'Operator']
+    const csvRows = (data || []).map((r: any) => {
+      const actual = r.weight_in != null && r.weight_out != null ? r.weight_in - r.weight_out : null
+      const diffPct = actual !== null && r.do_weight ? ((actual - r.do_weight) / r.do_weight) * 100 : null
+      return [
+        r.weigh_date, r.cement_plants?.name ?? '-', r.lorry_no, r.do_number ?? '', r.supplier ?? '',
+        r.cement_materials?.name ?? r.material ?? '', r.weight_in ?? '', r.weight_out ?? '',
+        actual ?? '', r.do_weight ?? '', diffPct !== null ? diffPct.toFixed(2) + '%' : '', r.weight_out_operator ?? '',
+      ]
+    })
+    const csv = [headers, ...csvRows].map(row => row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `cement_records${filters.date ? '_' + filters.date : ''}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   async function saveEdit() {
     if (!editRow) return
     if (!confirm('Are you sure you want to update this record?')) return
@@ -148,6 +186,9 @@ export default function RecordsPage() {
         </div>
         <button onClick={search} className="bg-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-blue-700">Search</button>
         <button onClick={reset} className="bg-gray-100 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-200">Reset</button>
+        <button onClick={exportExcel} className="flex items-center gap-1.5 bg-green-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-green-700 ml-auto">
+          <Download className="w-4 h-4" /> Export Excel
+        </button>
       </div>
 
       <div className="bg-white border rounded-xl shadow-sm overflow-x-auto">

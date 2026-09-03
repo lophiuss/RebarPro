@@ -47,6 +47,8 @@ export default function ReportPage() {
   const [siloFilter, setSiloFilter] = useState('')
   const [materialFilter, setMaterialFilter] = useState('')
   const [chartViewMode, setChartViewMode] = useState<ChartViewMode>('all')
+  const [chartPlant, setChartPlant] = useState('')
+  const [chartMaterial, setChartMaterial] = useState('')
 
   useEffect(() => { load() }, [])
 
@@ -77,12 +79,25 @@ export default function ReportPage() {
 
   const limited = filtered.slice(0, MAX_ROWS)
 
-  // --- Theoretical vs Actual trend chart. chartViewMode splits the lines by plant/material ---
+  const chartPlants = useMemo(() => Array.from(new Set(filtered.map(r => r.plant_name))).sort(), [filtered])
+  const chartMaterials = useMemo(() => Array.from(new Set(filtered.map(r => r.material_name).filter(Boolean))).sort() as string[], [filtered])
+  useEffect(() => {
+    if (chartViewMode === 'plant' && !chartPlants.includes(chartPlant)) setChartPlant(chartPlants[0] || '')
+    if (chartViewMode === 'material' && !chartMaterials.includes(chartMaterial)) setChartMaterial(chartMaterials[0] || '')
+  }, [chartViewMode, chartPlants, chartMaterials])
+
+  // --- Theoretical vs Actual trend chart. "All" aggregates everything into
+  // one pair of lines; "By Plant"/"By Material" narrow to one specific plant
+  // or material (picked below) and break that one down by the other
+  // dimension, rather than aggregating across all of them. ---
   const chart = useMemo(() => {
-    const groupOf = (r: Row) => chartViewMode === 'plant' ? (r.plant_name || 'Unknown') : chartViewMode === 'material' ? (r.material_name || 'Unknown') : '__all__'
+    const scoped = chartViewMode === 'plant' && chartPlant ? filtered.filter(r => r.plant_name === chartPlant)
+      : chartViewMode === 'material' && chartMaterial ? filtered.filter(r => r.material_name === chartMaterial)
+      : filtered
+    const groupOf = (r: Row) => chartViewMode === 'plant' ? (r.material_name || 'Unknown') : chartViewMode === 'material' ? (r.plant_name || 'Unknown') : '__all__'
 
     const byGroup = new Map<string, Map<string, { theoretical: number; actual: number }>>()
-    filtered.forEach(r => {
+    scoped.forEach(r => {
       const g = groupOf(r)
       if (!byGroup.has(g)) byGroup.set(g, new Map())
       const byPeriod = byGroup.get(g)!
@@ -93,7 +108,7 @@ export default function ReportPage() {
       byPeriod.set(key, cur)
     })
 
-    const periods = Array.from(new Set(filtered.map(r => r.report_date || r.report_month || ''))).sort()
+    const periods = Array.from(new Set(scoped.map(r => r.report_date || r.report_month || ''))).sort()
     const groups = Array.from(byGroup.keys()).sort()
     const maxVal = Math.max(1, ...groups.flatMap(g => periods.map(p => {
       const d = byGroup.get(g)!.get(p)
@@ -105,14 +120,17 @@ export default function ReportPage() {
     const x = (i: number) => padL + (periods.length <= 1 ? 0 : (i / (periods.length - 1)) * plotW)
     const y = (v: number) => padT + plotH - (v / maxVal) * plotH
     const toPath = (data: number[]) => data.map((v, i) => `${i === 0 ? 'M' : 'L'} ${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(' ')
+    const toPoints = (data: number[]) => data.map((v, i) => ({ x: x(i), y: y(v), period: periods[i], value: v }))
 
     const series = groups.map((g, i) => {
       const byPeriod = byGroup.get(g)!
+      const actData = periods.map(p => byPeriod.get(p)?.actual ?? 0)
       return {
         group: g,
         color: chartViewMode === 'all' ? '#2563eb' : CHART_PALETTE[i % CHART_PALETTE.length],
         theoPath: toPath(periods.map(p => byPeriod.get(p)?.theoretical ?? 0)),
-        actPath: toPath(periods.map(p => byPeriod.get(p)?.actual ?? 0)),
+        actPath: toPath(actData),
+        actPoints: toPoints(actData),
       }
     })
 
@@ -281,18 +299,34 @@ export default function ReportPage() {
         <div className="bg-white border rounded-xl shadow-sm p-6 mb-6">
           <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
             <h3 className="font-bold text-sm">Theoretical vs Actual Trend</h3>
-            <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
-              {(['all', 'plant', 'material'] as ChartViewMode[]).map(mode => (
-                <button
-                  key={mode}
-                  onClick={() => setChartViewMode(mode)}
-                  className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${chartViewMode === mode ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                >
-                  {mode === 'all' ? 'See All' : mode === 'plant' ? 'By Plant' : 'By Material'}
-                </button>
-              ))}
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+                {(['all', 'plant', 'material'] as ChartViewMode[]).map(mode => (
+                  <button
+                    key={mode}
+                    onClick={() => setChartViewMode(mode)}
+                    className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${chartViewMode === mode ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                  >
+                    {mode === 'all' ? 'See All' : mode === 'plant' ? 'By Plant' : 'By Material'}
+                  </button>
+                ))}
+              </div>
+              {chartViewMode === 'plant' && (
+                <select value={chartPlant} onChange={e => setChartPlant(e.target.value)} className="border rounded-md px-2 py-1.5 text-xs bg-white">
+                  {chartPlants.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              )}
+              {chartViewMode === 'material' && (
+                <select value={chartMaterial} onChange={e => setChartMaterial(e.target.value)} className="border rounded-md px-2 py-1.5 text-xs bg-white">
+                  {chartMaterials.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              )}
             </div>
           </div>
+          <p className="text-xs text-gray-400 mb-2">
+            {chartViewMode === 'all' ? 'Totals across the current filters.' : chartViewMode === 'plant' ? `Materials at ${chartPlant || '—'}.` : `Plants using ${chartMaterial || '—'}.`}
+            {' '}Hover a point for its exact value.
+          </p>
           <div className="overflow-x-auto">
             <svg viewBox={`0 0 ${chart.width} ${chart.height}`} className="w-full h-56 min-w-[700px]">
               {[0, 0.25, 0.5, 0.75, 1].map(f => {
@@ -309,6 +343,11 @@ export default function ReportPage() {
                 <Fragment key={s.group}>
                   <path d={s.theoPath} fill="none" stroke={s.color} strokeWidth={1.5} strokeDasharray="5 5" opacity={0.55} />
                   <path d={s.actPath} fill="none" stroke={s.color} strokeWidth={2.5} />
+                  {s.actPoints.map((p, i) => (
+                    <circle key={i} cx={p.x} cy={p.y} r={3} fill={s.color} className="cursor-pointer">
+                      <title>{`${s.group} — ${p.period}: ${fmt(p.value)} actual`}</title>
+                    </circle>
+                  ))}
                 </Fragment>
               ))}
               {chart.xTicks.map((t, i) => (
