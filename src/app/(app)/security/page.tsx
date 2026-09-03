@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ShieldCheck, Users, Truck, Building2, DoorClosed, DoorOpen, X, LogOut } from 'lucide-react'
+import PhotoLightbox from '@/components/PhotoLightbox'
 
 type Category = 'visitor' | 'delivery' | 'inhouse'
 type Entry = {
@@ -22,11 +23,12 @@ export default function SecurityDashboardPage() {
   const [counts, setCounts] = useState({ visitors: 0, deliveries: 0, inhouse: 0, today: 0 })
   const [active, setActive] = useState<Entry[]>([])
   const [gates, setGates] = useState<Gate[]>([])
-  const [layout, setLayout] = useState<{ photo_drive_id: string } | null>(null)
+  const [layout, setLayout] = useState<{ photo_drive_id: string | null; photo_url: string | null } | null>(null)
   const [posts, setPosts] = useState<Post[]>([])
   const [shifts, setShifts] = useState<Shift[]>([])
   const [detail, setDetail] = useState<Entry | null>(null)
   const [mapCollapsed, setMapCollapsed] = useState(false)
+  const [zoomSrc, setZoomSrc] = useState<string | null>(null)
 
   useEffect(() => { load() }, [])
 
@@ -42,7 +44,7 @@ export default function SecurityDashboardPage() {
       supabase.from('security_entries').select('id', { count: 'exact', head: true }).gte('time_in', startOfDay.toISOString()),
       supabase.from('security_entries').select('*').eq('status', 'in').order('time_in', { ascending: false }).limit(40),
       supabase.from('security_gates').select('id, name, pos_x, pos_y, status').order('id'),
-      supabase.from('security_layout').select('photo_drive_id').neq('photo_drive_id', 'PENDING').order('id', { ascending: false }).limit(1).maybeSingle(),
+      supabase.from('security_layout').select('photo_drive_id, photo_url').order('id', { ascending: false }).limit(1).maybeSingle(),
       supabase.from('security_guard_posts').select('id, name').order('name'),
       supabase.from('security_post_logs').select('post_name, guard_name, time_in').is('time_out', null),
     ])
@@ -134,11 +136,14 @@ export default function SecurityDashboardPage() {
         </div>
         {!mapCollapsed && (
           <div className="relative w-full aspect-video bg-gray-100 border rounded-xl overflow-hidden">
-            {layout?.photo_drive_id ? (
-              <img src={`/api/security/photo/${layout.photo_drive_id}`} className="w-full h-full object-contain" />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">No site layout uploaded yet</div>
-            )}
+            {(() => {
+              const src = layout?.photo_url || (layout?.photo_drive_id && layout.photo_drive_id !== 'PENDING' ? `/api/security/photo/${layout.photo_drive_id}` : null)
+              return src ? (
+                <img src={src} className="w-full h-full object-contain cursor-zoom-in" onClick={() => setZoomSrc(src)} />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">No site layout uploaded yet</div>
+              )
+            })()}
             {gates.map(g => (
               <button
                 key={g.id}
@@ -172,7 +177,11 @@ export default function SecurityDashboardPage() {
               >
                 <div className="relative">
                   {e.photo_drive_id ? (
-                    <img src={`/api/security/photo/${e.photo_drive_id}`} className="w-full h-[85px] object-cover" />
+                    <img
+                      src={`/api/security/photo/${e.photo_drive_id}`}
+                      className="w-full h-[85px] object-cover cursor-zoom-in"
+                      onClick={ev => { ev.stopPropagation(); setZoomSrc(`/api/security/photo/${e.photo_drive_id}`) }}
+                    />
                   ) : (
                     <div className="w-full h-[85px] bg-gray-100 flex items-center justify-center text-3xl text-gray-300">{CATEGORY_ICON[e.category]}</div>
                   )}
@@ -209,7 +218,11 @@ export default function SecurityDashboardPage() {
             </div>
             <div className="flex gap-4 flex-wrap mb-4">
               {detail.photo_drive_id ? (
-                <img src={`/api/security/photo/${detail.photo_drive_id}`} className="w-32 h-32 rounded-xl object-cover border flex-shrink-0" />
+                <img
+                  src={`/api/security/photo/${detail.photo_drive_id}`}
+                  className="w-32 h-32 rounded-xl object-cover border flex-shrink-0 cursor-zoom-in"
+                  onClick={() => setZoomSrc(`/api/security/photo/${detail.photo_drive_id}`)}
+                />
               ) : (
                 <div className="w-32 h-32 rounded-xl bg-gray-100 flex items-center justify-center text-4xl flex-shrink-0">{CATEGORY_ICON[detail.category]}</div>
               )}
@@ -233,6 +246,8 @@ export default function SecurityDashboardPage() {
           </div>
         </div>
       )}
+
+      <PhotoLightbox src={zoomSrc} onClose={() => setZoomSrc(null)} />
     </div>
   )
 }

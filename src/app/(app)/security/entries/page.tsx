@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { uploadSecurityPhoto } from '../actions'
-import { ClipboardEdit, LogOut, AlertTriangle, Camera } from 'lucide-react'
+import { ClipboardEdit, LogOut, AlertTriangle, Camera, UserCheck, X } from 'lucide-react'
+import PhotoLightbox from '@/components/PhotoLightbox'
 
 type Category = 'visitor' | 'delivery' | 'inhouse'
 
@@ -13,12 +14,13 @@ type Entry = {
   person_name: string
   company: string | null
   purpose: string | null
+  looking_for: string | null
   vehicle_no: string | null
   badge_no: string | null
   reference_no: string | null
   notes: string | null
   photo_drive_id: string | null
-  status: 'in' | 'out'
+  status: 'pending' | 'in' | 'out'
   time_in: string
   time_out: string | null
   abnormal_flag: boolean
@@ -56,10 +58,15 @@ export default function EntriesPage() {
   const supabase = createClient()
   const [category, setCategory] = useState<Category>('visitor')
   const [active, setActive] = useState<Entry[]>([])
+  const [pending, setPending] = useState<Entry[]>([])
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [abnormalTarget, setAbnormalTarget] = useState<Entry | null>(null)
   const [abnormalReason, setAbnormalReason] = useState('')
+  const [approving, setApproving] = useState<Entry | null>(null)
+  const [approvePhoto, setApprovePhoto] = useState<File | null>(null)
+  const [approving2, setApproving2] = useState(false)
+  const [zoomSrc, setZoomSrc] = useState<string | null>(null)
 
   const [form, setForm] = useState({ person_name: '', company: '', purpose: '', vehicle_no: '', badge_no: '', reference_no: '', notes: '' })
   const [photoFile, setPhotoFile] = useState<File | null>(null)
@@ -70,6 +77,12 @@ export default function EntriesPage() {
     setLoading(true)
     const { data } = await supabase.from('security_entries').select('*').eq('category', category).eq('status', 'in').order('time_in', { ascending: false })
     setActive(data || [])
+    if (category === 'visitor') {
+      const { data: pendingRows } = await supabase.from('security_entries').select('*').eq('status', 'pending').order('time_in', { ascending: false })
+      setPending(pendingRows || [])
+    } else {
+      setPending([])
+    }
     setLoading(false)
   }
 
@@ -120,6 +133,40 @@ export default function EntriesPage() {
     load()
   }
 
+  async function approveVisitor() {
+    if (!approving) return
+    setApproving2(true)
+    try {
+      let photo_drive_id: string | null = null
+      if (approvePhoto) {
+        const blob = await compressImage(approvePhoto)
+        const fd = new FormData()
+        fd.set('photo', blob, 'photo.jpg')
+        fd.set('subfolder', 'entries')
+        photo_drive_id = await uploadSecurityPhoto(fd)
+      }
+      const { data: { user } } = await supabase.auth.getUser()
+      const { error } = await supabase.from('security_entries').update({
+        status: 'in', time_in: new Date().toISOString(), photo_drive_id, created_by: user?.email || null,
+      }).eq('id', approving.id).eq('status', 'pending')
+      if (error) throw error
+      setApproving(null)
+      setApprovePhoto(null)
+      await load()
+    } catch (err: any) {
+      alert('Error approving: ' + err.message)
+    } finally {
+      setApproving2(false)
+    }
+  }
+
+  async function rejectVisitor(id: number) {
+    if (!confirm('Reject this self check-in? It will be removed.')) return
+    const { error } = await supabase.from('security_entries').delete().eq('id', id).eq('status', 'pending')
+    if (error) { alert('Error: ' + error.message); return }
+    load()
+  }
+
   async function saveAbnormal() {
     if (!abnormalTarget || !abnormalReason.trim()) return
     const { error } = await supabase.from('security_entries').update({
@@ -146,6 +193,30 @@ export default function EntriesPage() {
           </button>
         ))}
       </div>
+
+      {pending.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl shadow-sm overflow-hidden mb-6">
+          <div className="px-4 py-3 border-b border-amber-200">
+            <h2 className="text-sm font-bold text-amber-800 flex items-center gap-2"><UserCheck className="w-4 h-4" /> Pending Self Check-Ins ({pending.length})</h2>
+            <p className="text-xs text-amber-700 mt-0.5">Submitted from the visitor kiosk — take their photo and approve to let them in.</p>
+          </div>
+          <div className="divide-y divide-amber-100">
+            {pending.map(p => (
+              <div key={p.id} className="px-4 py-3 flex items-center justify-between gap-3 bg-white">
+                <div className="min-w-0">
+                  <div className="font-medium text-sm">{p.person_name}</div>
+                  <div className="text-xs text-gray-500">{[p.company, p.purpose].filter(Boolean).join(' · ') || '-'}{p.looking_for ? ` · Looking for: ${p.looking_for}` : ''}</div>
+                  <div className="text-xs text-gray-400">Submitted {new Date(p.time_in).toLocaleString()}</div>
+                </div>
+                <div className="flex gap-2 flex-shrink-0">
+                  <button onClick={() => { setApproving(p); setApprovePhoto(null) }} className="text-xs bg-green-600 text-white font-medium px-3 py-1.5 rounded-lg hover:bg-green-700">Photo &amp; Approve</button>
+                  <button onClick={() => rejectVisitor(p.id)} className="text-xs bg-gray-100 text-gray-600 px-2.5 py-1.5 rounded-lg hover:bg-gray-200">Reject</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.3fr] gap-6">
         <form onSubmit={submit} className="bg-white border rounded-xl shadow-sm p-6 space-y-3 h-fit">
@@ -195,7 +266,11 @@ export default function EntriesPage() {
             {active.map(e => (
               <div key={e.id} className="px-4 py-3 flex items-start gap-3">
                 {e.photo_drive_id ? (
-                  <img src={`/api/security/photo/${e.photo_drive_id}`} className="w-12 h-12 rounded-lg object-cover flex-shrink-0" />
+                  <img
+                    src={`/api/security/photo/${e.photo_drive_id}`}
+                    className="w-12 h-12 rounded-lg object-cover flex-shrink-0 cursor-zoom-in"
+                    onClick={() => setZoomSrc(`/api/security/photo/${e.photo_drive_id}`)}
+                  />
                 ) : (
                   <div className="w-12 h-12 rounded-lg bg-gray-100 flex-shrink-0" />
                 )}
@@ -204,7 +279,7 @@ export default function EntriesPage() {
                     {e.person_name}
                     {e.abnormal_flag && <span title="Flagged abnormal"><AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" /></span>}
                   </div>
-                  <div className="text-xs text-gray-500 truncate">{[e.company, e.vehicle_no, e.purpose].filter(Boolean).join(' · ') || '-'}</div>
+                  <div className="text-xs text-gray-500 truncate">{[e.company, e.vehicle_no, e.purpose].filter(Boolean).join(' · ') || '-'}{e.looking_for ? ` · Looking for: ${e.looking_for}` : ''}</div>
                   <div className="text-xs text-gray-400">In: {new Date(e.time_in).toLocaleString()}</div>
                 </div>
                 <div className="flex flex-col gap-1 flex-shrink-0">
@@ -233,6 +308,31 @@ export default function EntriesPage() {
           </div>
         </div>
       )}
+
+      {approving && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold">Approve — {approving.person_name}</h2>
+              <button onClick={() => setApproving(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="text-sm text-gray-500 mb-4">
+              {[approving.company, approving.purpose].filter(Boolean).join(' · ') || '-'}
+              {approving.looking_for && <div className="mt-1">Looking for: <strong>{approving.looking_for}</strong></div>}
+            </div>
+            <label className="flex items-center gap-1.5 text-xs font-medium text-gray-500 mb-1"><Camera className="w-3.5 h-3.5" /> Photo</label>
+            <input type="file" accept="image/*" capture="environment" onChange={e => setApprovePhoto(e.target.files?.[0] ?? null)} className="w-full text-sm mb-4" />
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setApproving(null)} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-200">Cancel</button>
+              <button onClick={approveVisitor} disabled={approving2} className="bg-green-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-green-700">
+                {approving2 ? 'Approving...' : 'Approve & Let In'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <PhotoLightbox src={zoomSrc} onClose={() => setZoomSrc(null)} />
     </div>
   )
 }

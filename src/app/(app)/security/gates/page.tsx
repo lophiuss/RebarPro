@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { DoorClosed, DoorOpen, Plus, Trash2, X } from 'lucide-react'
 
 type Gate = { id: number; name: string; pos_x: number; pos_y: number; status: 'locked' | 'open'; updated_at: string }
-type Layout = { id: number; photo_drive_id: string } | null
+type Layout = { id: number; photo_drive_id: string | null; photo_url: string | null } | null
 
 export default function GatesPage() {
   const supabase = createClient()
@@ -21,7 +21,7 @@ export default function GatesPage() {
   async function load() {
     const [{ data: gateRows }, { data: layoutRow }, { data: { user } }] = await Promise.all([
       supabase.from('security_gates').select('*').order('id'),
-      supabase.from('security_layout').select('id, photo_drive_id').neq('photo_drive_id', 'PENDING').order('id', { ascending: false }).limit(1).maybeSingle(),
+      supabase.from('security_layout').select('id, photo_drive_id, photo_url').order('id', { ascending: false }).limit(1).maybeSingle(),
       supabase.auth.getUser(),
     ])
     setGates(gateRows || [])
@@ -100,8 +100,8 @@ export default function GatesPage() {
         onClick={handleMapClick}
         className={`relative w-full aspect-video bg-gray-100 border rounded-xl overflow-hidden mb-6 ${placing ? 'cursor-crosshair' : ''}`}
       >
-        {layout?.photo_drive_id ? (
-          <img src={`/api/security/photo/${layout.photo_drive_id}`} className="w-full h-full object-contain" />
+        {layout?.photo_url || (layout?.photo_drive_id && layout.photo_drive_id !== 'PENDING') ? (
+          <img src={layout.photo_url || `/api/security/photo/${layout!.photo_drive_id}`} className="w-full h-full object-contain" />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">No site layout uploaded yet</div>
         )}

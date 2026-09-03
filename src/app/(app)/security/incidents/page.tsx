@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { uploadSecurityPhoto } from '../actions'
 import { Siren, Camera } from 'lucide-react'
+import PhotoLightbox from '@/components/PhotoLightbox'
 
 type Incident = {
   id: number
@@ -53,6 +54,7 @@ export default function IncidentsPage() {
   const [incidents, setIncidents] = useState<Incident[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [photoFile, setPhotoFile] = useState<File | null>(null)
+  const [zoomSrc, setZoomSrc] = useState<string | null>(null)
   const [form, setForm] = useState({ type: '', description: '', location: '', reported_by: '', severity: 'medium' as Incident['severity'] })
 
   useEffect(() => { load() }, [])
@@ -142,7 +144,11 @@ export default function IncidentsPage() {
             {incidents.map(i => (
               <div key={i.id} className="px-4 py-3 flex items-start gap-3">
                 {i.photo_drive_id ? (
-                  <img src={`/api/security/photo/${i.photo_drive_id}`} className="w-14 h-14 rounded-lg object-cover flex-shrink-0" />
+                  <img
+                    src={`/api/security/photo/${i.photo_drive_id}`}
+                    className="w-14 h-14 rounded-lg object-cover flex-shrink-0 cursor-zoom-in"
+                    onClick={() => setZoomSrc(`/api/security/photo/${i.photo_drive_id}`)}
+                  />
                 ) : (
                   <div className="w-14 h-14 rounded-lg bg-gray-100 flex-shrink-0" />
                 )}
@@ -164,6 +170,8 @@ export default function IncidentsPage() {
           </div>
         </div>
       </div>
+
+      <PhotoLightbox src={zoomSrc} onClose={() => setZoomSrc(null)} />
     </div>
   )
 }
