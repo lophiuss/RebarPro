@@ -31,9 +31,10 @@ export default function RecordsPage() {
   const [rows, setRows] = useState<Row[]>([])
   const [plants, setPlants] = useState<{ id: number; name: string }[]>([])
   const [materials, setMaterials] = useState<{ id: number; name: string }[]>([])
+  const [suppliers, setSuppliers] = useState<{ id: number; name: string }[]>([])
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
-  const [filters, setFilters] = useState({ date: '', plant_id: '', material_id: '' })
+  const [filters, setFilters] = useState({ date: '', plant_id: '', material_id: '', supplier: '' })
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({})
   const [viewImage, setViewImage] = useState<string | null>(null)
   const [editRow, setEditRow] = useState<Row | null>(null)
@@ -41,6 +42,7 @@ export default function RecordsPage() {
   useEffect(() => {
     supabase.from('cement_plants').select('id, name').eq('is_active', true).order('name').then(({ data }) => setPlants(data || []))
     supabase.from('cement_materials').select('id, name').eq('is_active', true).order('name').then(({ data }) => setMaterials(data || []))
+    supabase.from('cement_suppliers').select('id, name').eq('is_active', true).order('name').then(({ data }) => setSuppliers(data || []))
   }, [])
 
   useEffect(() => { load() }, [page])
@@ -57,6 +59,7 @@ export default function RecordsPage() {
     if (filters.date) q = q.eq('weigh_date', filters.date)
     if (filters.plant_id) q = q.eq('plant_id', filters.plant_id)
     if (filters.material_id) q = q.eq('material_id', filters.material_id)
+    if (filters.supplier) q = q.eq('supplier', filters.supplier)
 
     const { data } = await q
     const mapped: Row[] = (data || []).map((r: any) => ({
@@ -78,7 +81,7 @@ export default function RecordsPage() {
   }
 
   function search() { setPage(1); load() }
-  function reset() { setFilters({ date: '', plant_id: '', material_id: '' }); setPage(1) }
+  function reset() { setFilters({ date: '', plant_id: '', material_id: '', supplier: '' }); setPage(1) }
 
   async function saveEdit() {
     if (!editRow) return
@@ -134,6 +137,13 @@ export default function RecordsPage() {
           <select value={filters.material_id} onChange={e => setFilters({ ...filters, material_id: e.target.value })} className="border rounded-md px-2 py-1.5 text-sm bg-white">
             <option value="">All Materials</option>
             {materials.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">Supplier</label>
+          <select value={filters.supplier} onChange={e => setFilters({ ...filters, supplier: e.target.value })} className="border rounded-md px-2 py-1.5 text-sm bg-white">
+            <option value="">All Suppliers</option>
+            {suppliers.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
           </select>
         </div>
         <button onClick={search} className="bg-blue-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-blue-700">Search</button>

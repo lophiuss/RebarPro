@@ -30,6 +30,8 @@ function fmt(n: number | null | undefined) {
 }
 
 const MAX_ROWS = 200
+const CHART_PALETTE = ['#2563eb', '#dc2626', '#059669', '#d97706', '#9333ea', '#0891b2', '#db2777', '#65a30d']
+type ChartViewMode = 'all' | 'plant' | 'material'
 
 export default function ReportPage() {
   const supabase = createClient()
@@ -44,6 +46,7 @@ export default function ReportPage() {
   const [plantFilter, setPlantFilter] = useState('')
   const [siloFilter, setSiloFilter] = useState('')
   const [materialFilter, setMaterialFilter] = useState('')
+  const [chartViewMode, setChartViewMode] = useState<ChartViewMode>('all')
 
   useEffect(() => { load() }, [])
 
@@ -74,27 +77,56 @@ export default function ReportPage() {
 
   const limited = filtered.slice(0, MAX_ROWS)
 
-  // --- Theoretical vs Actual trend chart ---
+  // --- Theoretical vs Actual trend chart. chartViewMode splits the lines by plant/material ---
   const chart = useMemo(() => {
-    const byPeriod = new Map<string, { theoretical: number; actual: number }>()
+    const groupOf = (r: Row) => chartViewMode === 'plant' ? (r.plant_name || 'Unknown') : chartViewMode === 'material' ? (r.material_name || 'Unknown') : '__all__'
+
+    const byGroup = new Map<string, Map<string, { theoretical: number; actual: number }>>()
     filtered.forEach(r => {
+      const g = groupOf(r)
+      if (!byGroup.has(g)) byGroup.set(g, new Map())
+      const byPeriod = byGroup.get(g)!
       const key = r.report_date || r.report_month || ''
       const cur = byPeriod.get(key) || { theoretical: 0, actual: 0 }
       cur.theoretical += r.theoretical || 0
       cur.actual += r.actual_stock || 0
       byPeriod.set(key, cur)
     })
-    const periods = Array.from(byPeriod.keys()).sort()
-    const theoData = periods.map(p => byPeriod.get(p)!.theoretical)
-    const actData = periods.map(p => byPeriod.get(p)!.actual)
-    const maxVal = Math.max(1, ...theoData, ...actData)
+
+    const periods = Array.from(new Set(filtered.map(r => r.report_date || r.report_month || ''))).sort()
+    const groups = Array.from(byGroup.keys()).sort()
+    const maxVal = Math.max(1, ...groups.flatMap(g => periods.map(p => {
+      const d = byGroup.get(g)!.get(p)
+      return d ? Math.max(d.theoretical, d.actual) : 0
+    })))
+
     const width = 900, height = 240, padL = 55, padR = 10, padT = 10, padB = 24
     const plotW = width - padL - padR, plotH = height - padT - padB
     const x = (i: number) => padL + (periods.length <= 1 ? 0 : (i / (periods.length - 1)) * plotW)
     const y = (v: number) => padT + plotH - (v / maxVal) * plotH
     const toPath = (data: number[]) => data.map((v, i) => `${i === 0 ? 'M' : 'L'} ${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(' ')
-    return { periods, theoPath: toPath(theoData), actPath: toPath(actData), width, height, padL, padT, plotH, maxVal }
-  }, [filtered])
+
+    const series = groups.map((g, i) => {
+      const byPeriod = byGroup.get(g)!
+      return {
+        group: g,
+        color: chartViewMode === 'all' ? '#2563eb' : CHART_PALETTE[i % CHART_PALETTE.length],
+        theoPath: toPath(periods.map(p => byPeriod.get(p)?.theoretical ?? 0)),
+        actPath: toPath(periods.map(p => byPeriod.get(p)?.actual ?? 0)),
+      }
+    })
+
+    // A handful of evenly-spaced period labels along the x-axis.
+    const tickCount = Math.min(8, periods.length)
+    const xTicks = Array.from({ length: tickCount }, (_, i) => {
+      const idx = tickCount <= 1 ? 0 : Math.round((i / (tickCount - 1)) * (periods.length - 1))
+      const raw = periods[idx]
+      const label = type === 'monthly' ? raw : new Date(raw + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      return { x: x(idx), label }
+    })
+
+    return { periods, series, width, height, padL, padT, padB, plotH, maxVal, xTicks }
+  }, [filtered, chartViewMode, type])
 
   // --- Material Summary (Global) ---
   const materialSummary = useMemo(() => {
@@ -247,7 +279,20 @@ export default function ReportPage() {
 
       {chart.periods.length > 0 && (
         <div className="bg-white border rounded-xl shadow-sm p-6 mb-6">
-          <h3 className="font-bold text-sm mb-3">Theoretical vs Actual Trend</h3>
+          <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+            <h3 className="font-bold text-sm">Theoretical vs Actual Trend</h3>
+            <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+              {(['all', 'plant', 'material'] as ChartViewMode[]).map(mode => (
+                <button
+                  key={mode}
+                  onClick={() => setChartViewMode(mode)}
+                  className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${chartViewMode === mode ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  {mode === 'all' ? 'See All' : mode === 'plant' ? 'By Plant' : 'By Material'}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="overflow-x-auto">
             <svg viewBox={`0 0 ${chart.width} ${chart.height}`} className="w-full h-56 min-w-[700px]">
               {[0, 0.25, 0.5, 0.75, 1].map(f => {
@@ -260,14 +305,35 @@ export default function ReportPage() {
                   </g>
                 )
               })}
-              <path d={chart.theoPath} fill="none" stroke="#9ca3af" strokeWidth={2} strokeDasharray="5 5" />
-              <path d={chart.actPath} fill="none" stroke="#2563eb" strokeWidth={2.5} />
+              {chart.series.map(s => (
+                <Fragment key={s.group}>
+                  <path d={s.theoPath} fill="none" stroke={s.color} strokeWidth={1.5} strokeDasharray="5 5" opacity={0.55} />
+                  <path d={s.actPath} fill="none" stroke={s.color} strokeWidth={2.5} />
+                </Fragment>
+              ))}
+              {chart.xTicks.map((t, i) => (
+                <text key={i} x={t.x} y={chart.height - chart.padB + 16} textAnchor="middle" fontSize="9" fill="#94a3b8">{t.label}</text>
+              ))}
             </svg>
           </div>
-          <div className="flex gap-4 mt-2 text-xs text-gray-600">
-            <span className="flex items-center gap-1.5"><span className="w-3 border-t-2 border-dashed border-gray-400 inline-block" /> Theoretical</span>
-            <span className="flex items-center gap-1.5"><span className="w-3 border-t-2 border-blue-600 inline-block" /> Actual</span>
-          </div>
+          {chartViewMode === 'all' ? (
+            <div className="flex gap-4 mt-2 text-xs text-gray-600">
+              <span className="flex items-center gap-1.5"><span className="w-3 border-t-2 border-dashed border-gray-400 inline-block" /> Theoretical</span>
+              <span className="flex items-center gap-1.5"><span className="w-3 border-t-2 border-blue-600 inline-block" /> Actual</span>
+            </div>
+          ) : (
+            <div className="mt-3">
+              <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs">
+                {chart.series.map(s => (
+                  <span key={s.group} className="flex items-center gap-1.5 text-gray-600">
+                    <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ backgroundColor: s.color }} />
+                    {s.group}
+                  </span>
+                ))}
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1.5">Solid line = actual, dashed = theoretical.</p>
+            </div>
+          )}
         </div>
       )}
 

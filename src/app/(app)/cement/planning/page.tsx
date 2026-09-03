@@ -10,12 +10,15 @@ type UsageRow = { usage_date: string; usage: number; plant: string; material: st
 
 const PALETTE = ['#2563eb', '#dc2626', '#059669', '#d97706', '#9333ea', '#0891b2', '#db2777', '#65a30d', '#4f46e5', '#be123c', '#0d9488', '#8b5cf6']
 
+type ViewMode = 'all' | 'plant' | 'material'
+
 export default function PlanningPage() {
   const supabase = createClient()
   const [silos, setSilos] = useState<SiloStock[]>([])
   const [materials, setMaterials] = useState<Material[]>([])
   const [usage, setUsage] = useState<UsageRow[]>([])
   const [reqInputs, setReqInputs] = useState<Record<number, string>>({})
+  const [viewMode, setViewMode] = useState<ViewMode>('all')
 
   useEffect(() => { load() }, [])
 
@@ -57,15 +60,16 @@ export default function PlanningPage() {
     alert('Saved!')
   }
 
-  // --- Chart: daily usage per plant+material combo, last 30 days ---
+  // --- Chart: daily usage, last 30 days. viewMode groups lines by combo / plant / material ---
   const chart = useMemo(() => {
     const days: string[] = []
     for (let i = 29; i >= 0; i--) days.push(new Date(Date.now() - i * 86400000).toISOString().split('T')[0])
 
-    const combos = Array.from(new Set(usage.map(u => `${u.plant} - ${u.material}`))).sort()
-    const series = combos.map((combo, i) => {
-      const data = days.map(d => usage.filter(u => u.usage_date === d && `${u.plant} - ${u.material}` === combo).reduce((s, u) => s + u.usage, 0))
-      return { combo, color: PALETTE[i % PALETTE.length], data }
+    const keyOf = (u: UsageRow) => viewMode === 'plant' ? u.plant : viewMode === 'material' ? u.material : `${u.plant} - ${u.material}`
+    const groups = Array.from(new Set(usage.map(keyOf))).sort()
+    const series = groups.map((group, i) => {
+      const data = days.map(d => usage.filter(u => u.usage_date === d && keyOf(u) === group).reduce((s, u) => s + u.usage, 0))
+      return { combo: group, color: PALETTE[i % PALETTE.length], data }
     })
     const maxVal = Math.max(1, ...series.flatMap(s => s.data))
 
@@ -79,8 +83,16 @@ export default function PlanningPage() {
       d: s.data.map((v, i) => `${i === 0 ? 'M' : 'L'} ${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(' '),
     }))
 
-    return { days, series: paths, width, height, padL, padT, plotH, maxVal }
-  }, [usage])
+    // A handful of evenly-spaced date labels along the x-axis, rather than all 30.
+    const tickCount = Math.min(6, days.length)
+    const xTicks = Array.from({ length: tickCount }, (_, i) => {
+      const idx = tickCount <= 1 ? 0 : Math.round((i / (tickCount - 1)) * (days.length - 1))
+      const label = new Date(days[idx] + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      return { x: x(idx), label }
+    })
+
+    return { days, series: paths, width, height, padL, padT, padB, plotH, maxVal, xTicks }
+  }, [usage, viewMode])
 
   const byPlant = new Map<string, SiloStock[]>()
   for (const s of silos) {
@@ -94,7 +106,20 @@ export default function PlanningPage() {
 
       {/* Usage Trend Chart */}
       <div className="bg-white border rounded-xl shadow-sm p-6">
-        <h2 className="text-lg font-bold mb-1 flex items-center gap-2"><LineChart className="w-5 h-5 text-blue-600" /> Material Usage Trends (Last 30 Days)</h2>
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-1">
+          <h2 className="text-lg font-bold flex items-center gap-2"><LineChart className="w-5 h-5 text-blue-600" /> Material Usage Trends (Last 30 Days)</h2>
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+            {(['all', 'plant', 'material'] as ViewMode[]).map(mode => (
+              <button
+                key={mode}
+                onClick={() => setViewMode(mode)}
+                className={`text-xs font-medium px-3 py-1.5 rounded-md transition ${viewMode === mode ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                {mode === 'all' ? 'See All' : mode === 'plant' ? 'By Plant' : 'By Material'}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="overflow-x-auto">
           <svg viewBox={`0 0 ${chart.width} ${chart.height}`} className="w-full h-64 min-w-[700px]">
             {[0, 0.25, 0.5, 0.75, 1].map(f => {
@@ -109,6 +134,9 @@ export default function PlanningPage() {
             })}
             {chart.series.map(s => (
               <path key={s.combo} d={s.d} fill="none" stroke={s.color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+            ))}
+            {chart.xTicks.map((t, i) => (
+              <text key={i} x={t.x} y={chart.height - chart.padB + 16} textAnchor="middle" fontSize="9" fill="#94a3b8">{t.label}</text>
             ))}
           </svg>
         </div>
