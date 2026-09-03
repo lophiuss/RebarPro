@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ShieldCheck, Users, Truck, Building2, DoorClosed, DoorOpen, X, LogOut } from 'lucide-react'
+import { ShieldCheck, Users, Truck, Building2, DoorClosed, DoorOpen, X, LogOut, Activity } from 'lucide-react'
 import PhotoLightbox from '@/components/PhotoLightbox'
+import ActivityLogFeed from '@/components/ActivityLogFeed'
+import { buildActivityLog, ActivityEvent } from '@/lib/security/activityLog'
 
 type Category = 'visitor' | 'delivery' | 'inhouse'
 type Entry = {
@@ -29,24 +31,32 @@ export default function SecurityDashboardPage() {
   const [detail, setDetail] = useState<Entry | null>(null)
   const [mapCollapsed, setMapCollapsed] = useState(false)
   const [zoomSrc, setZoomSrc] = useState<string | null>(null)
+  const [activity, setActivity] = useState<ActivityEvent[]>([])
 
   useEffect(() => { load() }, [])
 
   async function load() {
     const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0)
+    const startOfDayISO = startOfDay.toISOString()
     const [
       { count: visitors }, { count: deliveries }, { count: inhouse }, { count: today },
       { data: activeRows }, { data: gateRows }, { data: layoutRow }, { data: postRows }, { data: shiftRows },
+      { data: dayEntries }, { data: dayPostLogs }, { data: dayGateEvents }, { data: dayPanics }, { data: dayIncidents },
     ] = await Promise.all([
       supabase.from('security_entries').select('id', { count: 'exact', head: true }).eq('status', 'in').eq('category', 'visitor'),
       supabase.from('security_entries').select('id', { count: 'exact', head: true }).eq('status', 'in').eq('category', 'delivery'),
       supabase.from('security_entries').select('id', { count: 'exact', head: true }).eq('status', 'in').eq('category', 'inhouse'),
-      supabase.from('security_entries').select('id', { count: 'exact', head: true }).gte('time_in', startOfDay.toISOString()),
+      supabase.from('security_entries').select('id', { count: 'exact', head: true }).gte('time_in', startOfDayISO),
       supabase.from('security_entries').select('*').eq('status', 'in').order('time_in', { ascending: false }).limit(40),
       supabase.from('security_gates').select('id, name, pos_x, pos_y, status').order('id'),
       supabase.from('security_layout').select('photo_drive_id, photo_url').order('id', { ascending: false }).limit(1).maybeSingle(),
       supabase.from('security_guard_posts').select('id, name').order('name'),
       supabase.from('security_post_logs').select('post_name, guard_name, time_in').is('time_out', null),
+      supabase.from('security_entries').select('id, category, person_name, company, vehicle_no, time_in, time_out').gte('time_in', startOfDayISO),
+      supabase.from('security_post_logs').select('id, guard_name, post_name, time_in, time_out').gte('time_in', startOfDayISO),
+      supabase.from('security_gate_events').select('id, gate_name, action, username, created_at').gte('created_at', startOfDayISO),
+      supabase.from('security_panic_logs').select('id, triggered_by, remark, created_at').gte('created_at', startOfDayISO),
+      supabase.from('security_incidents').select('id, type, description, severity, reported_by, created_at').gte('created_at', startOfDayISO),
     ])
     setCounts({ visitors: visitors ?? 0, deliveries: deliveries ?? 0, inhouse: inhouse ?? 0, today: today ?? 0 })
     setActive(activeRows || [])
@@ -54,6 +64,10 @@ export default function SecurityDashboardPage() {
     setLayout(layoutRow)
     setPosts(postRows || [])
     setShifts(shiftRows || [])
+    setActivity(buildActivityLog({
+      entries: dayEntries || [], postLogs: dayPostLogs || [], gateEvents: dayGateEvents || [],
+      panicLogs: dayPanics || [], incidents: dayIncidents || [],
+    }))
   }
 
   async function toggleGate(gate: Gate) {
@@ -207,6 +221,14 @@ export default function SecurityDashboardPage() {
           ))}
           {active.length === 0 && <p className="px-4 py-8 text-center text-sm text-gray-400">Nobody currently on site.</p>}
         </div>
+      </div>
+
+      <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
+          <h2 className="text-sm font-bold text-slate-700 flex items-center gap-2"><Activity className="w-4 h-4 text-indigo-500" /> Today's Activity Log</h2>
+          <span className="text-xs bg-indigo-50 text-indigo-700 rounded-full px-2.5 py-1 font-semibold">{activity.length}</span>
+        </div>
+        <ActivityLogFeed events={activity} emptyLabel="No activity yet today." />
       </div>
 
       {detail && (

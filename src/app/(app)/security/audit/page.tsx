@@ -2,8 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ClipboardList, AlertOctagon, Download, ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { ClipboardList, AlertOctagon, Download, ChevronLeft, ChevronRight, X, Activity } from 'lucide-react'
 import PhotoLightbox from '@/components/PhotoLightbox'
+import ActivityLogFeed from '@/components/ActivityLogFeed'
+import { buildActivityLog, ActivityEvent } from '@/lib/security/activityLog'
 
 // Local-date arithmetic only — .toISOString() converts to UTC, which silently
 // shifts the date by a day for any timezone ahead of UTC (e.g. the "forward"
@@ -60,6 +62,7 @@ export default function AuditPage() {
   const [zoomSrc, setZoomSrc] = useState<string | null>(null)
   const [guardTimeline, setGuardTimeline] = useState<{ name: string; cells: (string | null)[] }[]>([])
   const [postTimeline, setPostTimeline] = useState<{ name: string; cells: (string | null)[] }[]>([])
+  const [activity, setActivity] = useState<ActivityEvent[]>([])
   const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => { load() }, [date])
@@ -74,6 +77,7 @@ export default function AuditPage() {
     const [
       { data: abandonedKeys }, { data: shifts }, { data: dayEntries }, { data: overstayed },
       { data: todayIncidents }, { data: todayPanics }, { data: postLogs }, { data: keyLogs },
+      { data: dayGateEvents },
     ] = await Promise.all([
       supabase.from('security_key_logs').select('*').eq('status', 'out').lt('time_issued', cutoff24h).order('time_issued'),
       supabase.from('security_post_logs').select('*').gte('time_in', dayStart.toISOString()).lte('time_in', dayEnd.toISOString()),
@@ -83,6 +87,7 @@ export default function AuditPage() {
       supabase.from('security_panic_logs').select('*').gte('created_at', dayStart.toISOString()).lte('created_at', dayEnd.toISOString()).order('created_at', { ascending: false }),
       supabase.from('security_post_logs').select('*').gte('time_in', dayStart.toISOString()).lte('time_in', dayEnd.toISOString()).order('time_in', { ascending: false }),
       supabase.from('security_key_logs').select('*').gte('time_issued', dayStart.toISOString()).lte('time_issued', dayEnd.toISOString()).order('time_issued', { ascending: false }),
+      supabase.from('security_gate_events').select('*').gte('created_at', dayStart.toISOString()).lte('created_at', dayEnd.toISOString()).order('created_at', { ascending: false }),
     ])
 
     const suspiciousShifts = (shifts || []).filter(s => {
@@ -111,6 +116,11 @@ export default function AuditPage() {
 
     setGuardTimeline(buildTimelineRows(postLogs || [], 'guard_name', date))
     setPostTimeline(buildTimelineRows(postLogs || [], 'post_name', date))
+
+    setActivity(buildActivityLog({
+      entries: dayEntries || [], postLogs: postLogs || [], gateEvents: dayGateEvents || [],
+      panicLogs: todayPanics || [], incidents: todayIncidents || [],
+    }))
 
     setLoading(false)
   }
@@ -217,6 +227,14 @@ export default function AuditPage() {
             {renderTable(s)}
           </div>
         ))}
+      </div>
+
+      <div className="bg-white border rounded-xl shadow-sm overflow-hidden mb-6" data-audit-card>
+        <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
+          <h2 className="text-sm font-bold text-slate-700 flex items-center gap-2" data-audit-title><Activity className="w-4 h-4 text-indigo-500" /> Activity Log for {date}</h2>
+          <span className="text-xs bg-indigo-50 text-indigo-700 rounded-full px-2.5 py-1 font-semibold">{activity.length}</span>
+        </div>
+        <ActivityLogFeed events={activity} emptyLabel="No activity recorded for this date." />
       </div>
 
       <div className="bg-white border rounded-xl shadow-sm p-5" data-audit-card>
