@@ -86,7 +86,19 @@ export default function SecurityDashboardPage() {
     load()
   }
 
-  const shiftByPost = new Map(shifts.map(s => [s.post_name.trim().toLowerCase(), s]))
+  // A post can end up with more than one "still open" shift (a guard double
+  // clocks in without properly closing the previous one) — always show the
+  // most recently started one, not whichever the query happens to return
+  // first, or the dashboard can get stuck displaying a stale/closed-in-the-
+  // legacy-app shift.
+  const shiftByPost = new Map<string, Shift>()
+  for (const s of shifts) {
+    const key = s.post_name.trim().toLowerCase()
+    const existing = shiftByPost.get(key)
+    if (!existing || new Date(s.time_in) > new Date(existing.time_in)) {
+      shiftByPost.set(key, s)
+    }
+  }
   const now = Date.now()
 
   return (
