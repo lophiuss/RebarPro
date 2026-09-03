@@ -134,7 +134,7 @@ export default function EntriesPage() {
   async function checkout(id: number) {
     const { error } = await supabase.from('security_entries').update({ status: 'out', time_out: new Date().toISOString() }).eq('id', id).eq('status', 'in')
     if (error) { alert('Error: ' + error.message); return }
-    load()
+    setActive(prev => prev.filter(e => e.id !== id))
   }
 
   async function approveVisitor() {

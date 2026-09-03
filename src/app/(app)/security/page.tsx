@@ -70,20 +70,46 @@ export default function SecurityDashboardPage() {
     }))
   }
 
+  // Both actions below update local state directly instead of re-running the
+  // full 14-query load() — these are the two most frequent things done from
+  // this page, and neither one needs the gates/layout/posts/etc. data that
+  // load() also refetches every time.
   async function toggleGate(gate: Gate) {
     const { data: { user } } = await supabase.auth.getUser()
     const newStatus = gate.status === 'locked' ? 'open' : 'locked'
-    const { error } = await supabase.from('security_gates').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', gate.id)
+    const now = new Date().toISOString()
+    const { error } = await supabase.from('security_gates').update({ status: newStatus, updated_at: now }).eq('id', gate.id)
     if (error) { alert('Error: ' + error.message); return }
     await supabase.from('security_gate_events').insert([{ gate_id: gate.id, gate_name: gate.name, action: newStatus, username: user?.email || null }])
-    load()
+    setGates(prev => prev.map(g => g.id === gate.id ? { ...g, status: newStatus } : g))
+    setActivity(prev => [{
+      id: `gate-${gate.id}-${now}`, time: now,
+      icon: newStatus === 'locked' ? '🔒' : '🔓',
+      label: `Gate ${newStatus === 'locked' ? 'Closed' : 'Opened'}: ${gate.name}`,
+      detail: user?.email || '', tone: newStatus === 'locked' ? 'default' : 'warn',
+    }, ...prev])
   }
 
   async function checkout(id: number) {
-    const { error } = await supabase.from('security_entries').update({ status: 'out', time_out: new Date().toISOString() }).eq('id', id).eq('status', 'in')
+    const now = new Date().toISOString()
+    const { error } = await supabase.from('security_entries').update({ status: 'out', time_out: now }).eq('id', id).eq('status', 'in')
     if (error) { alert('Error: ' + error.message); return }
+    const entry = active.find(e => e.id === id)
     setDetail(null)
-    load()
+    setActive(prev => prev.filter(e => e.id !== id))
+    if (entry) {
+      setCounts(prev => ({
+        ...prev,
+        visitors: entry.category === 'visitor' ? Math.max(0, prev.visitors - 1) : prev.visitors,
+        deliveries: entry.category === 'delivery' ? Math.max(0, prev.deliveries - 1) : prev.deliveries,
+        inhouse: entry.category === 'inhouse' ? Math.max(0, prev.inhouse - 1) : prev.inhouse,
+      }))
+      setActivity(prev => [{
+        id: `entry-out-${id}`, time: now,
+        icon: CATEGORY_ICON[entry.category], label: `${CATEGORY_LABEL[entry.category]} Out: ${entry.person_name}`,
+        detail: entry.company || entry.vehicle_no || '', tone: 'default',
+      }, ...prev])
+    }
   }
 
   // A post can end up with more than one "still open" shift (a guard double

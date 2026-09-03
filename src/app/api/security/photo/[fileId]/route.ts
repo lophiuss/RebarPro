@@ -18,7 +18,11 @@ export async function GET(_req: Request, { params }: { params: Promise<{ fileId:
   try {
     const { stream, mimeType } = await streamFromDrive(fileId)
     return new NextResponse(stream as any, {
-      headers: { 'Content-Type': mimeType, 'Cache-Control': 'private, max-age=3600' },
+      // A given file id's bytes never change once uploaded, so cache
+      // aggressively — cuts repeat Drive fetches (and the has_dept_access
+      // round trip above) every time the same photo appears again across
+      // Entries/Dashboard/Audit.
+      headers: { 'Content-Type': mimeType, 'Cache-Control': 'private, max-age=86400, immutable' },
     })
   } catch (err: any) {
     return NextResponse.json({ error: 'Photo not found' }, { status: 404 })
