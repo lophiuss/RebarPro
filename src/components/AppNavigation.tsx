@@ -6,11 +6,13 @@ import { usePathname } from 'next/navigation'
 import {
   Home, List, ClipboardCheck, LogOut, Settings, FileBarChart2, Menu, X,
   ShieldCheck, Building2, Boxes, Scale, PackageOpen, ScrollText, BarChart3,
-  ArrowLeftRight, ClipboardList, AlertTriangle, Factory
+  ArrowLeftRight, ClipboardList, AlertTriangle, Factory, DoorClosed, KeyRound,
+  Radio, Siren, ClipboardEdit
 } from 'lucide-react'
 
-export type DepartmentAccess = { department: 'rebar' | 'cement'; role: string }
-export type NavPermission = { department: 'rebar' | 'cement'; role: string; nav_key: string }
+export type Department = 'rebar' | 'cement' | 'security'
+export type DepartmentAccess = { department: Department; role: string }
+export type NavPermission = { department: Department; role: string; nav_key: string }
 
 interface Props {
   userEmail: string
@@ -19,14 +21,22 @@ interface Props {
   children: React.ReactNode
 }
 
-const DEPARTMENT_LABEL: Record<DepartmentAccess['department'], string> = {
+const DEPARTMENT_LABEL: Record<Department, string> = {
   rebar: 'Rebar',
   cement: 'BPlant',
+  security: 'Security',
 }
 
-const DEPARTMENT_HOME: Record<DepartmentAccess['department'], string> = {
+const DEPARTMENT_HOME: Record<Department, string> = {
   rebar: '/rebar/dashboard',
   cement: '/cement',
+  security: '/security',
+}
+
+const SETTINGS_HREF: Record<Department, string> = {
+  rebar: '/rebar/settings',
+  cement: '/cement/settings',
+  security: '/security/settings',
 }
 
 // Cement's real pages land here module-by-module (see the merge plan's build order).
@@ -37,7 +47,7 @@ const DEPARTMENT_HOME: Record<DepartmentAccess['department'], string> = {
 // /admin/access — not fixed here. Settings is included so it's configurable
 // the same way (it used to be a special-cased admin-only check for cement).
 type NavItem = { href: string; label: string; icon: any }
-export const NAV_ITEMS: Record<DepartmentAccess['department'], NavItem[]> = {
+export const NAV_ITEMS: Record<Department, NavItem[]> = {
   rebar: [
     { href: '/rebar/dashboard', label: 'Dashboard', icon: Home },
     { href: '/rebar/transactions', label: 'Transactions', icon: List },
@@ -58,16 +68,28 @@ export const NAV_ITEMS: Record<DepartmentAccess['department'], NavItem[]> = {
     { href: '/cement/alert-setting', label: 'Alert Setting', icon: AlertTriangle },
     { href: '/cement/settings', label: 'Settings', icon: Settings },
   ],
+  security: [
+    { href: '/security', label: 'Dashboard', icon: Home },
+    { href: '/security/entries', label: 'Entries', icon: ClipboardEdit },
+    { href: '/security/gates', label: 'Gates', icon: DoorClosed },
+    { href: '/security/keys', label: 'Keys', icon: KeyRound },
+    { href: '/security/post-logs', label: 'Post Logs', icon: Radio },
+    { href: '/security/incidents', label: 'Incidents', icon: Siren },
+    { href: '/security/audit', label: 'Audit', icon: ClipboardList },
+    { href: '/security/settings', label: 'Settings', icon: Settings },
+  ],
 }
 
 export default function AppNavigation({ userEmail, departments, navPermissions, children }: Props) {
   const [isOpen, setIsOpen] = useState(false)
   const pathname = usePathname()
 
-  const activeDept: DepartmentAccess['department'] | null = pathname.startsWith('/cement')
+  const activeDept: Department | null = pathname.startsWith('/cement')
     ? 'cement'
     : pathname.startsWith('/rebar')
     ? 'rebar'
+    : pathname.startsWith('/security')
+    ? 'security'
     : departments[0]?.department ?? null
 
   const activeRole = departments.find(d => d.department === activeDept)?.role
@@ -79,9 +101,9 @@ export default function AppNavigation({ userEmail, departments, navPermissions, 
     activeRole === 'admin' ||
     (!!activeDept && !!activeRole && navPermissions.some(p => p.department === activeDept && p.role === activeRole && p.nav_key === navKey))
 
-  const navItems = activeDept ? NAV_ITEMS[activeDept].filter(item => item.href !== `/${activeDept}/settings` && isAllowed(item.href)) : []
+  const settingsHref = activeDept ? SETTINGS_HREF[activeDept] : ''
+  const navItems = activeDept ? NAV_ITEMS[activeDept].filter(item => item.href !== settingsHref && isAllowed(item.href)) : []
   const isAdminAnywhere = departments.some(d => d.role === 'admin')
-  const settingsHref = activeDept === 'cement' ? '/cement/settings' : '/rebar/settings'
   const canSeeSettings = !!activeDept && isAllowed(settingsHref)
 
   const closeSidebar = () => setIsOpen(false)

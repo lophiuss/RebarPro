@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ShieldCheck, Trash2, UserPlus, Pencil, X, User as UserIcon } from 'lucide-react'
 import { listPeople, createPerson, updatePersonProfile, resetPersonPassword, type Person } from './actions'
-import { NAV_ITEMS } from '@/components/AppNavigation'
+import { NAV_ITEMS, type Department } from '@/components/AppNavigation'
 
 // Resize to max 512px and re-encode as ~70%-quality JPEG, same approach as
 // the weight-in photo compression.
@@ -33,12 +33,24 @@ async function compressImage(file: File): Promise<Blob> {
   return new Promise<Blob>(resolve => canvas.toBlob(blob => resolve(blob || file), 'image/jpeg', 0.7))
 }
 
-type AccessRow = { user_id: string; department: 'rebar' | 'cement'; role: string }
-type NavPermRow = { department: 'rebar' | 'cement'; role: string; nav_key: string }
+type AccessRow = { user_id: string; department: Department; role: string }
+type NavPermRow = { department: Department; role: string; nav_key: string }
 
-const ROLES: Record<'rebar' | 'cement', string[]> = {
+const DEPT_LABEL: Record<Department, string> = { rebar: 'Rebar', cement: 'Cement', security: 'Security' }
+
+const ROLES: Record<Department, string[]> = {
   rebar: ['admin', 'manager', 'user'],
   cement: ['admin', 'manager', 'supervisor', 'technician'],
+  security: ['admin', 'manager', 'security'],
+}
+
+// Every department's top role is stored as 'admin' (so is_dept_admin() works
+// everywhere unchanged), but Security's own vocabulary calls that role "Boss".
+const ROLE_LABEL: Partial<Record<Department, Record<string, string>>> = {
+  security: { admin: 'Boss' },
+}
+function roleLabel(dept: Department, role: string) {
+  return ROLE_LABEL[dept]?.[role] ?? role
 }
 
 export default function AccessControlPage() {
@@ -48,7 +60,7 @@ export default function AccessControlPage() {
   const [myId, setMyId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [grantUserId, setGrantUserId] = useState('')
-  const [grantDept, setGrantDept] = useState<'rebar' | 'cement'>('rebar')
+  const [grantDept, setGrantDept] = useState<Department>('rebar')
   const [grantRole, setGrantRole] = useState('user')
 
   const [showAddPerson, setShowAddPerson] = useState(false)
@@ -92,13 +104,13 @@ export default function AccessControlPage() {
   // so this is also the safe source of truth for what this page can manage.
   const myAdminDepts = Array.from(
     new Set(access.filter(a => a.user_id === myId && a.role === 'admin').map(a => a.department))
-  ) as ('rebar' | 'cement')[]
+  ) as (Department)[]
 
-  function accessFor(userId: string, dept: 'rebar' | 'cement') {
+  function accessFor(userId: string, dept: Department) {
     return access.find(a => a.user_id === userId && a.department === dept)
   }
 
-  async function grant(userId: string, dept: 'rebar' | 'cement', role: string) {
+  async function grant(userId: string, dept: Department, role: string) {
     const { error } = await supabase
       .from('user_department_access')
       .upsert([{ user_id: userId, department: dept, role }], { onConflict: 'user_id,department' })
@@ -109,7 +121,7 @@ export default function AccessControlPage() {
     load()
   }
 
-  async function revoke(userId: string, dept: 'rebar' | 'cement') {
+  async function revoke(userId: string, dept: Department) {
     if (!confirm('Remove this person\'s access to this department?')) return
     const { error } = await supabase
       .from('user_department_access')
@@ -189,11 +201,11 @@ export default function AccessControlPage() {
     }
   }
 
-  function isNavAllowed(dept: 'rebar' | 'cement', role: string, navKey: string) {
+  function isNavAllowed(dept: Department, role: string, navKey: string) {
     return navPerms.some(p => p.department === dept && p.role === role && p.nav_key === navKey)
   }
 
-  async function toggleNav(dept: 'rebar' | 'cement', role: string, navKey: string, allow: boolean) {
+  async function toggleNav(dept: Department, role: string, navKey: string, allow: boolean) {
     // Optimistic update so the checkbox responds immediately.
     setNavPerms(prev => allow
       ? [...prev, { department: dept, role, nav_key: navKey }]
@@ -250,16 +262,16 @@ export default function AccessControlPage() {
             <label className="block text-xs font-medium text-gray-500 mb-1">Department</label>
             <select
               value={grantDept}
-              onChange={e => { const d = e.target.value as 'rebar' | 'cement'; setGrantDept(d); setGrantRole(ROLES[d][ROLES[d].length - 1]) }}
+              onChange={e => { const d = e.target.value as Department; setGrantDept(d); setGrantRole(ROLES[d][ROLES[d].length - 1]) }}
               className="border rounded-md px-3 py-2 text-sm bg-white"
             >
-              {myAdminDepts.map(d => <option key={d} value={d}>{d === 'rebar' ? 'Rebar' : 'Cement'}</option>)}
+              {myAdminDepts.map(d => <option key={d} value={d}>{DEPT_LABEL[d]}</option>)}
             </select>
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Role</label>
             <select value={grantRole} onChange={e => setGrantRole(e.target.value)} className="border rounded-md px-3 py-2 text-sm bg-white capitalize">
-              {ROLES[grantDept].map(r => <option key={r} value={r}>{r}</option>)}
+              {ROLES[grantDept].map(r => <option key={r} value={r}>{roleLabel(grantDept, r)}</option>)}
             </select>
           </div>
           <button
@@ -279,7 +291,7 @@ export default function AccessControlPage() {
             <tr>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Person</th>
               {myAdminDepts.map(d => (
-                <th key={d} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{d === 'rebar' ? 'Rebar' : 'Cement'}</th>
+                <th key={d} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{DEPT_LABEL[d]}</th>
               ))}
             </tr>
           </thead>
@@ -313,7 +325,7 @@ export default function AccessControlPage() {
                             onChange={e => grant(p.id, d, e.target.value)}
                             className="border rounded px-2 py-1 text-xs bg-white capitalize"
                           >
-                            {ROLES[d].map(r => <option key={r} value={r}>{r}</option>)}
+                            {ROLES[d].map(r => <option key={r} value={r}>{roleLabel(d, r)}</option>)}
                           </select>
                           <button onClick={() => revoke(p.id, d)} className="text-red-500 hover:text-red-700 p-1" title="Revoke access">
                             <Trash2 className="w-3.5 h-3.5" />
@@ -346,7 +358,7 @@ export default function AccessControlPage() {
           return (
             <div key={dept} className="bg-white border rounded-xl shadow-sm overflow-x-auto">
               <div className="px-4 py-3 border-b bg-gray-50">
-                <h3 className="text-sm font-bold text-slate-700">{dept === 'rebar' ? 'Rebar' : 'Cement'}</h3>
+                <h3 className="text-sm font-bold text-slate-700">{DEPT_LABEL[dept]}</h3>
               </div>
               <table className="min-w-full divide-y divide-gray-200">
                 <thead>
