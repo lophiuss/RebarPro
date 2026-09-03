@@ -58,7 +58,7 @@ export default function AlertSettingPage() {
         <Button onClick={save} className="w-full">Save Settings</Button>
 
         <p className="text-xs text-gray-500 mt-4">
-          One combined report, once a day — every morning at <b>10:00 (Malaysia time)</b>, based on the stock
+          One combined report, once a day — every day at <b>1:00 PM (Malaysia time)</b>, based on the stock
           take closing from before that report, not on every individual save. Daily and monthly breaches are
           listed together in a single email; an ongoing monthly breach only alerts once per month.
         </p>
