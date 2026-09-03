@@ -55,6 +55,7 @@ const code = await new Promise((resolve, reject) => {
     if (url.pathname !== '/oauth2callback') { res.end('OK'); return }
     const code = url.searchParams.get('code')
     const error = url.searchParams.get('error')
+    if (!code && !error) { res.end('OK'); return } // stray hit (e.g. favicon), keep waiting
     res.setHeader('Content-Type', 'text/html')
     res.end(error
       ? `<h2>Authorization failed: ${error}</h2>You can close this tab.`
