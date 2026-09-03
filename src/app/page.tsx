@@ -22,6 +22,9 @@ export default async function Home() {
   if (departments.includes('cement')) {
     redirect('/cement')
   }
+  if (departments.includes('security')) {
+    redirect('/security')
+  }
 
   // No department access yet — (app)/layout.tsx shows the "no access" message.
   redirect('/rebar/dashboard')

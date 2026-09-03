@@ -54,6 +54,26 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(url)
   }
 
+  // If a logged-in user hits a department's pages without access to that
+  // department (stale bookmark, another department's session, etc.), bounce
+  // them to "/" instead of silently rendering that department's page with no
+  // nav — this was reported for a security-only account landing on Rebar.
+  if (user) {
+    const deptSegment = request.nextUrl.pathname.split('/')[1]
+    if (deptSegment === 'rebar' || deptSegment === 'cement' || deptSegment === 'security') {
+      const { data: access } = await supabase
+        .from('user_department_access')
+        .select('department')
+        .eq('user_id', user.id)
+      const departments = (access ?? []).map(a => a.department)
+      if (!departments.includes(deptSegment)) {
+        const url = request.nextUrl.clone()
+        url.pathname = '/'
+        return NextResponse.redirect(url)
+      }
+    }
+  }
+
   return supabaseResponse
 }
 
