@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Radio, LogOut } from 'lucide-react'
+import { Radio, LogOut, AlertTriangle } from 'lucide-react'
 
 type Post = { id: number; name: string }
 type PostLog = { id: number; post_name: string; guard_name: string; time_in: string; time_out: string | null; notes: string | null }
@@ -56,6 +56,16 @@ export default function PostLogsPage() {
     load()
   }
 
+  async function endAllOverdue() {
+    const { error } = await supabase.from('security_post_logs').update({ time_out: new Date().toISOString() }).in('id', overdue.map(o => o.id))
+    if (error) { alert('Error: ' + error.message); return }
+    load()
+  }
+
+  const now = Date.now()
+  const overdue = active.filter(a => (now - new Date(a.time_in).getTime()) > 14 * 3600000)
+  const currentActive = active.filter(a => (now - new Date(a.time_in).getTime()) <= 14 * 3600000)
+
   return (
     <div className="p-4 md:p-8 max-w-6xl mx-auto">
       <h1 className="text-3xl font-bold mb-6 flex items-center gap-2"><Radio className="w-7 h-7 text-blue-600" /> Post Logs</h1>
@@ -82,9 +92,9 @@ export default function PostLogsPage() {
         </form>
 
         <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b bg-gray-50"><h2 className="text-sm font-bold text-slate-700">Active Shifts ({active.length})</h2></div>
+          <div className="px-4 py-3 border-b bg-gray-50"><h2 className="text-sm font-bold text-slate-700">Active Shifts ({currentActive.length})</h2></div>
           <div className="divide-y divide-gray-100 max-h-[420px] overflow-y-auto">
-            {active.map(a => (
+            {currentActive.map(a => (
               <div key={a.id} className="px-4 py-3 flex items-center justify-between text-sm">
                 <div>
                   <div className="font-medium">{a.post_name} — {a.guard_name}</div>
@@ -93,10 +103,33 @@ export default function PostLogsPage() {
                 <button onClick={() => endShift(a.id)} className="flex items-center gap-1 text-xs bg-green-50 text-green-700 px-2.5 py-1.5 rounded-lg hover:bg-green-100 flex-shrink-0"><LogOut className="w-3.5 h-3.5" /> End Shift</button>
               </div>
             ))}
-            {active.length === 0 && <p className="px-4 py-8 text-center text-sm text-gray-400">No active shifts.</p>}
+            {currentActive.length === 0 && <p className="px-4 py-8 text-center text-sm text-gray-400">No active shifts.</p>}
           </div>
         </div>
       </div>
+
+      {overdue.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl shadow-sm overflow-hidden mb-8">
+          <div className="px-4 py-3 border-b border-amber-200 flex items-center justify-between">
+            <h2 className="text-sm font-bold text-amber-800 flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> Overdue (Forgot to Checkout?)</h2>
+            <button onClick={endAllOverdue} className="text-xs bg-red-600 text-white font-medium px-2.5 py-1.5 rounded-lg hover:bg-red-700">End All Overdue</button>
+          </div>
+          <div className="divide-y divide-amber-100">
+            {overdue.map(a => {
+              const hrs = (now - new Date(a.time_in).getTime()) / 3600000
+              return (
+                <div key={a.id} className="px-4 py-3 flex items-center justify-between text-sm bg-white">
+                  <div>
+                    <div className="font-medium">{a.post_name} — {a.guard_name}</div>
+                    <div className="text-xs text-red-600">Started {new Date(a.time_in).toLocaleString()} <span className="font-bold">({hrs.toFixed(1)} hrs ago)</span></div>
+                  </div>
+                  <button onClick={() => endShift(a.id)} className="flex items-center gap-1 text-xs bg-red-50 text-red-700 px-2.5 py-1.5 rounded-lg hover:bg-red-100 flex-shrink-0"><LogOut className="w-3.5 h-3.5" /> End Shift</button>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between flex-wrap gap-2">
