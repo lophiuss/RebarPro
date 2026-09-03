@@ -205,7 +205,8 @@ export default function EntriesPage() {
               <div key={p.id} className="px-4 py-3 flex items-center justify-between gap-3 bg-white">
                 <div className="min-w-0">
                   <div className="font-medium text-sm">{p.person_name}</div>
-                  <div className="text-xs text-gray-500">{[p.company, p.purpose].filter(Boolean).join(' · ') || '-'}{p.looking_for ? ` · Looking for: ${p.looking_for}` : ''}</div>
+                  <div className="text-xs text-gray-500">{[p.company, p.purpose, p.vehicle_no].filter(Boolean).join(' · ') || '-'}{p.looking_for ? ` · Looking for: ${p.looking_for}` : ''}</div>
+                  {p.notes && <div className="text-xs text-gray-400 italic">"{p.notes}"</div>}
                   <div className="text-xs text-gray-400">Submitted {new Date(p.time_in).toLocaleString()}</div>
                 </div>
                 <div className="flex gap-2 flex-shrink-0">

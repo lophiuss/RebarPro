@@ -7,7 +7,12 @@ import { Radio, LogOut, AlertTriangle } from 'lucide-react'
 type Post = { id: number; name: string }
 type PostLog = { id: number; post_name: string; guard_name: string; time_in: string; time_out: string | null; notes: string | null }
 
-function isoToday() { return new Date().toISOString().split('T')[0] }
+// Local date, not UTC — .toISOString() shifts the date for any timezone
+// ahead of UTC (e.g. shows "yesterday" for a UTC+8 user before 8am local).
+function isoToday() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 
 export default function PostLogsPage() {
   const supabase = createClient()

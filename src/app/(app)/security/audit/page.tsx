@@ -5,11 +5,19 @@ import { createClient } from '@/lib/supabase/client'
 import { ClipboardList, AlertOctagon, Download, ChevronLeft, ChevronRight, X } from 'lucide-react'
 import PhotoLightbox from '@/components/PhotoLightbox'
 
-function isoToday() { return new Date().toISOString().split('T')[0] }
+// Local-date arithmetic only — .toISOString() converts to UTC, which silently
+// shifts the date by a day for any timezone ahead of UTC (e.g. the "forward"
+// button did nothing for a UTC+8 user: local tomorrow at local midnight is
+// still "today" in UTC until 16:00 UTC).
+function toLocalYMD(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+function isoToday() { return toLocalYMD(new Date()) }
 function addDays(dateStr: string, n: number) {
-  const d = new Date(dateStr + 'T00:00:00')
+  const [y, m, day] = dateStr.split('-').map(Number)
+  const d = new Date(y, m - 1, day)
   d.setDate(d.getDate() + n)
-  return d.toISOString().split('T')[0]
+  return toLocalYMD(d)
 }
 
 type Section = { title: string; icon?: string; rows: any[]; columns: { key: string; label: string; fmt?: (v: any, row: any) => string }[] }

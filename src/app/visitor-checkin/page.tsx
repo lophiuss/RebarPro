@@ -5,7 +5,7 @@ import { submitVisitorCheckin } from './actions'
 import { ShieldCheck, CheckCircle2 } from 'lucide-react'
 
 export default function VisitorCheckinPage() {
-  const [form, setForm] = useState({ personName: '', company: '', purpose: '', lookingFor: '' })
+  const [form, setForm] = useState({ personName: '', company: '', purpose: '', lookingFor: '', vehicleNo: '', notes: '' })
   const [submitting, setSubmitting] = useState(false)
   const [done, setDone] = useState(false)
 
@@ -61,6 +61,14 @@ export default function VisitorCheckinPage() {
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">Who Are You Looking For?</label>
             <input value={form.lookingFor} onChange={e => setForm({ ...form, lookingFor: e.target.value })} placeholder="Name or department" className="w-full border border-gray-300 rounded-lg px-3.5 py-2.5 text-sm" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Vehicle Plate</label>
+            <input value={form.vehicleNo} onChange={e => setForm({ ...form, vehicleNo: e.target.value })} className="w-full border border-gray-300 rounded-lg px-3.5 py-2.5 text-sm" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Notes</label>
+            <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} rows={2} className="w-full border border-gray-300 rounded-lg px-3.5 py-2.5 text-sm" />
           </div>
           <button type="submit" disabled={submitting} className="w-full bg-blue-600 disabled:opacity-50 text-white font-semibold text-sm py-3 rounded-lg hover:bg-blue-700 mt-2">
             {submitting ? 'Submitting...' : 'Check In'}

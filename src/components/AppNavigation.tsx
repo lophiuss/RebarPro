@@ -7,7 +7,7 @@ import {
   Home, List, ClipboardCheck, LogOut, Settings, FileBarChart2, Menu, X,
   ShieldCheck, Building2, Boxes, Scale, PackageOpen, ScrollText, BarChart3,
   ArrowLeftRight, ClipboardList, AlertTriangle, Factory, DoorClosed, KeyRound,
-  Radio, Siren, ClipboardEdit
+  Radio, Siren, ClipboardEdit, User
 } from 'lucide-react'
 
 export type Department = 'rebar' | 'cement' | 'security'
@@ -231,6 +231,19 @@ export default function AppNavigation({ userEmail, departments, navPermissions, 
               <span>Access Control</span>
             </Link>
           )}
+
+          <Link
+            href="/profile"
+            onClick={closeSidebar}
+            className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition ${
+              pathname === '/profile'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-300 hover:bg-slate-800/90 hover:text-white'
+            }`}
+          >
+            <User className={`w-5 h-5 ${pathname === '/profile' ? 'text-white' : 'text-slate-400'}`} />
+            <span>My Profile</span>
+          </Link>
         </nav>
 
         {/* Sign Out Button */}

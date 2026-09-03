@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { DoorClosed, DoorOpen, Plus, Trash2, X } from 'lucide-react'
 
@@ -15,6 +15,10 @@ export default function GatesPage() {
   const [editing, setEditing] = useState<Gate | null>(null)
   const [placing, setPlacing] = useState(false)
   const [newGateName, setNewGateName] = useState('')
+  const [dragId, setDragId] = useState<number | null>(null)
+  const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null)
+  const mapRef = useRef<HTMLDivElement>(null)
+  const didDragRef = useRef(false)
 
   useEffect(() => { load() }, [])
 
@@ -39,6 +43,36 @@ export default function GatesPage() {
     const { error } = await supabase.from('security_gates').update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', gate.id)
     if (error) { alert('Error: ' + error.message); return }
     await supabase.from('security_gate_events').insert([{ gate_id: gate.id, gate_name: gate.name, action: newStatus, username: user?.email || null }])
+    load()
+  }
+
+  function startDrag(e: React.PointerEvent<HTMLButtonElement>, gate: Gate) {
+    if (!isManager || placing) return
+    e.stopPropagation()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    didDragRef.current = false
+    setDragId(gate.id)
+    setDragPos({ x: gate.pos_x, y: gate.pos_y })
+  }
+
+  function onDragMove(e: React.PointerEvent<HTMLButtonElement>) {
+    if (dragId === null || !mapRef.current) return
+    const rect = mapRef.current.getBoundingClientRect()
+    const x = Math.min(100, Math.max(0, ((e.clientX - rect.left) / rect.width) * 100))
+    const y = Math.min(100, Math.max(0, ((e.clientY - rect.top) / rect.height) * 100))
+    didDragRef.current = true
+    setDragPos({ x, y })
+  }
+
+  async function endDrag(e: React.PointerEvent<HTMLButtonElement>, gate: Gate) {
+    if (dragId === null) return
+    e.currentTarget.releasePointerCapture(e.pointerId)
+    const finalPos = dragPos
+    setDragId(null)
+    setDragPos(null)
+    if (!didDragRef.current || !finalPos) return // treat as a click, not a drag — let onClick handle it
+    const { error } = await supabase.from('security_gates').update({ pos_x: finalPos.x, pos_y: finalPos.y }).eq('id', gate.id)
+    if (error) { alert('Error: ' + error.message); return }
     load()
   }
 
@@ -96,29 +130,37 @@ export default function GatesPage() {
         )}
       </div>
 
+      {isManager && <p className="text-xs text-gray-400 mb-2">Drag a gate marker to reposition it on the map.</p>}
       <div
+        ref={mapRef}
         onClick={handleMapClick}
         className={`relative w-full aspect-video bg-gray-100 border rounded-xl overflow-hidden mb-6 ${placing ? 'cursor-crosshair' : ''}`}
       >
         {layout?.photo_url || (layout?.photo_drive_id && layout.photo_drive_id !== 'PENDING') ? (
-          <img src={layout.photo_url || `/api/security/photo/${layout!.photo_drive_id}`} className="w-full h-full object-contain" />
+          <img src={layout.photo_url || `/api/security/photo/${layout!.photo_drive_id}`} className="w-full h-full object-contain" draggable={false} />
         ) : (
           <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">No site layout uploaded yet</div>
         )}
-        {gates.map(g => (
-          <button
-            key={g.id}
-            onClick={e => { e.stopPropagation(); if (!placing) toggleGate(g) }}
-            title={`${g.name} — ${g.status}`}
-            style={{ left: `${g.pos_x}%`, top: `${g.pos_y}%` }}
-            className={`absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-0.5 group`}
-          >
-            <span className={`w-8 h-8 rounded-full flex items-center justify-center shadow-md ${g.status === 'locked' ? 'bg-red-500' : 'bg-green-500'}`}>
-              {g.status === 'locked' ? <DoorClosed className="w-4 h-4 text-white" /> : <DoorOpen className="w-4 h-4 text-white" />}
-            </span>
-            <span className="text-[10px] font-semibold bg-white/90 px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap">{g.name}</span>
-          </button>
-        ))}
+        {gates.map(g => {
+          const pos = dragId === g.id && dragPos ? dragPos : { x: g.pos_x, y: g.pos_y }
+          return (
+            <button
+              key={g.id}
+              onPointerDown={e => startDrag(e, g)}
+              onPointerMove={onDragMove}
+              onPointerUp={e => endDrag(e, g)}
+              onClick={e => { e.stopPropagation(); if (!placing && !didDragRef.current) toggleGate(g) }}
+              title={`${g.name} — ${g.status}`}
+              style={{ left: `${pos.x}%`, top: `${pos.y}%`, touchAction: 'none' }}
+              className={`absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-0.5 group ${isManager && !placing ? 'cursor-grab active:cursor-grabbing' : ''} ${dragId === g.id ? 'z-10 scale-110' : ''}`}
+            >
+              <span className={`w-8 h-8 rounded-full flex items-center justify-center shadow-md ${g.status === 'locked' ? 'bg-red-500' : 'bg-green-500'}`}>
+                {g.status === 'locked' ? <DoorClosed className="w-4 h-4 text-white" /> : <DoorOpen className="w-4 h-4 text-white" />}
+              </span>
+              <span className="text-[10px] font-semibold bg-white/90 px-1.5 py-0.5 rounded shadow-sm whitespace-nowrap">{g.name}</span>
+            </button>
+          )
+        })}
       </div>
 
       <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
