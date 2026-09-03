@@ -7,7 +7,16 @@ import StockBalanceLineChart from '@/components/StockBalanceLineChart'
 import { naturalSort } from '@/lib/utils/sort'
 import { fmtQty, fmtQtyNum, unitLabel, type DefaultUnit } from '@/lib/utils/unit'
 
-export default async function DashboardPage() {
+interface SearchParams {
+  period?: string
+  from?: string
+  to?: string
+}
+
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
+  const { period: rawPeriod, from: rawFrom, to: rawTo } = await searchParams
+  const period = (['this_month', 'last_month', 'custom'].includes(rawPeriod || '') ? rawPeriod : 'all') as 'all' | 'this_month' | 'last_month' | 'custom'
+
   const supabase = await createClient()
 
   const [txRes, sizesRes, settingsRes, stRes, pTypesRes, projectsRes] = await Promise.all([
@@ -40,20 +49,52 @@ export default async function DashboardPage() {
 
   const sevenDaysAgoStr = daysAgo(7)
 
-  function getSizeBalanceInfo(sizeId: string) {
+  // --- Period boundaries for the KPI cards (Total Stock / Suspended / Usable / Avg Daily / Incoming / Coverage) ---
+  const pad2 = (n: number) => String(n).padStart(2, '0')
+  const toStr = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+  const firstOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1)
+  const lastOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth() + 1, 0)
+
+  let periodStart: string | null = null
+  let periodEnd: string = todayStr
+  let periodLabel = 'All Time'
+
+  if (period === 'this_month') {
+    periodStart = toStr(firstOfMonth(today))
+    periodEnd = todayStr
+    periodLabel = today.toLocaleString('default', { month: 'long', year: 'numeric' })
+  } else if (period === 'last_month') {
+    const lastMonthDate = new Date(today.getFullYear(), today.getMonth() - 1, 1)
+    periodStart = toStr(firstOfMonth(lastMonthDate))
+    periodEnd = toStr(lastOfMonth(lastMonthDate))
+    periodLabel = lastMonthDate.toLocaleString('default', { month: 'long', year: 'numeric' })
+  } else if (period === 'custom') {
+    periodStart = rawFrom || toStr(firstOfMonth(today))
+    periodEnd = rawTo || todayStr
+    periodLabel = `${periodStart} → ${periodEnd}`
+  }
+
+  // Transactions counted toward point-in-time balances: everything up to the end of the selected period.
+  const balanceTxs = period === 'all' ? transactions : transactions.filter(t => t.transaction_date <= periodEnd)
+  // Transactions counted toward flow metrics (incoming, usage): within the selected period only.
+  const flowTxs = period === 'all'
+    ? transactions
+    : transactions.filter(t => t.transaction_date <= periodEnd && (periodStart === null || t.transaction_date >= periodStart))
+
+  function getSizeBalanceInfo(sizeId: string, txs: typeof transactions = transactions) {
     let balance = 0
     let latestSTDate: string | null = null
     let hasST = false
 
     for (const pt of projectTypes) {
       const pIds = projects.filter(p => p.project_type_id === pt.id).map(p => p.id)
-      
-      const ptTxs = transactions.filter(t => 
-        t.size_id === sizeId && 
+
+      const ptTxs = txs.filter(t =>
+        t.size_id === sizeId &&
         (t.project_type_id === pt.id || (t.project_id && pIds.includes(t.project_id)))
       )
 
-      const ptST = allStockTakes.find(st => st.size_id === sizeId && st.project_type_id === pt.id)
+      const ptST = allStockTakes.find(st => st.size_id === sizeId && st.project_type_id === pt.id && st.stock_take_date <= periodEnd)
 
       if (ptST) {
         hasST = true
@@ -70,9 +111,9 @@ export default async function DashboardPage() {
     }
 
     const knownProjectIds = projects.map(p => p.id)
-    const unassignedTxs = transactions.filter(t => 
-      t.size_id === sizeId && 
-      !t.project_type_id && 
+    const unassignedTxs = txs.filter(t =>
+      t.size_id === sizeId &&
+      !t.project_type_id &&
       (!t.project_id || !knownProjectIds.includes(t.project_id))
     )
     balance += unassignedTxs.reduce((sum, t) => sum + Number(t.quantity), 0)
@@ -85,22 +126,17 @@ export default async function DashboardPage() {
   let totalIncoming = 0
   let totalWastage = 0
   let totalSuspended = 0
+  let periodUsage = 0
 
   sizes.forEach(size => {
-    const { balance } = getSizeBalanceInfo(size.id)
+    const { balance } = getSizeBalanceInfo(size.id, balanceTxs)
     totalBalance += balance
   })
 
-  transactions.forEach(tx => {
+  balanceTxs.forEach(tx => {
     const q = Math.abs(Number(tx.quantity))
-    if (tx.type === 'usage' && tx.transaction_date >= sevenDaysAgoStr) {
+    if (tx.type === 'usage' && tx.transaction_date >= sevenDaysAgoStr && tx.transaction_date <= todayStr) {
       totalUsage7d += q
-    }
-    if (tx.type === 'incoming') {
-      totalIncoming += Number(tx.quantity)
-    }
-    if (tx.type === 'wastage') {
-      totalWastage += q
     }
     if (tx.type === 'suspended') {
       totalSuspended += q
@@ -110,9 +146,27 @@ export default async function DashboardPage() {
     }
   })
 
+  flowTxs.forEach(tx => {
+    const q = Math.abs(Number(tx.quantity))
+    if (tx.type === 'incoming') {
+      totalIncoming += Number(tx.quantity)
+    }
+    if (tx.type === 'wastage') {
+      totalWastage += q
+    }
+    if (tx.type === 'usage') {
+      periodUsage += q
+    }
+  })
+
   totalSuspended = Math.max(totalSuspended, 0)
   const totalUsableBalance = Math.max(totalBalance - totalSuspended, 0)
-  const avgDailyUsage7d = totalUsage7d / 7
+
+  // "All Time" keeps the original fixed trailing-7-day average; a selected period averages over its own span instead.
+  const msPerDay = 24 * 60 * 60 * 1000
+  const daysInPeriod = periodStart ? Math.max(1, Math.round((new Date(periodEnd).getTime() - new Date(periodStart).getTime()) / msPerDay) + 1) : 7
+  const avgDailyUsage7d = period === 'all' ? (totalUsage7d / 7) : (periodUsage / daysInPeriod)
+  const avgDailyLabel = period === 'all' ? 'Avg Daily 7d' : 'Avg Daily'
   const globalDaysCoverage = avgDailyUsage7d > 0 ? totalUsableBalance / avgDailyUsage7d : 0
 
   const sizeStats = sizes.map(size => {
@@ -176,7 +230,35 @@ export default async function DashboardPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto">
-      <h1 className="text-3xl font-bold mb-8">Dashboard</h1>
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+        <h1 className="text-3xl font-bold">Dashboard</h1>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+            {[
+              { key: 'all', label: 'All Time' },
+              { key: 'this_month', label: 'This Month' },
+              { key: 'last_month', label: 'Last Month' },
+            ].map(opt => (
+              <a
+                key={opt.key}
+                href={opt.key === 'all' ? '/rebar/dashboard' : `/rebar/dashboard?period=${opt.key}`}
+                className={`px-3 py-1.5 rounded-md text-sm font-semibold transition ${period === opt.key ? 'bg-white shadow-sm text-slate-900' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                {opt.label}
+              </a>
+            ))}
+          </div>
+          <form method="GET" className="flex items-center gap-1.5 bg-gray-100 rounded-lg p-1">
+            <input type="hidden" name="period" value="custom" />
+            <input type="date" name="from" defaultValue={period === 'custom' ? (periodStart || '') : ''} className="border rounded-md px-2 py-1 text-sm bg-white" />
+            <span className="text-gray-400 text-sm">→</span>
+            <input type="date" name="to" defaultValue={period === 'custom' ? periodEnd : ''} className="border rounded-md px-2 py-1 text-sm bg-white" />
+            <button type="submit" className={`px-3 py-1 rounded-md text-sm font-semibold transition ${period === 'custom' ? 'bg-white shadow-sm text-slate-900' : 'text-gray-500 hover:text-gray-700'}`}>Go</button>
+          </form>
+        </div>
+      </div>
+      <p className="text-xs text-gray-400 mb-6">KPI cards below reflect <strong>{periodLabel}</strong>{period !== 'all' && ' — balances as of the end of this period, flow metrics within it'}.</p>
 
       {/* Global KPIs */}
       <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 mb-10">
@@ -196,7 +278,7 @@ export default async function DashboardPage() {
           <p className="text-xs text-blue-600 mt-1 truncate">Total - Suspended</p>
         </div>
         <div className="border rounded-xl p-4 bg-white shadow-sm overflow-hidden">
-          <h3 className="font-semibold text-xs text-gray-500 uppercase truncate">Avg Daily 7d ({uLabel}/day)</h3>
+          <h3 className="font-semibold text-xs text-gray-500 uppercase truncate">{avgDailyLabel} ({uLabel}/day)</h3>
           <p className="text-xl sm:text-2xl font-bold mt-1 text-slate-800 truncate" title={fmtQty(avgDailyUsage7d, unit)}>{fmtQty(avgDailyUsage7d, unit)}</p>
         </div>
         <div className="border rounded-xl p-4 bg-white shadow-sm overflow-hidden">

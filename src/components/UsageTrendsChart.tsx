@@ -30,6 +30,7 @@ export default function UsageTrendsChart({ transactions, unit = 'kg' }: Props) {
   const [showIncoming, setShowIncoming] = useState(true)
   const [showUsage, setShowUsage] = useState(true)
   const [showWastage, setShowWastage] = useState(true)
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; item: any } | null>(null)
 
   const chartData = useMemo(() => {
     if (period === 'current_month') {
@@ -273,19 +274,10 @@ export default function UsageTrendsChart({ transactions, unit = 'kg' }: Props) {
           return (
             <div
               key={item.key}
-              className={`flex-1 min-w-[22px] flex flex-col justify-end h-full group relative ${item.isToday || item.isCurrent ? 'bg-blue-50/80 rounded-t' : ''}`}
+              onMouseEnter={e => { const r = e.currentTarget.getBoundingClientRect(); setTooltip({ x: r.left + r.width / 2, y: r.top, item }) }}
+              onMouseLeave={() => setTooltip(null)}
+              className={`flex-1 min-w-[22px] flex flex-col justify-end h-full relative ${item.isToday || item.isCurrent ? 'bg-blue-50/80 rounded-t' : ''}`}
             >
-              {/* Tooltip */}
-              <div className="absolute bottom-full mb-3 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs rounded-lg shadow-xl p-2.5 opacity-0 group-hover:opacity-100 transition-all whitespace-nowrap z-30 pointer-events-none border border-slate-700 min-w-[130px]">
-                <div className="font-bold border-b border-slate-700 pb-1 mb-1 text-slate-200">{item.key}</div>
-                {item.incoming > 0 && <div className="text-green-400">↑ Incoming: {fmtQtyNum(item.incoming, unit)} {uLabel}</div>}
-                {item.usage > 0 && <div className="text-red-400">↓ Usage: {fmtQtyNum(item.usage, unit)} {uLabel}</div>}
-                {item.wastage > 0 && <div className="text-orange-400">⚠ Wastage: {fmtQtyNum(item.wastage, unit)} {uLabel}</div>}
-                {item.incoming === 0 && item.usage === 0 && item.wastage === 0 && (
-                  <div className="text-gray-400 italic">No activity</div>
-                )}
-              </div>
-
               {/* Grouped Bars */}
               <div className="flex items-end justify-center gap-0.5 w-full h-full px-0.5">
                 {showIncoming && (
@@ -325,6 +317,25 @@ export default function UsageTrendsChart({ transactions, unit = 'kg' }: Props) {
           </div>
         ))}
       </div>
+
+      {tooltip && (() => {
+        const item = tooltip.item
+        const leftPct = Math.min(96, Math.max(4, (tooltip.x / window.innerWidth) * 100))
+        return (
+          <div
+            className="fixed bg-slate-900 text-white text-xs rounded-lg shadow-xl p-2.5 whitespace-nowrap z-50 pointer-events-none border border-slate-700 min-w-[130px] -translate-x-1/2 -translate-y-full"
+            style={{ left: `${leftPct}%`, top: tooltip.y - 10 }}
+          >
+            <div className="font-bold border-b border-slate-700 pb-1 mb-1 text-slate-200">{item.key}</div>
+            {item.incoming > 0 && <div className="text-green-400">↑ Incoming: {fmtQtyNum(item.incoming, unit)} {uLabel}</div>}
+            {item.usage > 0 && <div className="text-red-400">↓ Usage: {fmtQtyNum(item.usage, unit)} {uLabel}</div>}
+            {item.wastage > 0 && <div className="text-orange-400">⚠ Wastage: {fmtQtyNum(item.wastage, unit)} {uLabel}</div>}
+            {item.incoming === 0 && item.usage === 0 && item.wastage === 0 && (
+              <div className="text-gray-400 italic">No activity</div>
+            )}
+          </div>
+        )
+      })()}
     </div>
   )
 }

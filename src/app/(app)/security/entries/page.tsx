@@ -68,6 +68,7 @@ export default function EntriesPage() {
   const [approvePhoto, setApprovePhoto] = useState<File | null>(null)
   const [approving2, setApproving2] = useState(false)
   const [zoomSrc, setZoomSrc] = useState<string | null>(null)
+  const [detail, setDetail] = useState<Entry | null>(null)
 
   const [form, setForm] = useState({ person_name: '', company: '', purpose: '', looking_for: '', vehicle_no: '', badge_no: '', reference_no: '', notes: '' })
   const [photoFile, setPhotoFile] = useState<File | null>(null)
@@ -278,14 +279,14 @@ export default function EntriesPage() {
                 ) : (
                   <div className="w-12 h-12 rounded-lg bg-gray-100 flex-shrink-0" />
                 )}
-                <div className="min-w-0 flex-1">
+                <button onClick={() => setDetail(e)} className="min-w-0 flex-1 text-left" title="View full details">
                   <div className="font-medium text-sm truncate flex items-center gap-1.5">
                     {e.person_name}
                     {e.abnormal_flag && <span title="Flagged abnormal"><AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" /></span>}
                   </div>
                   <div className="text-xs text-gray-500 truncate">{[e.company, e.vehicle_no, e.purpose].filter(Boolean).join(' · ') || '-'}{e.looking_for ? ` · Looking for: ${e.looking_for}` : ''}</div>
                   <div className="text-xs text-gray-400">In: {new Date(e.time_in).toLocaleString()}</div>
-                </div>
+                </button>
                 <div className="flex flex-col gap-1 flex-shrink-0">
                   <button onClick={() => checkout(e.id)} className="flex items-center gap-1 text-xs bg-green-50 text-green-700 px-2.5 py-1.5 rounded-lg hover:bg-green-100"><LogOut className="w-3.5 h-3.5" /> Out</button>
                   {!e.abnormal_flag && (
@@ -330,6 +331,47 @@ export default function EntriesPage() {
               <button onClick={approveVisitor} disabled={approving2} className="bg-green-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-green-700">
                 {approving2 ? 'Approving...' : 'Approve & Let In'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {detail && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold">{detail.person_name}</h2>
+              <button onClick={() => setDetail(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="flex gap-4 flex-wrap mb-4">
+              {detail.photo_drive_id ? (
+                <img
+                  src={`/api/security/photo/${detail.photo_drive_id}`}
+                  className="w-32 h-32 rounded-xl object-cover border flex-shrink-0 cursor-zoom-in"
+                  onClick={() => setZoomSrc(`/api/security/photo/${detail.photo_drive_id}`)}
+                />
+              ) : (
+                <div className="w-32 h-32 rounded-xl bg-gray-100 flex-shrink-0" />
+              )}
+              <div className="flex-1 min-w-[180px] text-sm">
+                <span className="inline-block bg-blue-50 text-blue-700 text-xs font-bold uppercase rounded-full px-2.5 py-1 mb-2">{CATEGORY_LABEL[detail.category]}</span>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+                  <div><strong>Company:</strong> {detail.company || '-'}</div>
+                  <div><strong>Purpose:</strong> {detail.purpose || '-'}</div>
+                  <div><strong>Vehicle:</strong> {detail.vehicle_no || '-'}</div>
+                  <div><strong>Badge:</strong> {detail.badge_no || '-'}</div>
+                  <div><strong>Ref/DO:</strong> {detail.reference_no || '-'}</div>
+                  <div><strong>In:</strong> {new Date(detail.time_in).toLocaleString()}</div>
+                </div>
+                {detail.looking_for && <div className="text-sm mt-1.5"><strong>Looking for:</strong> {detail.looking_for}</div>}
+              </div>
+            </div>
+            {detail.notes && <div className="text-sm bg-gray-50 border rounded-lg px-3 py-2 mb-4"><strong>Notes:</strong> {detail.notes}</div>}
+            {detail.abnormal_flag && detail.abnormal_reason && (
+              <div className="text-sm bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4 text-amber-800"><strong>Flagged:</strong> {detail.abnormal_reason}</div>
+            )}
+            <div className="flex justify-end gap-2">
+              <button onClick={() => { checkout(detail.id); setDetail(null) }} className="flex items-center gap-1.5 bg-green-600 text-white text-sm font-medium px-3 py-1.5 rounded-lg hover:bg-green-700"><LogOut className="w-3.5 h-3.5" /> Check-out</button>
             </div>
           </div>
         </div>

@@ -270,58 +270,92 @@ export default function TransactionsPage() {
       
       {/* Add Transaction Form */}
       <form onSubmit={addTransaction} className="mb-8 border p-6 rounded-xl bg-white shadow-sm">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+        <div className="mb-4">
+          <label className="block text-sm font-medium mb-1.5">Transaction Type</label>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+            {([
+              { value: 'incoming', label: 'Incoming', active: 'bg-green-600 border-green-600 text-white' },
+              { value: 'usage', label: 'Usage', active: 'bg-red-600 border-red-600 text-white' },
+              { value: 'transfer', label: 'Transfer', active: 'bg-purple-600 border-purple-600 text-white' },
+              { value: 'suspended', label: 'Suspended', active: 'bg-amber-600 border-amber-600 text-white' },
+              { value: 'unsuspend', label: 'Unsuspend', active: 'bg-blue-600 border-blue-600 text-white' },
+              { value: 'wastage', label: 'Wastage', active: 'bg-gray-700 border-gray-700 text-white' },
+            ] as const).map(opt => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setType(opt.value)}
+                className={`rounded-lg px-3 py-2 text-sm font-semibold border-2 transition ${type === opt.value ? opt.active : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'}`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
           <div>
             <label className="block text-sm font-medium mb-1">Date</label>
             <input type="date" required value={date} onChange={(e) => setDate(e.target.value)} className="w-full border rounded-md px-3 py-2" />
           </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Transaction Type</label>
-            <select value={type} onChange={(e) => setType(e.target.value)} className="w-full border rounded-md px-3 py-2 bg-white font-medium">
-              <option value="incoming">Incoming</option>
-              <option value="usage">Usage</option>
-              <option value="transfer">Transfer (Between Project Types)</option>
-              <option value="suspended">Suspended (Hold / Quarantine)</option>
-              <option value="unsuspend">Unsuspend (Release back to Active)</option>
-              <option value="wastage">Wastage (Overall Scrap)</option>
-            </select>
-          </div>
-          
-          {type === 'transfer' ? (
-            <>
-              <div>
-                <label className="block text-sm font-medium mb-1 text-red-600 font-semibold">From Project Type</label>
-                <select value={fromProjectTypeId} onChange={(e) => setFromProjectTypeId(e.target.value)} className="w-full border border-red-300 rounded-md px-3 py-2 bg-white">
-                  {projectTypes.map(pt => <option key={pt.id} value={pt.id}>{pt.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1 text-green-600 font-semibold">To Project Type</label>
-                <select value={toProjectTypeId} onChange={(e) => setToProjectTypeId(e.target.value)} className="w-full border border-green-300 rounded-md px-3 py-2 bg-white">
-                  {projectTypes.map(pt => <option key={pt.id} value={pt.id}>{pt.name}</option>)}
-                </select>
-              </div>
-            </>
-          ) : ['incoming', 'wastage'].includes(type) ? (
-            <div>
-              <label className="block text-sm font-medium mb-1">Project Type</label>
-              <select value={projectTypeId} onChange={(e) => setProjectTypeId(e.target.value)} className="w-full border rounded-md px-3 py-2 bg-white">
-                {projectTypes.map(pt => <option key={pt.id} value={pt.id}>{pt.name}</option>)}
-              </select>
-            </div>
-          ) : (
-            <div>
-              <label className="block text-sm font-medium mb-1">Project</label>
-              <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="w-full border rounded-md px-3 py-2 bg-white">
-                {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </div>
-          )}
 
           {type !== 'transfer' && (
             <div>
               <label className="block text-sm font-medium mb-1">DO Number <span className="text-gray-400">(Optional)</span></label>
               <input type="text" value={doNumber} onChange={(e) => setDoNumber(e.target.value)} className="w-full border rounded-md px-3 py-2" placeholder="e.g. DO-2026-001" />
+            </div>
+          )}
+        </div>
+
+        <div className="mb-4">
+          {type === 'transfer' ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-1.5 text-red-600 font-semibold">From Project Type</label>
+                <div className="flex flex-wrap gap-2">
+                  {projectTypes.map(pt => (
+                    <button key={pt.id} type="button" onClick={() => setFromProjectTypeId(pt.id)}
+                      className={`rounded-lg px-3 py-2 text-sm font-semibold border-2 transition ${fromProjectTypeId === pt.id ? 'bg-red-600 border-red-600 text-white' : 'bg-white border-gray-200 text-gray-500 hover:border-red-300'}`}>
+                      {pt.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1.5 text-green-600 font-semibold">To Project Type</label>
+                <div className="flex flex-wrap gap-2">
+                  {projectTypes.map(pt => (
+                    <button key={pt.id} type="button" onClick={() => setToProjectTypeId(pt.id)}
+                      className={`rounded-lg px-3 py-2 text-sm font-semibold border-2 transition ${toProjectTypeId === pt.id ? 'bg-green-600 border-green-600 text-white' : 'bg-white border-gray-200 text-gray-500 hover:border-green-300'}`}>
+                      {pt.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ) : ['incoming', 'wastage'].includes(type) ? (
+            <div>
+              <label className="block text-sm font-medium mb-1.5">Project Type</label>
+              <div className="flex flex-wrap gap-2">
+                {projectTypes.map(pt => (
+                  <button key={pt.id} type="button" onClick={() => setProjectTypeId(pt.id)}
+                    className={`rounded-lg px-3 py-2 text-sm font-semibold border-2 transition ${projectTypeId === pt.id ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'}`}>
+                    {pt.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-sm font-medium mb-1.5">Project</label>
+              <div className="flex flex-wrap gap-2">
+                {projects.map(p => (
+                  <button key={p.id} type="button" onClick={() => setProjectId(p.id)}
+                    className={`rounded-lg px-3 py-2 text-sm font-semibold border-2 transition ${projectId === p.id ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'}`}>
+                    {p.name}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
         </div>
