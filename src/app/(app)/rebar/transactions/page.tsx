@@ -458,14 +458,16 @@ function TransactionTable({
   editingId, editData, setEditData, startEdit, saveEdit, deleteTransaction, setEditingId
 }: any) {
   const uLabel = unitLabel(unit)
-  const [filterDate, setFilterDate] = React.useState('')
+  const [filterFrom, setFilterFrom] = React.useState('')
+  const [filterTo, setFilterTo] = React.useState('')
   const [filterProject, setFilterProject] = React.useState('')
   const [filterSize, setFilterSize] = React.useState('')
   const [filterType, setFilterType] = React.useState('')
   const [filterDO, setFilterDO] = React.useState('')
 
   const filtered = transactions.filter((t: any) => {
-    if (filterDate && !t.transaction_date.includes(filterDate)) return false
+    if (filterFrom && t.transaction_date < filterFrom) return false
+    if (filterTo && t.transaction_date > filterTo) return false
     if (filterProject) {
       const label = t.project_types?.name ? `[Type] ${t.project_types.name}` : (t.projects?.name || '')
       if (!label.toLowerCase().includes(filterProject.toLowerCase())) return false
@@ -501,11 +503,15 @@ function TransactionTable({
   }
 
   return (
-    <div className="bg-white border rounded-xl shadow-sm overflow-x-auto">
+    <div className="bg-white border rounded-xl shadow-sm">
       <div className="p-4 border-b bg-gray-50 flex flex-wrap gap-3 items-end">
         <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">Date</label>
-          <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)} className="border rounded px-2 py-1 text-sm w-36" />
+          <label className="block text-xs font-medium text-gray-500 mb-1">From</label>
+          <input type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)} className="border rounded px-2 py-1 text-sm w-36" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">To</label>
+          <input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)} className="border rounded px-2 py-1 text-sm w-36" />
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">Project / Type</label>
@@ -532,7 +538,7 @@ function TransactionTable({
           <input value={filterDO} onChange={e => setFilterDO(e.target.value)} className="border rounded px-2 py-1 text-sm w-28" placeholder="Search..." />
         </div>
         <button
-          onClick={() => { setFilterDate(''); setFilterProject(''); setFilterSize(''); setFilterType(''); setFilterDO('') }}
+          onClick={() => { setFilterFrom(''); setFilterTo(''); setFilterProject(''); setFilterSize(''); setFilterType(''); setFilterDO('') }}
           className="text-xs text-gray-500 hover:text-gray-800 border rounded px-2 py-1"
         >
           Clear
@@ -549,17 +555,18 @@ function TransactionTable({
         </div>
       </div>
 
+      <div className="overflow-auto max-h-[70vh]">
       <table className="min-w-full divide-y divide-gray-200">
-        <thead className="bg-gray-50">
+        <thead className="bg-gray-50 sticky top-0 z-10 shadow-sm">
           <tr>
-            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Project</th>
-            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Size</th>
-            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Qty ({uLabel})</th>
-            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">DO #</th>
-            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Notes</th>
-            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">Date</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">Project</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">Size</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">Type</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">Qty ({uLabel})</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">DO #</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">Notes</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">Actions</th>
           </tr>
         </thead>
         <tbody className="bg-white divide-y divide-gray-200">
@@ -643,6 +650,7 @@ function TransactionTable({
           )}
         </tbody>
       </table>
+      </div>
     </div>
   )
 }

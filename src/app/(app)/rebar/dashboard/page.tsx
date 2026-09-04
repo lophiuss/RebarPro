@@ -12,10 +12,11 @@ interface SearchParams {
   period?: string
   from?: string
   to?: string
+  project_type?: string
 }
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
-  const { period: rawPeriod, from: rawFrom, to: rawTo } = await searchParams
+  const { period: rawPeriod, from: rawFrom, to: rawTo, project_type: rawProjectType } = await searchParams
   const period = (['this_month', 'last_month', 'custom'].includes(rawPeriod || '') ? rawPeriod : 'all') as 'all' | 'this_month' | 'last_month' | 'custom'
 
   const supabase = await createClient()
@@ -39,6 +40,24 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const projectTypes = naturalSort(pTypesRes.data || [], pt => pt.name)
   const projects = naturalSort(projectsRes.data || [], p => p.name)
 
+  // Project Type switch — 'all' (default) blends every project type together,
+  // same as before; picking one scopes every KPI/chart/table on this page to
+  // just that type (a transaction with no project_type_id is matched via its
+  // project's own type; still-unassigned transactions only ever count under "All").
+  const selectedTypeId = rawProjectType && projectTypes.some(pt => String(pt.id) === rawProjectType) ? rawProjectType : 'all'
+  const selectedTypeName = selectedTypeId === 'all' ? null : projectTypes.find(pt => String(pt.id) === selectedTypeId)?.name ?? null
+  const projectTypeIdOf = new Map(projects.map(p => [p.id, p.project_type_id]))
+
+  function matchesSelectedType(tx: { project_type_id: any; project_id: any }) {
+    if (selectedTypeId === 'all') return true
+    if (tx.project_type_id != null) return String(tx.project_type_id) === selectedTypeId
+    if (tx.project_id) return String(projectTypeIdOf.get(tx.project_id)) === selectedTypeId
+    return false
+  }
+
+  const scopedTransactions = selectedTypeId === 'all' ? transactions : transactions.filter(matchesSelectedType)
+  const scopedProjectTypes = selectedTypeId === 'all' ? projectTypes : projectTypes.filter(pt => String(pt.id) === selectedTypeId)
+
   const today = new Date()
   const todayStr = today.toISOString().split('T')[0]
 
@@ -49,6 +68,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   }
 
   const sevenDaysAgoStr = daysAgo(7)
+  const fourteenDaysAgoStr = daysAgo(14)
 
   // --- Period boundaries for the KPI cards (Total Stock / Suspended / Usable / Avg Daily / Incoming / Coverage) ---
   const pad2 = (n: number) => String(n).padStart(2, '0')
@@ -75,19 +95,35 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     periodLabel = `${periodStart} → ${periodEnd}`
   }
 
+  // Builds a dashboard URL that keeps whichever of period/project_type isn't
+  // being changed by this particular link/form.
+  function hrefWith(overrides: { period?: string; from?: string; to?: string; project_type?: string }) {
+    const merged = { period, from: rawFrom, to: rawTo, project_type: selectedTypeId, ...overrides }
+    const params = new URLSearchParams()
+    if (merged.period && merged.period !== 'all') params.set('period', merged.period)
+    if (merged.period === 'custom') {
+      if (merged.from) params.set('from', merged.from)
+      if (merged.to) params.set('to', merged.to)
+    }
+    if (merged.project_type && merged.project_type !== 'all') params.set('project_type', merged.project_type)
+    const qs = params.toString()
+    return qs ? `/rebar/dashboard?${qs}` : '/rebar/dashboard'
+  }
+
   // Transactions counted toward point-in-time balances: everything up to the end of the selected period.
-  const balanceTxs = period === 'all' ? transactions : transactions.filter(t => t.transaction_date <= periodEnd)
+  const balanceTxs = (period === 'all' ? transactions : transactions.filter(t => t.transaction_date <= periodEnd)).filter(matchesSelectedType)
   // Transactions counted toward flow metrics (incoming, usage): within the selected period only.
-  const flowTxs = period === 'all'
+  const flowTxs = (period === 'all'
     ? transactions
     : transactions.filter(t => t.transaction_date <= periodEnd && (periodStart === null || t.transaction_date >= periodStart))
+  ).filter(matchesSelectedType)
 
-  function getSizeBalanceInfo(sizeId: string, txs: typeof transactions = transactions) {
+  function getSizeBalanceInfo(sizeId: string, txs: typeof transactions = scopedTransactions) {
     let balance = 0
     let latestSTDate: string | null = null
     let hasST = false
 
-    for (const pt of projectTypes) {
+    for (const pt of scopedProjectTypes) {
       const pIds = projects.filter(p => p.project_type_id === pt.id).map(p => p.id)
 
       const ptTxs = txs.filter(t =>
@@ -168,13 +204,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const daysInPeriod = periodStart ? Math.max(1, Math.round((new Date(periodEnd).getTime() - new Date(periodStart).getTime()) / msPerDay) + 1) : 7
   const avgDailyUsage7d = period === 'all' ? (totalUsage7d / 7) : (periodUsage / daysInPeriod)
   const avgDailyLabel = period === 'all' ? 'Avg Daily 7d' : 'Avg Daily'
-  const globalDaysCoverage = avgDailyUsage7d > 0 ? totalUsableBalance / avgDailyUsage7d : 0
 
   const sizeStats = sizes.map(size => {
-    const sizeTxs = transactions.filter(t => t.size_id === size.id)
+    const sizeTxs = scopedTransactions.filter(t => t.size_id === size.id)
     const { balance, hasST, latestSTDate } = getSizeBalanceInfo(size.id)
 
     let usage7d = 0
+    let usage14d = 0
     let todayUsage = 0
     let suspended = 0
 
@@ -182,6 +218,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       const q = Math.abs(Number(tx.quantity))
       if (tx.type === 'usage' && tx.transaction_date >= sevenDaysAgoStr) {
         usage7d += q
+      }
+      if (tx.type === 'usage' && tx.transaction_date >= fourteenDaysAgoStr) {
+        usage14d += q
       }
       if (tx.type === 'usage' && tx.transaction_date === todayStr) {
         todayUsage += q
@@ -198,6 +237,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     const usableBalance = Math.max(balance - suspended, 0)
 
     const avgDailyUsage = usage7d / 7
+    const avgDailyUsage14d = usage14d / 14
     const targetDailyUsage = Number(size.target_daily_usage) || 0
 
     const coverage = targetDailyUsage > 0
@@ -219,6 +259,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       suspended,
       usableBalance,
       avgDailyUsage,
+      avgDailyUsage14d,
       todayUsage,
       coverage,
       targetDailyUsage,
@@ -228,6 +269,16 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       lastStockTakeDate: latestSTDate
     }
   }).filter(s => s.balance !== 0 || s.usableBalance !== 0 || s.avgDailyUsage > 0 || s.targetDailyUsage > 0 || s.todayUsage > 0)
+
+  // "Usable Coverage" is the bottleneck across sizes with actual demand, not
+  // a blended average — a blended figure can look fine overall while one
+  // specific size is about to run out, which is the thing that actually
+  // matters operationally.
+  const coverageCandidates = sizeStats.filter(s => s.targetDailyUsage > 0 || s.avgDailyUsage > 0)
+  const bottleneckSize = coverageCandidates.length
+    ? coverageCandidates.reduce((min, s) => s.coverage < min.coverage ? s : min)
+    : null
+  const globalDaysCoverage = bottleneckSize ? bottleneckSize.coverage : 0
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto">
@@ -243,7 +294,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             ].map(opt => (
               <a
                 key={opt.key}
-                href={opt.key === 'all' ? '/rebar/dashboard' : `/rebar/dashboard?period=${opt.key}`}
+                href={hrefWith({ period: opt.key })}
                 className={`px-3 py-1.5 rounded-md text-sm font-semibold transition ${period === opt.key ? 'bg-white shadow-sm text-slate-900' : 'text-gray-500 hover:text-gray-700'}`}
               >
                 {opt.label}
@@ -252,6 +303,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           </div>
           <form method="GET" className="flex items-center gap-1.5 bg-gray-100 rounded-lg p-1">
             <input type="hidden" name="period" value="custom" />
+            <input type="hidden" name="project_type" value={selectedTypeId} />
             <input type="date" name="from" defaultValue={period === 'custom' ? (periodStart || '') : ''} className="border rounded-md px-2 py-1 text-sm bg-white" />
             <span className="text-gray-400 text-sm">→</span>
             <input type="date" name="to" defaultValue={period === 'custom' ? periodEnd : ''} className="border rounded-md px-2 py-1 text-sm bg-white" />
@@ -259,7 +311,33 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           </form>
         </div>
       </div>
-      <p className="text-xs text-gray-400 mb-6">KPI cards below reflect <strong>{periodLabel}</strong>{period !== 'all' && ' — balances as of the end of this period, flow metrics within it'}.</p>
+
+      {/* Project Type switch */}
+      <div className="flex flex-wrap items-center gap-1.5 mb-3">
+        <span className="text-xs font-semibold text-gray-400 uppercase mr-1">Project Type</span>
+        <div className="flex flex-wrap gap-1 bg-gray-100 rounded-lg p-1">
+          <a
+            href={hrefWith({ project_type: 'all' })}
+            className={`px-3 py-1.5 rounded-md text-sm font-semibold transition ${selectedTypeId === 'all' ? 'bg-white shadow-sm text-slate-900' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            All
+          </a>
+          {projectTypes.map(pt => (
+            <a
+              key={pt.id}
+              href={hrefWith({ project_type: String(pt.id) })}
+              className={`px-3 py-1.5 rounded-md text-sm font-semibold transition ${selectedTypeId === String(pt.id) ? 'bg-white shadow-sm text-slate-900' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              {pt.name}
+            </a>
+          ))}
+        </div>
+      </div>
+
+      <p className="text-xs text-gray-400 mb-6">
+        KPI cards below reflect <strong>{periodLabel}</strong>{period !== 'all' && ' — balances as of the end of this period, flow metrics within it'}
+        {selectedTypeName && <> · project type <strong>{selectedTypeName}</strong> only</>}.
+      </p>
 
       <ShoutoutBoard department="rebar" />
 
@@ -293,16 +371,17 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <p className={`text-xl sm:text-2xl font-bold mt-1 truncate ${globalDaysCoverage < 3 ? 'text-red-500' : 'text-slate-800'}`}>
             {globalDaysCoverage > 999 ? '∞' : globalDaysCoverage.toFixed(1)} Days
           </p>
+          <p className="text-xs text-gray-400 mt-1 truncate">{bottleneckSize ? `Bottleneck: ${bottleneckSize.size}` : 'No active demand'}</p>
         </div>
       </div>
 
       {/* Stock Balance Line Chart */}
       <StockBalanceLineChart
-        transactions={transactions}
-        stockTakes={allStockTakes}
+        transactions={scopedTransactions}
+        stockTakes={selectedTypeId === 'all' ? allStockTakes : allStockTakes.filter(st => String(st.project_type_id) === selectedTypeId)}
         sizes={sizes}
-        projectTypes={projectTypes}
-        projects={projects}
+        projectTypes={scopedProjectTypes}
+        projects={selectedTypeId === 'all' ? projects : projects.filter(p => String(p.project_type_id) === selectedTypeId)}
         unit={unit}
       />
 
@@ -312,7 +391,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <h2 className="text-xl font-bold text-slate-900">Inventory Trends (Incoming, Usage & Wastage)</h2>
           <p className="text-xs text-gray-500 mt-0.5">Historical and custom range activity tracking ({uLabel})</p>
         </div>
-        <UsageTrendsChart transactions={transactions} unit={unit} />
+        <UsageTrendsChart transactions={scopedTransactions} unit={unit} />
       </div>
 
       {/* Breakdown by Rebar Size Table */}
@@ -337,9 +416,13 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <tbody className="bg-white divide-y divide-gray-200">
             {sizeStats.map((stat, i) => {
               const meterColor = stat.stockLevelPct < 25 ? 'bg-red-500' : stat.stockLevelPct < 60 ? 'bg-yellow-400' : 'bg-green-500'
+              const isBottleneck = bottleneckSize?.size === stat.size
               return (
-                <tr key={i} className="hover:bg-gray-50">
-                  <td className="px-4 py-4 font-bold text-slate-700 text-lg">{stat.size}</td>
+                <tr key={i} className={`hover:bg-gray-50 ${isBottleneck ? 'bg-red-50/40' : ''}`}>
+                  <td className="px-4 py-4 font-bold text-slate-700 text-lg">
+                    {stat.size}
+                    {isBottleneck && <span title="Bottleneck — limits Usable Coverage above" className="ml-1.5 text-[10px] font-bold uppercase align-middle bg-red-100 text-red-700 rounded-full px-1.5 py-0.5">Bottleneck</span>}
+                  </td>
                   <td className="px-4 py-4 w-32">
                     <div className="flex flex-col gap-1">
                       <div className="w-full bg-gray-100 rounded-full h-4 overflow-hidden">

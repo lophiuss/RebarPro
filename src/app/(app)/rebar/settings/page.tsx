@@ -10,6 +10,7 @@ export default function SettingsPage() {
   const [projects, setProjects] = useState<any[]>([])
   const [projectTypes, setProjectTypes] = useState<any[]>([])
   const [sizes, setSizes] = useState<any[]>([])
+  const [usage14dBySize, setUsage14dBySize] = useState<Record<string, number>>({})
   const [globalSettings, setGlobalSettings] = useState<any>({ target_coverage_days: 14 })
   
   // Project Type Form
@@ -36,11 +37,16 @@ export default function SettingsPage() {
   }, [])
 
   async function fetchData() {
-    const [projRes, pTypesRes, sizeRes, settingsRes] = await Promise.all([
+    const fourteenDaysAgo = new Date()
+    fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 14)
+    const fourteenDaysAgoStr = fourteenDaysAgo.toISOString().split('T')[0]
+
+    const [projRes, pTypesRes, sizeRes, settingsRes, usageRes] = await Promise.all([
       supabase.from('projects').select('*, project_types(name)').order('created_at', { ascending: false }),
       supabase.from('project_types').select('*').order('name'),
       supabase.from('rebar_sizes').select('*').order('size'),
-      supabase.from('global_settings').select('*').eq('id', 1).single()
+      supabase.from('global_settings').select('*').eq('id', 1).single(),
+      supabase.from('transactions').select('size_id, quantity').eq('type', 'usage').gte('transaction_date', fourteenDaysAgoStr),
     ])
     if (pTypesRes.data) {
       const sortedPT = naturalSort(pTypesRes.data, pt => pt.name)
@@ -50,6 +56,14 @@ export default function SettingsPage() {
     if (projRes.data) setProjects(naturalSort(projRes.data, p => p.name))
     if (sizeRes.data) setSizes(naturalSort(sizeRes.data, s => s.size))
     if (settingsRes.data) setGlobalSettings(settingsRes.data)
+    if (usageRes.data) {
+      const bySize: Record<string, number> = {}
+      for (const tx of usageRes.data) {
+        if (!tx.size_id) continue
+        bySize[tx.size_id] = (bySize[tx.size_id] || 0) + Math.abs(Number(tx.quantity))
+      }
+      setUsage14dBySize(bySize)
+    }
   }
 
   // Project Types
@@ -132,10 +146,13 @@ export default function SettingsPage() {
   }
 
   async function saveSizeEdit(s: any) {
-    const { error } = await supabase.from('rebar_sizes').update({ 
-      size: editSizeData.size, 
+    // The edit field shows/accepts Kg/day (more practical for a daily target
+    // than fractional tonnes) — the stored value stays in tonnes, same unit
+    // space as transactions.quantity, so convert back on save.
+    const { error } = await supabase.from('rebar_sizes').update({
+      size: editSizeData.size,
       unit: editSizeData.unit,
-      target_daily_usage: parseFloat(editSizeData.target_daily_usage) || 0
+      target_daily_usage: (parseFloat(editSizeData.target_daily_usage) || 0) / 1000
     }).eq('id', s.id)
     if (!error) {
       setEditingSizeId(null)
@@ -377,7 +394,8 @@ export default function SettingsPage() {
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Size</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Unit</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Target Daily Usage</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Target Daily Usage (Kg/day)</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Avg Daily, Last 14d (Kg/day)</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
               </tr>
             </thead>
@@ -395,7 +413,10 @@ export default function SettingsPage() {
                           <option>Pieces</option>
                         </select>
                       </td>
-                      <td className="px-6 py-2"><input type="number" step="0.01" value={editSizeData.target_daily_usage} onChange={e => setEditSizeData({...editSizeData, target_daily_usage: e.target.value})} className="border rounded px-2 py-1 w-24" placeholder="0.00" /></td>
+                      <td className="px-6 py-2"><input type="number" step="1" value={editSizeData.target_daily_usage} onChange={e => setEditSizeData({...editSizeData, target_daily_usage: e.target.value})} className="border rounded px-2 py-1 w-28" placeholder="0" /></td>
+                      <td className="px-6 py-2 text-xs text-gray-400">
+                        {usage14dBySize[s.id] ? `${((usage14dBySize[s.id] / 14) * 1000).toLocaleString(undefined, { maximumFractionDigits: 0 })} Kg/day` : '-'}
+                      </td>
                       <td className="px-6 py-2 flex gap-1">
                         <button onClick={() => saveSizeEdit(s)} className="text-green-600 hover:text-green-800 p-1"><Check className="w-4 h-4" /></button>
                         <button onClick={() => setEditingSizeId(null)} className="text-gray-500 hover:text-gray-700 p-1"><X className="w-4 h-4" /></button>
@@ -405,9 +426,12 @@ export default function SettingsPage() {
                     <>
                       <td className="px-6 py-3 font-medium">{s.size}</td>
                       <td className="px-6 py-3">{s.unit || 'Tons'}</td>
-                      <td className="px-6 py-3 text-slate-600">{s.target_daily_usage > 0 ? `${Number(s.target_daily_usage).toFixed(2)} T/day` : <span className="text-gray-400 italic">Not set</span>}</td>
+                      <td className="px-6 py-3 text-slate-600">{s.target_daily_usage > 0 ? `${(Number(s.target_daily_usage) * 1000).toLocaleString(undefined, { maximumFractionDigits: 0 })} Kg/day` : <span className="text-gray-400 italic">Not set</span>}</td>
+                      <td className="px-6 py-3 text-slate-500 text-sm">
+                        {usage14dBySize[s.id] ? `${((usage14dBySize[s.id] / 14) * 1000).toLocaleString(undefined, { maximumFractionDigits: 0 })} Kg/day` : <span className="text-gray-300 italic">No usage</span>}
+                      </td>
                       <td className="px-6 py-3 flex gap-1">
-                        <button onClick={() => { setEditingSizeId(s.id); setEditSizeData({size: s.size, unit: s.unit || 'Tons', target_daily_usage: s.target_daily_usage || 0}) }} className="text-blue-600 hover:text-blue-800 p-1"><Pencil className="w-4 h-4" /></button>
+                        <button onClick={() => { setEditingSizeId(s.id); setEditSizeData({size: s.size, unit: s.unit || 'Tons', target_daily_usage: (Number(s.target_daily_usage) || 0) * 1000}) }} className="text-blue-600 hover:text-blue-800 p-1"><Pencil className="w-4 h-4" /></button>
                         <button onClick={() => deleteSize(s)} className="text-red-500 hover:text-red-700 p-1"><Trash2 className="w-4 h-4" /></button>
                       </td>
                     </>

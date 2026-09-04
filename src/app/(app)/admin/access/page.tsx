@@ -66,8 +66,8 @@ export default function AccessControlPage() {
   const [myId, setMyId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [grantUserId, setGrantUserId] = useState('')
-  const [grantDept, setGrantDept] = useState<Department>('rebar')
   const [grantRole, setGrantRole] = useState('user')
+  const [activeDept, setActiveDept] = useState<Department | null>(null)
 
   const [showAddPerson, setShowAddPerson] = useState(false)
   const [newEmail, setNewEmail] = useState('')
@@ -114,6 +114,8 @@ export default function AccessControlPage() {
   const myAdminDepts = Array.from(
     new Set(access.filter(a => a.user_id === myId && a.role === 'admin').map(a => a.department))
   ) as (Department)[]
+
+  const currentDept: Department | null = (activeDept && myAdminDepts.includes(activeDept)) ? activeDept : (myAdminDepts[0] ?? null)
 
   function accessFor(userId: string, dept: Department) {
     return access.find(a => a.user_id === userId && a.department === dept)
@@ -292,170 +294,174 @@ export default function AccessControlPage() {
           <UserPlus className="w-4 h-4" /> Add Person
         </button>
       </div>
-      <p className="text-sm text-gray-500 mb-8">
+      <p className="text-sm text-gray-500 mb-6">
         Grant or revoke department access for people who already have an account. New people can
         either use <span className="font-medium">Sign Up</span> on the login page, or be added
         directly with <span className="font-medium">Add Person</span> above.
       </p>
 
-      {/* Grant form */}
-      <div className="mb-8 border rounded-xl bg-white shadow-sm p-5">
-        <h2 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><UserPlus className="w-4 h-4" /> Grant Access</h2>
-        <div className="flex flex-wrap gap-3 items-end">
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Person</label>
-            <select value={grantUserId} onChange={e => setGrantUserId(e.target.value)} className="border rounded-md px-3 py-2 text-sm bg-white w-64">
-              <option value="">Select a person…</option>
-              {profiles.map(p => <option key={p.id} value={p.id}>{p.full_name || p.email || p.id}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Department</label>
-            <select
-              value={grantDept}
-              onChange={e => { const d = e.target.value as Department; setGrantDept(d); setGrantRole(ROLES[d][ROLES[d].length - 1]) }}
-              className="border rounded-md px-3 py-2 text-sm bg-white"
-            >
-              {myAdminDepts.map(d => <option key={d} value={d}>{DEPT_LABEL[d]}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Role</label>
-            <select value={grantRole} onChange={e => setGrantRole(e.target.value)} className="border rounded-md px-3 py-2 text-sm bg-white capitalize">
-              {ROLES[grantDept].map(r => <option key={r} value={r}>{roleLabel(grantDept, r)}</option>)}
-            </select>
-          </div>
+      {/* Department tabs */}
+      <div className="flex gap-1 bg-gray-100 rounded-lg p-1 mb-6 w-fit">
+        {myAdminDepts.map(d => (
           <button
-            disabled={!grantUserId}
-            onClick={() => grant(grantUserId, grantDept, grantRole)}
-            className="bg-blue-600 disabled:opacity-40 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition"
+            key={d}
+            onClick={() => { setActiveDept(d); setGrantRole(ROLES[d][ROLES[d].length - 1]); setGrantUserId('') }}
+            className={`px-4 py-2 rounded-md text-sm font-semibold transition ${currentDept === d ? 'bg-white shadow-sm text-slate-900' : 'text-gray-500 hover:text-gray-700'}`}
           >
-            Grant
+            {DEPT_LABEL[d]}
           </button>
-        </div>
+        ))}
       </div>
 
-      {/* Access table */}
-      <div className="bg-white border rounded-xl shadow-sm overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Person</th>
-              {myAdminDepts.map(d => (
-                <th key={d} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{DEPT_LABEL[d]}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-200">
-            {profiles.map(p => (
-              <tr key={p.id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 text-sm">
-                  <div className="flex items-center gap-3">
-                    {p.avatar_url ? (
-                      <img src={p.avatar_url} className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
-                    ) : (
-                      <div className="w-8 h-8 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center flex-shrink-0"><UserIcon className="w-4 h-4" /></div>
-                    )}
-                    <div className="min-w-0">
-                      <div className="font-medium truncate flex items-center gap-1.5">
-                        {p.full_name || '(no name)'}
-                        {!p.is_active && <span className="text-[10px] font-bold uppercase bg-red-100 text-red-700 rounded-full px-1.5 py-0.5 flex-shrink-0">Inactive</span>}
-                      </div>
-                      <div className="text-xs text-gray-400 truncate">{p.email}</div>
-                    </div>
-                    <button
-                      onClick={() => toggleActive(p)}
-                      disabled={togglingActive === p.id || p.id === myId}
-                      title={p.id === myId ? "You can't deactivate your own account" : p.is_active ? 'Deactivate — blocks login' : 'Reactivate'}
-                      className={`text-[11px] font-semibold px-2 py-1 rounded-lg flex-shrink-0 disabled:opacity-40 ${p.is_active ? 'bg-green-50 text-green-700 hover:bg-green-100' : 'bg-red-50 text-red-700 hover:bg-red-100'}`}
-                    >
-                      {p.is_active ? 'Active' : 'Inactive'}
-                    </button>
-                    <button onClick={() => openViewAs(p)} className="text-gray-400 hover:text-blue-600 p-1 flex-shrink-0" title="Preview what this person's sidebar/menu looks like">
-                      <Eye className="w-3.5 h-3.5" />
-                    </button>
-                    <button onClick={() => openEdit(p)} className="text-gray-400 hover:text-blue-600 p-1 flex-shrink-0" title="Edit name, picture, or password">
-                      <Pencil className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </td>
-                {myAdminDepts.map(d => {
-                  const row = accessFor(p.id, d)
-                  return (
-                    <td key={d} className="px-4 py-3">
-                      {row ? (
-                        <div className="flex items-center gap-2">
-                          <select
-                            value={row.role}
-                            onChange={e => grant(p.id, d, e.target.value)}
-                            className="border rounded px-2 py-1 text-xs bg-white capitalize"
-                          >
-                            {ROLES[d].map(r => <option key={r} value={r}>{roleLabel(d, r)}</option>)}
-                          </select>
-                          <button onClick={() => revoke(p.id, d)} className="text-red-500 hover:text-red-700 p-1" title="Revoke access">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-gray-300 italic">No access</span>
-                      )}
-                    </td>
-                  )
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {currentDept && (() => {
+        const dept = currentDept
+        const deptPeople = profiles.filter(p => accessFor(p.id, dept))
+        const grantablePeople = profiles.filter(p => !accessFor(p.id, dept))
+        const roles = ROLES[dept].filter(r => r !== 'admin')
+        return (
+          <>
+            {/* Grant form */}
+            <div className="mb-8 border rounded-xl bg-white shadow-sm p-5">
+              <h2 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><UserPlus className="w-4 h-4" /> Grant {DEPT_LABEL[dept]} Access</h2>
+              <div className="flex flex-wrap gap-3 items-end">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Person</label>
+                  <select value={grantUserId} onChange={e => setGrantUserId(e.target.value)} className="border rounded-md px-3 py-2 text-sm bg-white w-64">
+                    <option value="">Select a person…</option>
+                    {grantablePeople.map(p => <option key={p.id} value={p.id}>{p.full_name || p.email || p.id}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Role</label>
+                  <select value={grantRole} onChange={e => setGrantRole(e.target.value)} className="border rounded-md px-3 py-2 text-sm bg-white capitalize">
+                    {ROLES[dept].map(r => <option key={r} value={r}>{roleLabel(dept, r)}</option>)}
+                  </select>
+                </div>
+                <button
+                  disabled={!grantUserId}
+                  onClick={() => { grant(grantUserId, dept, grantRole); setGrantUserId('') }}
+                  className="bg-blue-600 disabled:opacity-40 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition"
+                >
+                  Grant
+                </button>
+                {grantablePeople.length === 0 && <span className="text-xs text-gray-400">Everyone with an account already has {DEPT_LABEL[dept]} access.</span>}
+              </div>
+            </div>
 
-      {/* Role permissions: which pages each role can open, per department */}
-      <div className="mt-10 space-y-8">
-        <div>
-          <h2 className="text-xl font-bold">Role Permissions</h2>
-          <p className="text-sm text-gray-500 mt-1">
-            Choose which pages each role can open. Admin always sees every page and isn&apos;t shown here,
-            so a department can never lock out its own admins.
-          </p>
-        </div>
-
-        {myAdminDepts.map(dept => {
-          const roles = ROLES[dept].filter(r => r !== 'admin')
-          return (
-            <div key={dept} className="bg-white border rounded-xl shadow-sm overflow-x-auto">
-              <div className="px-4 py-3 border-b bg-gray-50">
-                <h3 className="text-sm font-bold text-slate-700">{DEPT_LABEL[dept]}</h3>
+            {/* People with access to this department */}
+            <div className="bg-white border rounded-xl shadow-sm overflow-x-auto mb-10">
+              <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
+                <h2 className="text-sm font-bold text-slate-700">{DEPT_LABEL[dept]} — {deptPeople.length} {deptPeople.length === 1 ? 'person' : 'people'}</h2>
               </div>
               <table className="min-w-full divide-y divide-gray-200">
-                <thead>
+                <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Page</th>
-                    {roles.map(r => (
-                      <th key={r} className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase capitalize">{r}</th>
-                    ))}
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Person</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {NAV_ITEMS[dept].map(item => (
-                    <tr key={item.href}>
-                      <td className="px-4 py-2 text-sm font-medium">{item.label}</td>
-                      {roles.map(r => (
-                        <td key={r} className="px-4 py-2 text-center">
-                          <input
-                            type="checkbox"
-                            checked={isNavAllowed(dept, r, item.href)}
-                            onChange={e => toggleNav(dept, r, item.href, e.target.checked)}
-                            className="w-4 h-4 accent-blue-600 cursor-pointer"
-                          />
+                <tbody className="divide-y divide-gray-200">
+                  {deptPeople.map(p => {
+                    const row = accessFor(p.id, dept)!
+                    return (
+                      <tr key={p.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 text-sm">
+                          <div className="flex items-center gap-3">
+                            {p.avatar_url ? (
+                              <img src={p.avatar_url} className="w-8 h-8 rounded-full object-cover flex-shrink-0" />
+                            ) : (
+                              <div className="w-8 h-8 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center flex-shrink-0"><UserIcon className="w-4 h-4" /></div>
+                            )}
+                            <div className="min-w-0">
+                              <div className="font-medium truncate flex items-center gap-1.5">
+                                {p.full_name || '(no name)'}
+                                {!p.is_active && <span className="text-[10px] font-bold uppercase bg-red-100 text-red-700 rounded-full px-1.5 py-0.5 flex-shrink-0">Inactive</span>}
+                              </div>
+                              <div className="text-xs text-gray-400 truncate">{p.email}</div>
+                            </div>
+                          </div>
                         </td>
-                      ))}
-                    </tr>
-                  ))}
+                        <td className="px-4 py-3">
+                          <select
+                            value={row.role}
+                            onChange={e => grant(p.id, dept, e.target.value)}
+                            className="border rounded px-2 py-1 text-xs bg-white capitalize"
+                          >
+                            {ROLES[dept].map(r => <option key={r} value={r}>{roleLabel(dept, r)}</option>)}
+                          </select>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => toggleActive(p)}
+                              disabled={togglingActive === p.id || p.id === myId}
+                              title={p.id === myId ? "You can't deactivate your own account" : p.is_active ? 'Deactivate — blocks login' : 'Reactivate'}
+                              className={`text-[11px] font-semibold px-2 py-1 rounded-lg flex-shrink-0 disabled:opacity-40 mr-1 ${p.is_active ? 'bg-green-50 text-green-700 hover:bg-green-100' : 'bg-red-50 text-red-700 hover:bg-red-100'}`}
+                            >
+                              {p.is_active ? 'Active' : 'Inactive'}
+                            </button>
+                            <button onClick={() => openViewAs(p)} className="text-gray-400 hover:text-blue-600 p-1" title="Preview what this person's sidebar/menu looks like">
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => openEdit(p)} className="text-gray-400 hover:text-blue-600 p-1" title="Edit name, picture, or password">
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => revoke(p.id, dept)} className="text-red-500 hover:text-red-700 p-1" title="Revoke access">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                  {deptPeople.length === 0 && (
+                    <tr><td colSpan={3} className="px-4 py-8 text-center text-gray-400">Nobody has {DEPT_LABEL[dept]} access yet.</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
-          )
-        })}
-      </div>
+
+            {/* Role permissions: which pages each role can open, in this department */}
+            <div className="mb-10">
+              <h2 className="text-xl font-bold">Role Permissions — {DEPT_LABEL[dept]}</h2>
+              <p className="text-sm text-gray-500 mt-1 mb-4">
+                Choose which pages each role can open. Admin always sees every page and isn&apos;t shown here,
+                so a department can never lock out its own admins.
+              </p>
+              <div className="bg-white border rounded-xl shadow-sm overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead>
+                    <tr>
+                      <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Page</th>
+                      {roles.map(r => (
+                        <th key={r} className="px-4 py-2.5 text-center text-xs font-medium text-gray-500 uppercase capitalize">{roleLabel(dept, r)}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {NAV_ITEMS[dept].map(item => (
+                      <tr key={item.href}>
+                        <td className="px-4 py-2 text-sm font-medium">{item.label}</td>
+                        {roles.map(r => (
+                          <td key={r} className="px-4 py-2 text-center">
+                            <input
+                              type="checkbox"
+                              checked={isNavAllowed(dept, r, item.href)}
+                              onChange={e => toggleNav(dept, r, item.href, e.target.checked)}
+                              className="w-4 h-4 accent-blue-600 cursor-pointer"
+                            />
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        )
+      })()}
 
       {/* Add Person modal */}
       {showAddPerson && (
