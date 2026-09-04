@@ -558,7 +558,7 @@ export default function AccessControlPage() {
                 {/* Simulated sidebar */}
                 <div className="w-full md:w-64 bg-slate-900 text-white p-4 flex-shrink-0">
                   <div className="mb-4">
-                    <div className="font-bold">PlantVision</div>
+                    <div className="font-bold">AlphaVision</div>
                     <div className="text-xs text-slate-400 truncate">{viewAsPerson.email}</div>
                   </div>
                   {myDepts.length > 1 && (

@@ -149,7 +149,7 @@ export default function ExportMonthlyReportButton({
     const link = document.createElement('a')
     link.setAttribute('href', url)
     const safeTypeName = projectTypeName ? `_${projectTypeName.replace(/\s+/g, '_')}` : ''
-    link.setAttribute('download', `PlantVision_Monthly_Report_${selectedMonth}${safeTypeName}.csv`)
+    link.setAttribute('download', `AlphaVision_Monthly_Report_${selectedMonth}${safeTypeName}.csv`)
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)

@@ -21,7 +21,7 @@ export default async function LoginPage({
           <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-600/30">
             <Factory className="w-5 h-5 text-white" />
           </div>
-          <span className="text-xl font-bold text-white tracking-tight">PlantVision</span>
+          <span className="text-xl font-bold text-white tracking-tight">AlphaVision</span>
         </div>
 
         <div className="relative">
@@ -48,7 +48,7 @@ export default async function LoginPage({
           </div>
         </div>
 
-        <p className="relative text-xs text-slate-600">© {new Date().getFullYear()} PlantVision</p>
+        <p className="relative text-xs text-slate-600">© {new Date().getFullYear()} AlphaVision</p>
       </div>
 
       {/* Form panel */}
@@ -58,7 +58,7 @@ export default async function LoginPage({
             <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center">
               <Factory className="w-5 h-5 text-white" />
             </div>
-            <span className="text-xl font-bold text-slate-900 tracking-tight">PlantVision</span>
+            <span className="text-xl font-bold text-slate-900 tracking-tight">AlphaVision</span>
           </div>
 
           <h2 className="text-2xl font-bold text-slate-900 mb-1">Welcome back</h2>

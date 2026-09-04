@@ -5,7 +5,7 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "PlantVision",
+  title: "AlphaVision",
   description: "Rebar and cement plant monitoring and management system",
 };
 

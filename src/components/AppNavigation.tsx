@@ -120,7 +120,7 @@ export default function AppNavigation({ userEmail, departments, navPermissions, 
           >
             {isOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>
-          <span className="font-bold text-lg tracking-tight">PlantVision</span>
+          <span className="font-bold text-lg tracking-tight">AlphaVision</span>
         </div>
         <span className="text-xs text-slate-400 max-w-[150px] truncate">{userEmail}</span>
       </header>
@@ -146,7 +146,7 @@ export default function AppNavigation({ userEmail, departments, navPermissions, 
         {/* Sidebar Header */}
         <div className="p-6 border-b border-slate-800/80 flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-white tracking-tight">PlantVision</h1>
+            <h1 className="text-2xl font-bold text-white tracking-tight">AlphaVision</h1>
             <p className="text-xs text-slate-400 mt-1 truncate max-w-[180px]">{userEmail}</p>
           </div>
           <button
