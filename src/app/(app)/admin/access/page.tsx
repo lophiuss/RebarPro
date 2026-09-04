@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ShieldCheck, Trash2, UserPlus, Pencil, X, User as UserIcon } from 'lucide-react'
+import { ShieldCheck, Trash2, UserPlus, Pencil, X, User as UserIcon, Eye, Settings as SettingsIcon, LogOut } from 'lucide-react'
 import { listPeople, createPerson, updatePersonProfile, resetPersonPassword, setPersonActive, type Person } from './actions'
 import { NAV_ITEMS, type Department } from '@/components/AppNavigation'
 
@@ -53,6 +53,12 @@ function roleLabel(dept: Department, role: string) {
   return ROLE_LABEL[dept]?.[role] ?? role
 }
 
+// Mirrors AppNavigation's own SETTINGS_HREF — kept local since that constant
+// isn't exported (same reasoning as this page's own DEPT_LABEL/ROLES above).
+const SETTINGS_HREF: Record<Department, string> = {
+  rebar: '/rebar/settings', cement: '/cement/settings', security: '/security/settings',
+}
+
 export default function AccessControlPage() {
   const [profiles, setProfiles] = useState<Person[]>([])
   const [access, setAccess] = useState<AccessRow[]>([])
@@ -77,6 +83,8 @@ export default function AccessControlPage() {
   const [editNewPassword, setEditNewPassword] = useState('')
   const [resettingPassword, setResettingPassword] = useState(false)
   const [togglingActive, setTogglingActive] = useState<string | null>(null)
+  const [viewAsPerson, setViewAsPerson] = useState<Person | null>(null)
+  const [viewAsDept, setViewAsDept] = useState<Department | null>(null)
 
   const supabase = createClient()
 
@@ -219,6 +227,31 @@ export default function AccessControlPage() {
     }
   }
 
+  function openViewAs(p: Person) {
+    const depts = access.filter(a => a.user_id === p.id)
+    if (depts.length === 0) { alert(`${p.full_name || p.email} has no department access yet — there's nothing to preview.`) ; return }
+    setViewAsPerson(p)
+    setViewAsDept(depts[0].department)
+  }
+
+  // Reproduces AppNavigation's own nav-building rules (isAllowed/navItems/
+  // canSeeSettings) for a chosen person + department, so this is an accurate
+  // preview and not a second, driftable copy of the logic. Since this app's
+  // RLS is department-scoped only (role only ever hides/shows nav, never
+  // data — see AGENTS notes), this preview is a complete stand-in for
+  // actually logging in as them, with none of the risk of a real
+  // impersonation feature.
+  function viewAsNavPreview(p: Person, dept: Department) {
+    const role = access.find(a => a.user_id === p.id && a.department === dept)?.role ?? ''
+    const isAllowed = (navKey: string) =>
+      role === 'admin' || navPerms.some(perm => perm.department === dept && perm.role === role && perm.nav_key === navKey)
+    const settingsHref = SETTINGS_HREF[dept]
+    const items = NAV_ITEMS[dept].filter(item => item.href !== settingsHref && isAllowed(item.href))
+    const canSeeSettings = isAllowed(settingsHref)
+    const isAdminAnywhere = access.some(a => a.user_id === p.id && a.role === 'admin')
+    return { role, items, canSeeSettings, isAdminAnywhere }
+  }
+
   function isNavAllowed(dept: Department, role: string, navKey: string) {
     return navPerms.some(p => p.department === dept && p.role === role && p.nav_key === navKey)
   }
@@ -337,6 +370,9 @@ export default function AccessControlPage() {
                       className={`text-[11px] font-semibold px-2 py-1 rounded-lg flex-shrink-0 disabled:opacity-40 ${p.is_active ? 'bg-green-50 text-green-700 hover:bg-green-100' : 'bg-red-50 text-red-700 hover:bg-red-100'}`}
                     >
                       {p.is_active ? 'Active' : 'Inactive'}
+                    </button>
+                    <button onClick={() => openViewAs(p)} className="text-gray-400 hover:text-blue-600 p-1 flex-shrink-0" title="Preview what this person's sidebar/menu looks like">
+                      <Eye className="w-3.5 h-3.5" />
                     </button>
                     <button onClick={() => openEdit(p)} className="text-gray-400 hover:text-blue-600 p-1 flex-shrink-0" title="Edit name, picture, or password">
                       <Pencil className="w-3.5 h-3.5" />
@@ -500,6 +536,106 @@ export default function AccessControlPage() {
           </div>
         </div>
       )}
+
+      {/* View As: a read-only preview of what this person's sidebar/menu
+          looks like, built from the same rules AppNavigation itself uses —
+          not a real login as them, no session or data access changes. */}
+      {viewAsPerson && viewAsDept && (() => {
+        const myDepts = access.filter(a => a.user_id === viewAsPerson.id)
+        const { role, items, canSeeSettings, isAdminAnywhere } = viewAsNavPreview(viewAsPerson, viewAsDept)
+        return (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-xl max-w-3xl w-full overflow-hidden">
+              <div className="flex items-center justify-between px-6 py-4 border-b">
+                <div>
+                  <h2 className="text-lg font-bold flex items-center gap-2"><Eye className="w-5 h-5 text-blue-600" /> View As — {viewAsPerson.full_name || viewAsPerson.email}</h2>
+                  <p className="text-xs text-gray-400 mt-0.5">A preview of their menu, not a real login — nothing here changes their session or lets you see their data.</p>
+                </div>
+                <button onClick={() => setViewAsPerson(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+              </div>
+
+              <div className="flex flex-col md:flex-row">
+                {/* Simulated sidebar */}
+                <div className="w-full md:w-64 bg-slate-900 text-white p-4 flex-shrink-0">
+                  <div className="mb-4">
+                    <div className="font-bold">PlantVision</div>
+                    <div className="text-xs text-slate-400 truncate">{viewAsPerson.email}</div>
+                  </div>
+                  {myDepts.length > 1 && (
+                    <div className="grid grid-cols-2 gap-1.5 mb-4">
+                      {myDepts.map(d => (
+                        <button
+                          key={d.department}
+                          onClick={() => setViewAsDept(d.department)}
+                          className={`flex items-center justify-center gap-1.5 px-2 py-2 rounded-lg text-[11px] font-bold uppercase tracking-wide transition ${viewAsDept === d.department ? 'bg-blue-600 text-white' : 'bg-slate-800/80 text-slate-300 hover:bg-slate-800'}`}
+                        >
+                          {DEPT_LABEL[d.department]}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <nav className="space-y-1">
+                    {items.map(item => (
+                      <div key={item.href} className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-slate-300">
+                        <item.icon className="w-4 h-4 text-slate-400" /> {item.label}
+                      </div>
+                    ))}
+                    <div className="pt-2 my-1 border-t border-slate-800/80" />
+                    {canSeeSettings && (
+                      <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-slate-300">
+                        <SettingsIcon className="w-4 h-4 text-slate-400" /> Settings
+                      </div>
+                    )}
+                    {isAdminAnywhere && (
+                      <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-slate-300">
+                        <ShieldCheck className="w-4 h-4 text-slate-400" /> Access Control
+                      </div>
+                    )}
+                    <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-slate-300">
+                      <UserIcon className="w-4 h-4 text-slate-400" /> My Profile
+                    </div>
+                    <div className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-slate-400 mt-2">
+                      <LogOut className="w-4 h-4 text-slate-500" /> Sign Out
+                    </div>
+                  </nav>
+                </div>
+
+                {/* Summary panel */}
+                <div className="flex-1 p-6">
+                  <div className="mb-4">
+                    <span className="text-xs font-semibold text-gray-500 uppercase">Viewing as</span>
+                    <div className="text-lg font-bold text-slate-800">{DEPT_LABEL[viewAsDept]} · <span className="capitalize">{roleLabel(viewAsDept, role)}</span></div>
+                  </div>
+                  <p className="text-sm text-gray-500 mb-3">
+                    Pages this role can open in {DEPT_LABEL[viewAsDept]} (home page and Sign Out/Profile are always available to everyone):
+                  </p>
+                  <ul className="space-y-1.5 mb-4">
+                    {NAV_ITEMS[viewAsDept].filter(i => i.href !== SETTINGS_HREF[viewAsDept]).map(item => {
+                      const allowed = items.some(i => i.href === item.href)
+                      return (
+                        <li key={item.href} className={`text-sm flex items-center gap-2 ${allowed ? 'text-slate-700' : 'text-gray-300 line-through'}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${allowed ? 'bg-green-500' : 'bg-gray-300'}`} /> {item.label}
+                        </li>
+                      )
+                    })}
+                    <li className={`text-sm flex items-center gap-2 ${canSeeSettings ? 'text-slate-700' : 'text-gray-300 line-through'}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${canSeeSettings ? 'bg-green-500' : 'bg-gray-300'}`} /> Settings
+                    </li>
+                  </ul>
+                  {role === 'admin' && (
+                    <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      Admin in this department — always sees every page here, regardless of the Role Permissions table below.
+                    </p>
+                  )}
+                  {myDepts.length === 0 && (
+                    <p className="text-xs text-gray-400">No department access — they'd only see the "No access assigned yet" screen.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
