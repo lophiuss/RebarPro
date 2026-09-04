@@ -3,7 +3,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 
-export type Person = { id: string; email: string; full_name: string | null; avatar_url: string | null }
+export type Person = { id: string; email: string; full_name: string | null; avatar_url: string | null; is_active: boolean }
 
 // Every server action here manages other people's accounts with the
 // service-role client, so every one of them must independently re-check this
@@ -34,7 +34,7 @@ export async function listPeople(): Promise<Person[]> {
   const admin = createAdminClient()
   const [{ data: authList, error: authErr }, { data: profiles, error: profErr }] = await Promise.all([
     admin.auth.admin.listUsers({ perPage: 1000 }),
-    supabase.from('profiles').select('id, full_name, avatar_url'),
+    supabase.from('profiles').select('id, full_name, avatar_url, is_active'),
   ])
   if (authErr) throw authErr
   if (profErr) throw profErr
@@ -47,8 +47,27 @@ export async function listPeople(): Promise<Person[]> {
       email: u.email ?? '(no email)',
       full_name: profileById.get(u.id)?.full_name ?? null,
       avatar_url: profileById.get(u.id)?.avatar_url ?? null,
+      is_active: profileById.get(u.id)?.is_active ?? true,
     }))
     .sort((a, b) => a.email.localeCompare(b.email))
+}
+
+// Deactivating blocks sign-in two ways: a Supabase Auth ban (rejects the
+// login attempt itself with a clear error) and profiles.is_active, which
+// proxy.ts also checks on every request so an already-open session is cut
+// immediately rather than only at their next token refresh.
+export async function setPersonActive(userId: string, active: boolean): Promise<void> {
+  const { user } = await requireDeptAdmin()
+  if (userId === user.id && !active) throw new Error("You can't deactivate your own account")
+
+  const admin = createAdminClient()
+  const { error: banErr } = await admin.auth.admin.updateUserById(userId, {
+    ban_duration: active ? 'none' : '876000h', // ~100 years — GoTrue has no "forever", this is the standard idiom
+  })
+  if (banErr) throw banErr
+
+  const { error } = await admin.from('profiles').update({ is_active: active }).eq('id', userId)
+  if (error) throw error
 }
 
 // Creates a brand-new account directly, as an alternative to self-signup —

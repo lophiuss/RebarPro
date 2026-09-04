@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ShieldCheck, Trash2, UserPlus, Pencil, X, User as UserIcon } from 'lucide-react'
-import { listPeople, createPerson, updatePersonProfile, resetPersonPassword, type Person } from './actions'
+import { listPeople, createPerson, updatePersonProfile, resetPersonPassword, setPersonActive, type Person } from './actions'
 import { NAV_ITEMS, type Department } from '@/components/AppNavigation'
 
 // Resize to max 512px and re-encode as ~70%-quality JPEG, same approach as
@@ -76,6 +76,7 @@ export default function AccessControlPage() {
   const [savingEdit, setSavingEdit] = useState(false)
   const [editNewPassword, setEditNewPassword] = useState('')
   const [resettingPassword, setResettingPassword] = useState(false)
+  const [togglingActive, setTogglingActive] = useState<string | null>(null)
 
   const supabase = createClient()
 
@@ -201,6 +202,23 @@ export default function AccessControlPage() {
     }
   }
 
+  async function toggleActive(p: Person) {
+    const next = !p.is_active
+    if (p.id === myId) { alert("You can't deactivate your own account"); return }
+    if (!next && !confirm(`Deactivate ${p.full_name || p.email}? They will be signed out and won't be able to log in until reactivated.`)) return
+    setTogglingActive(p.id)
+    // Optimistic — flip the badge immediately, the table doesn't otherwise change.
+    setProfiles(prev => prev.map(x => x.id === p.id ? { ...x, is_active: next } : x))
+    try {
+      await setPersonActive(p.id, next)
+    } catch (err: any) {
+      alert('Error: ' + err.message)
+      setProfiles(prev => prev.map(x => x.id === p.id ? { ...x, is_active: p.is_active } : x))
+    } finally {
+      setTogglingActive(null)
+    }
+  }
+
   function isNavAllowed(dept: Department, role: string, navKey: string) {
     return navPerms.some(p => p.department === dept && p.role === role && p.nav_key === navKey)
   }
@@ -306,9 +324,20 @@ export default function AccessControlPage() {
                       <div className="w-8 h-8 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center flex-shrink-0"><UserIcon className="w-4 h-4" /></div>
                     )}
                     <div className="min-w-0">
-                      <div className="font-medium truncate">{p.full_name || '(no name)'}</div>
+                      <div className="font-medium truncate flex items-center gap-1.5">
+                        {p.full_name || '(no name)'}
+                        {!p.is_active && <span className="text-[10px] font-bold uppercase bg-red-100 text-red-700 rounded-full px-1.5 py-0.5 flex-shrink-0">Inactive</span>}
+                      </div>
                       <div className="text-xs text-gray-400 truncate">{p.email}</div>
                     </div>
+                    <button
+                      onClick={() => toggleActive(p)}
+                      disabled={togglingActive === p.id || p.id === myId}
+                      title={p.id === myId ? "You can't deactivate your own account" : p.is_active ? 'Deactivate — blocks login' : 'Reactivate'}
+                      className={`text-[11px] font-semibold px-2 py-1 rounded-lg flex-shrink-0 disabled:opacity-40 ${p.is_active ? 'bg-green-50 text-green-700 hover:bg-green-100' : 'bg-red-50 text-red-700 hover:bg-red-100'}`}
+                    >
+                      {p.is_active ? 'Active' : 'Inactive'}
+                    </button>
                     <button onClick={() => openEdit(p)} className="text-gray-400 hover:text-blue-600 p-1 flex-shrink-0" title="Edit name, picture, or password">
                       <Pencil className="w-3.5 h-3.5" />
                     </button>

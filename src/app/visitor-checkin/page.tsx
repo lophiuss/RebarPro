@@ -29,7 +29,7 @@ export default function VisitorCheckinPage() {
         <div className="max-w-sm w-full text-center">
           <CheckCircle2 className="w-16 h-16 text-emerald-500 mx-auto mb-4" />
           <h1 className="text-2xl font-bold text-white mb-2">You're checked in</h1>
-          <p className="text-slate-400 text-sm">Please wait here — a guard will come take your photo and let you in shortly.</p>
+          <p className="text-slate-400 text-sm">Please wait here — a guard will review your details, take your photo, and let you in shortly.</p>
         </div>
       </div>
     )
@@ -42,7 +42,7 @@ export default function VisitorCheckinPage() {
           <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center">
             <ShieldCheck className="w-5 h-5 text-white" />
           </div>
-          <span className="text-xl font-bold text-white tracking-tight">Visitor Check-In</span>
+          <span className="text-xl font-bold text-white tracking-tight">Check-In</span>
         </div>
 
         <form onSubmit={submit} className="bg-white rounded-2xl shadow-xl p-6 space-y-4">
@@ -73,7 +73,7 @@ export default function VisitorCheckinPage() {
           <button type="submit" disabled={submitting} className="w-full bg-blue-600 disabled:opacity-50 text-white font-semibold text-sm py-3 rounded-lg hover:bg-blue-700 mt-2">
             {submitting ? 'Submitting...' : 'Check In'}
           </button>
-          <p className="text-xs text-gray-400 text-center">A guard will take your photo and let you in after this.</p>
+          <p className="text-xs text-gray-400 text-center">For visitors, drivers, and in-house staff alike — a guard will review this, take your photo, and let you in after this.</p>
         </form>
       </div>
     </div>

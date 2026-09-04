@@ -99,7 +99,10 @@ export default function AuditPage() {
       const hours = (end.getTime() - new Date(s.time_in).getTime()) / 3600000
       return hours < 0.5 || hours > 14
     })
-    const incompleteEntries = (dayEntries || []).filter(e => !e.company || !e.purpose)
+    // A still-pending self check-in (not yet reviewed/approved by a guard)
+    // has no category/company/purpose yet by design — that's not the same
+    // thing as an "incomplete" approved entry, so exclude it here.
+    const incompleteEntries = (dayEntries || []).filter(e => e.status !== 'pending' && (!e.company || !e.purpose))
 
     setAnomalySections([
       { title: 'Panic Alarms', rows: todayPanics || [], columns: [{ key: 'triggered_by', label: 'Triggered By' }, { key: 'remark', label: 'Remark' }, { key: 'created_at', label: 'Time', fmt: v => new Date(v).toLocaleString() }] },

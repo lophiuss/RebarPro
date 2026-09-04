@@ -47,6 +47,21 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
+  // A deactivated account is banned in Supabase Auth too (blocks new sign-ins
+  // outright — see admin/access/actions.ts), but that alone leaves an
+  // already-open session usable until its access token next expires. Cut it
+  // immediately instead.
+  if (user && !request.nextUrl.pathname.startsWith('/login') && !request.nextUrl.pathname.startsWith('/auth')) {
+    const { data: profile } = await supabase.from('profiles').select('is_active').eq('id', user.id).maybeSingle()
+    if (profile && profile.is_active === false) {
+      await supabase.auth.signOut()
+      const url = request.nextUrl.clone()
+      url.pathname = '/login'
+      url.searchParams.set('message', 'Your account has been deactivated. Contact an admin.')
+      return NextResponse.redirect(url)
+    }
+  }
+
   // If user is logged in and tries to access /login, send them to their department home
   if (user && request.nextUrl.pathname === '/login') {
       const url = request.nextUrl.clone()

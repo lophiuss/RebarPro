@@ -11,7 +11,9 @@ type Category = 'visitor' | 'delivery' | 'inhouse'
 
 type Entry = {
   id: number
-  category: Category
+  // Null only while status is 'pending' — a self check-in from the QR kiosk
+  // hasn't been assigned a group yet; a guard picks one on approval.
+  category: Category | null
   person_name: string
   company: string | null
   purpose: string | null
@@ -66,6 +68,10 @@ export default function EntriesPage() {
   const [abnormalTarget, setAbnormalTarget] = useState<Entry | null>(null)
   const [abnormalReason, setAbnormalReason] = useState('')
   const [approving, setApproving] = useState<Entry | null>(null)
+  const [approveForm, setApproveForm] = useState({
+    category: '' as Category | '', person_name: '', company: '', purpose: '', looking_for: '',
+    vehicle_no: '', badge_no: '', reference_no: '', notes: '',
+  })
   const [approvePhoto, setApprovePhoto] = useState<File | null>(null)
   const [approving2, setApproving2] = useState(false)
   const [zoomSrc, setZoomSrc] = useState<string | null>(null)
@@ -78,14 +84,14 @@ export default function EntriesPage() {
 
   async function load() {
     setLoading(true)
-    const { data } = await supabase.from('security_entries').select('*').eq('category', category).eq('status', 'in').order('time_in', { ascending: false })
+    // Pending self check-ins have no category yet, so they're not tied to any
+    // one tab — they always show up here regardless of which tab is active.
+    const [{ data }, { data: pendingRows }] = await Promise.all([
+      supabase.from('security_entries').select('*').eq('category', category).eq('status', 'in').order('time_in', { ascending: false }),
+      supabase.from('security_entries').select('*').eq('status', 'pending').order('time_in', { ascending: false }),
+    ])
     setActive(data || [])
-    if (category === 'visitor') {
-      const { data: pendingRows } = await supabase.from('security_entries').select('*').eq('status', 'pending').order('time_in', { ascending: false })
-      setPending(pendingRows || [])
-    } else {
-      setPending([])
-    }
+    setPending(pendingRows || [])
     setLoading(false)
   }
 
@@ -137,11 +143,23 @@ export default function EntriesPage() {
     setActive(prev => prev.filter(e => e.id !== id))
   }
 
+  function openApprove(p: Entry) {
+    setApproving(p)
+    setApproveForm({
+      category: '', person_name: p.person_name, company: p.company || '', purpose: p.purpose || '',
+      looking_for: p.looking_for || '', vehicle_no: p.vehicle_no || '', badge_no: p.badge_no || '',
+      reference_no: p.reference_no || '', notes: p.notes || '',
+    })
+    setApprovePhoto(null)
+  }
+
   async function approveVisitor() {
     if (!approving) return
+    if (!approveForm.person_name.trim()) { alert('Name is required'); return }
+    if (!approveForm.category) { alert('Please pick which group this person belongs to (Visitor / Delivery / In-House)'); return }
     setApproving2(true)
     try {
-      let photo_drive_id: string | null = null
+      let photo_drive_id: string | null = approving.photo_drive_id
       if (approvePhoto) {
         const blob = await compressImage(approvePhoto)
         const fd = new FormData()
@@ -151,6 +169,15 @@ export default function EntriesPage() {
       }
       const { data: { user } } = await supabase.auth.getUser()
       const { error } = await supabase.from('security_entries').update({
+        category: approveForm.category,
+        person_name: approveForm.person_name.trim(),
+        company: approveForm.company.trim() || null,
+        purpose: approveForm.purpose.trim() || null,
+        looking_for: approveForm.looking_for.trim() || null,
+        vehicle_no: approveForm.vehicle_no.trim() || null,
+        badge_no: approveForm.badge_no.trim() || null,
+        reference_no: approveForm.reference_no.trim() || null,
+        notes: approveForm.notes.trim() || null,
         status: 'in', time_in: new Date().toISOString(), photo_drive_id, created_by: user?.email || null,
       }).eq('id', approving.id).eq('status', 'pending')
       if (error) throw error
@@ -202,7 +229,7 @@ export default function EntriesPage() {
         <div className="bg-amber-50 border border-amber-200 rounded-xl shadow-sm overflow-hidden mb-6">
           <div className="px-4 py-3 border-b border-amber-200">
             <h2 className="text-sm font-bold text-amber-800 flex items-center gap-2"><UserCheck className="w-4 h-4" /> Pending Self Check-Ins ({pending.length})</h2>
-            <p className="text-xs text-amber-700 mt-0.5">Submitted from the visitor kiosk — take their photo and approve to let them in.</p>
+            <p className="text-xs text-amber-700 mt-0.5">Submitted from the QR kiosk by a visitor, driver, or in-house staff — review, complete/correct the details, pick their group, take their photo, and approve to let them in.</p>
           </div>
           <div className="divide-y divide-amber-100">
             {pending.map(p => (
@@ -214,7 +241,7 @@ export default function EntriesPage() {
                   <div className="text-xs text-gray-400">Submitted {new Date(p.time_in).toLocaleString()}</div>
                 </div>
                 <div className="flex gap-2 flex-shrink-0">
-                  <button onClick={() => { setApproving(p); setApprovePhoto(null) }} className="text-xs bg-green-600 text-white font-medium px-3 py-1.5 rounded-lg hover:bg-green-700">Photo &amp; Approve</button>
+                  <button onClick={() => openApprove(p)} className="text-xs bg-green-600 text-white font-medium px-3 py-1.5 rounded-lg hover:bg-green-700">Review &amp; Approve</button>
                   <button onClick={() => rejectVisitor(p.id)} className="text-xs bg-gray-100 text-gray-600 px-2.5 py-1.5 rounded-lg hover:bg-gray-200">Reject</button>
                 </div>
               </div>
@@ -316,16 +343,62 @@ export default function EntriesPage() {
       )}
 
       {approving && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto py-8">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold">Approve — {approving.person_name}</h2>
+              <h2 className="text-lg font-bold">Review Self Check-In</h2>
               <button onClick={() => setApproving(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>
-            <div className="text-sm text-gray-500 mb-4">
-              {[approving.company, approving.purpose].filter(Boolean).join(' · ') || '-'}
-              {approving.looking_for && <div className="mt-1">Looking for: <strong>{approving.looking_for}</strong></div>}
+
+            <label className="block text-xs font-medium text-gray-500 mb-1.5">Which group are they? *</label>
+            <div className="flex gap-1 bg-gray-100 rounded-lg p-1 mb-4 w-fit">
+              {(['visitor', 'delivery', 'inhouse'] as Category[]).map(c => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setApproveForm({ ...approveForm, category: c })}
+                  className={`text-sm font-medium px-3.5 py-1.5 rounded-md transition ${approveForm.category === c ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  {CATEGORY_LABEL[c]}
+                </button>
+              ))}
             </div>
+
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-gray-500 mb-1">Name</label>
+                <input value={approveForm.person_name} onChange={e => setApproveForm({ ...approveForm, person_name: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Company</label>
+                <input value={approveForm.company} onChange={e => setApproveForm({ ...approveForm, company: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Purpose</label>
+                <input value={approveForm.purpose} onChange={e => setApproveForm({ ...approveForm, purpose: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-gray-500 mb-1">Who Are They Looking For?</label>
+                <input value={approveForm.looking_for} onChange={e => setApproveForm({ ...approveForm, looking_for: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Vehicle No</label>
+                <input value={approveForm.vehicle_no} onChange={e => setApproveForm({ ...approveForm, vehicle_no: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Badge No</label>
+                <input value={approveForm.badge_no} onChange={e => setApproveForm({ ...approveForm, badge_no: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-gray-500 mb-1">Reference/DO No</label>
+                <input value={approveForm.reference_no} onChange={e => setApproveForm({ ...approveForm, reference_no: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-gray-500 mb-1">Notes</label>
+                <textarea value={approveForm.notes} onChange={e => setApproveForm({ ...approveForm, notes: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" rows={2} />
+              </div>
+            </div>
+
             <div className="mb-4"><PhotoPicker file={approvePhoto} onChange={setApprovePhoto} /></div>
             <div className="flex justify-end gap-3">
               <button onClick={() => setApproving(null)} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-200">Cancel</button>
@@ -355,7 +428,7 @@ export default function EntriesPage() {
                 <div className="w-32 h-32 rounded-xl bg-gray-100 flex-shrink-0" />
               )}
               <div className="flex-1 min-w-[180px] text-sm">
-                <span className="inline-block bg-blue-50 text-blue-700 text-xs font-bold uppercase rounded-full px-2.5 py-1 mb-2">{CATEGORY_LABEL[detail.category]}</span>
+                <span className="inline-block bg-blue-50 text-blue-700 text-xs font-bold uppercase rounded-full px-2.5 py-1 mb-2">{detail.category ? CATEGORY_LABEL[detail.category] : '-'}</span>
                 <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
                   <div><strong>Company:</strong> {detail.company || '-'}</div>
                   <div><strong>Purpose:</strong> {detail.purpose || '-'}</div>
