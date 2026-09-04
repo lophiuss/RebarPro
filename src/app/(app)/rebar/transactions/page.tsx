@@ -464,8 +464,10 @@ function TransactionTable({
   const [filterSize, setFilterSize] = React.useState('')
   const [filterType, setFilterType] = React.useState('')
   const [filterDO, setFilterDO] = React.useState('')
+  const [page, setPage] = React.useState(1)
+  const PAGE_SIZE = 100
 
-  const filtered = transactions.filter((t: any) => {
+  const filteredAll = transactions.filter((t: any) => {
     if (filterFrom && t.transaction_date < filterFrom) return false
     if (filterTo && t.transaction_date > filterTo) return false
     if (filterProject) {
@@ -479,11 +481,18 @@ function TransactionTable({
     if (filterType && t.type !== filterType) return false
     if (filterDO && !(t.do_number || '').toLowerCase().includes(filterDO.toLowerCase())) return false
     return true
-  }).slice(0, 100)
+  })
+
+  // Reset to page 1 whenever the filters actually narrow/change the result set.
+  React.useEffect(() => { setPage(1) }, [filterFrom, filterTo, filterProject, filterSize, filterType, filterDO])
+
+  const totalPages = Math.max(1, Math.ceil(filteredAll.length / PAGE_SIZE))
+  const currentPage = Math.min(page, totalPages)
+  const filtered = filteredAll.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
   function exportCSV() {
     const headers = ['Date', 'Project/Type', 'Size', 'Transaction Type', `Qty (${uLabel})`, 'DO Number', 'Notes']
-    const rows = filtered.map((t: any) => [
+    const rows = filteredAll.map((t: any) => [
       t.transaction_date,
       t.project_types?.name ? `[Type] ${t.project_types.name}` : (t.projects?.name || ''),
       t.rebar_sizes?.size || '(Overall Combine)',
@@ -544,13 +553,15 @@ function TransactionTable({
           Clear
         </button>
         <div className="ml-auto flex items-center gap-2">
-          <span className="text-xs text-gray-400">{filtered.length} rows (max 100)</span>
+          <span className="text-xs text-gray-400">
+            {filteredAll.length === 0 ? '0 rows' : `Showing ${(currentPage - 1) * PAGE_SIZE + 1}–${Math.min(currentPage * PAGE_SIZE, filteredAll.length)} of ${filteredAll.length}`}
+          </span>
           <button
             onClick={exportCSV}
             className="flex items-center gap-1.5 bg-green-600 text-white text-sm px-3 py-1.5 rounded-lg hover:bg-green-700 transition font-medium shadow-sm"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-            Export Excel
+            Export All ({filteredAll.length})
           </button>
         </div>
       </div>
@@ -651,6 +662,26 @@ function TransactionTable({
         </tbody>
       </table>
       </div>
+
+      {totalPages > 1 && (
+        <div className="p-3 border-t bg-gray-50 flex items-center justify-between">
+          <button
+            onClick={() => setPage(p => Math.max(1, p - 1))}
+            disabled={currentPage <= 1}
+            className="text-xs font-medium px-3 py-1.5 rounded-lg border bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-100"
+          >
+            ← Previous
+          </button>
+          <span className="text-xs text-gray-500">Page {currentPage} of {totalPages}</span>
+          <button
+            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+            disabled={currentPage >= totalPages}
+            className="text-xs font-medium px-3 py-1.5 rounded-lg border bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-100"
+          >
+            Next →
+          </button>
+        </div>
+      )}
     </div>
   )
 }
