@@ -16,9 +16,19 @@ export type NavPermission = { department: Department; role: string; nav_key: str
 
 interface Props {
   userEmail: string
+  fullName: string | null
   departments: DepartmentAccess[]
   navPermissions: NavPermission[]
   children: React.ReactNode
+}
+
+// Local time of day, computed client-side (this component is 'use client')
+// so it reflects whoever's actually looking at the screen, not the server's.
+function greeting() {
+  const hour = new Date().getHours()
+  if (hour < 12) return 'Good morning'
+  if (hour < 18) return 'Good afternoon'
+  return 'Good evening'
 }
 
 const DEPARTMENT_LABEL: Record<Department, string> = {
@@ -80,9 +90,10 @@ export const NAV_ITEMS: Record<Department, NavItem[]> = {
   ],
 }
 
-export default function AppNavigation({ userEmail, departments, navPermissions, children }: Props) {
+export default function AppNavigation({ userEmail, fullName, departments, navPermissions, children }: Props) {
   const [isOpen, setIsOpen] = useState(false)
   const pathname = usePathname()
+  const firstName = (fullName || userEmail.split('@')[0]).split(' ')[0]
 
   const activeDept: Department | null = pathname.startsWith('/cement')
     ? 'cement'
@@ -122,7 +133,7 @@ export default function AppNavigation({ userEmail, departments, navPermissions, 
           </button>
           <span className="font-bold text-lg tracking-tight">AlphaVision</span>
         </div>
-        <span className="text-xs text-slate-400 max-w-[150px] truncate">{userEmail}</span>
+        <span className="text-xs text-slate-400 max-w-[150px] truncate">{greeting()}, {firstName}</span>
       </header>
 
       {/* Backdrop for Mobile */}
@@ -147,7 +158,8 @@ export default function AppNavigation({ userEmail, departments, navPermissions, 
         <div className="p-6 border-b border-slate-800/80 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-white tracking-tight">AlphaVision</h1>
-            <p className="text-xs text-slate-400 mt-1 truncate max-w-[180px]">{userEmail}</p>
+            <p className="text-sm text-slate-300 mt-1.5 truncate max-w-[180px]">{greeting()}, {firstName} 👋</p>
+            <p className="text-xs text-slate-500 truncate max-w-[180px]">{userEmail}</p>
           </div>
           <button
             onClick={closeSidebar}

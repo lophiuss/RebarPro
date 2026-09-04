@@ -3,6 +3,7 @@ export const revalidate = 0
 
 import { createClient } from '@/lib/supabase/server'
 import CementSiloGrid, { type SiloStock } from '@/components/CementSiloGrid'
+import ShoutoutBoard from '@/components/ShoutoutBoard'
 import { ClipboardCheck, Truck, TruckElectric } from 'lucide-react'
 
 type Activity = { key: string; icon: 'in' | 'out' | 'stock'; text: string; sub: string; at: string; preciseTime: boolean }
@@ -79,6 +80,7 @@ export default async function CementDashboardPage() {
     <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8">
       <div>
         <h1 className="text-3xl font-bold mb-6">Current Stock</h1>
+        <ShoutoutBoard department="cement" />
         {error && <p className="text-red-600 text-sm mb-4">Error loading silo stock: {error.message}</p>}
         {siloStocks.length === 0 && !error ? (
           <p className="text-gray-500">No active silos found.</p>

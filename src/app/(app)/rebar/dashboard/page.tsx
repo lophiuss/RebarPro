@@ -4,6 +4,7 @@ export const revalidate = 0
 import { createClient } from '@/lib/supabase/server'
 import UsageTrendsChart from '@/components/UsageTrendsChart'
 import StockBalanceLineChart from '@/components/StockBalanceLineChart'
+import ShoutoutBoard from '@/components/ShoutoutBoard'
 import { naturalSort } from '@/lib/utils/sort'
 import { fmtQty, fmtQtyNum, unitLabel, type DefaultUnit } from '@/lib/utils/unit'
 
@@ -259,6 +260,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </div>
       </div>
       <p className="text-xs text-gray-400 mb-6">KPI cards below reflect <strong>{periodLabel}</strong>{period !== 'all' && ' — balances as of the end of this period, flow metrics within it'}.</p>
+
+      <ShoutoutBoard department="rebar" />
 
       {/* Global KPIs */}
       <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 mb-10">

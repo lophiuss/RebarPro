@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { ShieldCheck, Users, Truck, Building2, DoorClosed, DoorOpen, X, LogOut, Activity } from 'lucide-react'
 import PhotoLightbox from '@/components/PhotoLightbox'
 import ActivityLogFeed from '@/components/ActivityLogFeed'
+import ShoutoutBoard from '@/components/ShoutoutBoard'
 import { buildActivityLog, ActivityEvent } from '@/lib/security/activityLog'
 
 type Category = 'visitor' | 'delivery' | 'inhouse'
@@ -130,6 +131,8 @@ export default function SecurityDashboardPage() {
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8">
       <h1 className="text-3xl font-bold flex items-center gap-2"><ShieldCheck className="w-7 h-7 text-blue-600" /> Security Dashboard</h1>
+
+      <ShoutoutBoard department="security" />
 
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
         <div className="bg-white border rounded-xl p-4 shadow-sm">
