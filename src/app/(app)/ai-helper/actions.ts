@@ -31,20 +31,25 @@ async function requireAccess() {
   return { supabase, user }
 }
 
-async function requireAdmin() {
+// Managing AI Helper (settings + who-can-use-it) is deliberately narrower
+// than "admin anywhere" — every department has its own separate admin
+// account(s), and letting any one of them reconfigure a shared, cross-
+// department AI assistant or grant/revoke everyone else's access to it was
+// exactly the over-broad behavior reported and fixed here.
+async function requireSuperAdmin() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Not signed in')
-  const { data: isAdmin } = await supabase.rpc('is_admin_anywhere')
-  if (!isAdmin) throw new Error('Not authorized — admin only')
+  const { data: isSuperAdmin } = await supabase.rpc('is_super_admin')
+  if (!isSuperAdmin) throw new Error('Not authorized — restricted to the app super admin')
   return { supabase, user }
 }
 
-export async function amIAdmin(): Promise<boolean> {
+export async function amISuperAdmin(): Promise<boolean> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return false
-  const { data } = await supabase.rpc('is_admin_anywhere')
+  const { data } = await supabase.rpc('is_super_admin')
   return !!data
 }
 
@@ -56,7 +61,7 @@ export async function getSettings(): Promise<Settings> {
 }
 
 export async function updateSettings(patch: Settings): Promise<void> {
-  const { supabase, user } = await requireAdmin()
+  const { supabase, user } = await requireSuperAdmin()
   const { error } = await supabase.from('ai_helper_settings').update({
     model: patch.model, effort: patch.effort, system_instructions: patch.system_instructions,
     updated_at: new Date().toISOString(), updated_by: user.email || null,
@@ -65,7 +70,7 @@ export async function updateSettings(patch: Settings): Promise<void> {
 }
 
 export async function listAllowedPeople(): Promise<AllowedPerson[]> {
-  const { supabase } = await requireAdmin()
+  const { supabase } = await requireSuperAdmin()
   const [{ data: access }, admin] = await Promise.all([
     supabase.from('ai_helper_access').select('user_id, created_at'),
     Promise.resolve(createAdminClient()),
@@ -79,7 +84,7 @@ export async function listAllowedPeople(): Promise<AllowedPerson[]> {
 }
 
 export async function listAllPeople(): Promise<AllowedPerson[]> {
-  const { supabase } = await requireAdmin()
+  const { supabase } = await requireSuperAdmin()
   const admin = createAdminClient()
   const [{ data: authList }, { data: profiles }] = await Promise.all([
     admin.auth.admin.listUsers({ perPage: 1000 }),
@@ -90,13 +95,13 @@ export async function listAllPeople(): Promise<AllowedPerson[]> {
 }
 
 export async function grantAccess(userId: string): Promise<void> {
-  const { supabase, user } = await requireAdmin()
+  const { supabase, user } = await requireSuperAdmin()
   const { error } = await supabase.from('ai_helper_access').upsert([{ user_id: userId, granted_by: user.email || null }])
   if (error) throw error
 }
 
 export async function revokeAccess(userId: string): Promise<void> {
-  const { supabase } = await requireAdmin()
+  const { supabase } = await requireSuperAdmin()
   const { error } = await supabase.from('ai_helper_access').delete().eq('user_id', userId)
   if (error) throw error
 }

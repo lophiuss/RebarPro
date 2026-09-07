@@ -41,21 +41,32 @@ async function buildRebarSnapshot(supabase: SupabaseClient) {
     return { size: size.size, usable_balance_tonnes: Number(usableBalance.toFixed(2)), avg_daily_usage_14d_tonnes: Number(avgDaily14d.toFixed(3)), coverage_days: coverageDays === null ? null : Number(coverageDays.toFixed(1)) }
   }).filter(r => r.usable_balance_tonnes !== 0 || r.avg_daily_usage_14d_tonnes > 0)
 
-  const todayUsage = txs.filter(t => t.type === 'usage' && t.transaction_date === today).reduce((s, t) => s + Math.abs(Number(t.quantity)), 0)
-  const todayIncoming = txs.filter(t => t.type === 'incoming' && t.transaction_date === today).reduce((s, t) => s + Number(t.quantity), 0)
+  const sevenAgo = daysAgoStr(7)
+  const sumBy = (type: string, sinceDate: string, exact?: string) => txs
+    .filter(t => t.type === type && (exact ? t.transaction_date === exact : t.transaction_date >= sinceDate))
+    .reduce((s, t) => s + Math.abs(Number(t.quantity)), 0)
+
   const lowCoverageSizes = sizeRows.filter(r => r.coverage_days !== null && r.coverage_days < 3)
 
-  return { sizes: sizeRows, today_usage_tonnes: Number(todayUsage.toFixed(2)), today_incoming_tonnes: Number(todayIncoming.toFixed(2)), sizes_below_3_days_coverage: lowCoverageSizes }
+  return {
+    sizes: sizeRows,
+    today_usage_tonnes: Number(sumBy('usage', '', today).toFixed(2)),
+    today_incoming_tonnes: Number(sumBy('incoming', '', today).toFixed(2)),
+    last_7_days_usage_tonnes: Number(sumBy('usage', sevenAgo).toFixed(2)),
+    last_7_days_incoming_tonnes: Number(sumBy('incoming', sevenAgo).toFixed(2)),
+    sizes_below_3_days_coverage: lowCoverageSizes,
+  }
 }
 
 async function buildCementSnapshot(supabase: SupabaseClient) {
   const today = todayStr()
-  const [{ data: stock }, { data: silos }, { data: todayStockTake }, { data: todayUsage }, { data: recentAlerts }] = await Promise.all([
+  const [{ data: stock }, { data: silos }, { data: todayStockTake }, { data: todayUsage }, { data: recentAlerts }, { data: weightIns7d }] = await Promise.all([
     supabase.rpc('cement_silo_stock'),
     supabase.from('cement_silos').select('id, name, cement_plants(name), cement_silo_materials(cement_materials(name))').eq('is_active', true),
     supabase.from('cement_daily_stock_take').select('silo_id').eq('take_date', today),
     supabase.from('cement_daily_usage').select('silo_id').eq('usage_date', today),
     supabase.from('cement_alert_log').select('alert_date, plant_name, material_name, variance_pct, alert_type').gte('alert_date', daysAgoStr(7)).order('alert_date', { ascending: false }),
+    supabase.from('cement_weight_in').select('weigh_date, do_weight').gte('weigh_date', daysAgoStr(7)),
   ])
 
   const stockDoneIds = new Set((todayStockTake || []).map((r: any) => r.silo_id))
@@ -75,17 +86,22 @@ async function buildCementSnapshot(supabase: SupabaseClient) {
     current_stock_by_silo: stock || [],
     silos_missing_todays_entry: missingToday,
     recent_variance_alerts_7d: (recentAlerts || []).map((a: any) => ({ date: a.alert_date, plant: a.plant_name, material: a.material_name, variance_pct: a.variance_pct, type: a.alert_type })),
+    last_7_days_deliveries_count: (weightIns7d || []).length,
+    last_7_days_deliveries_tonnes: Number((weightIns7d || []).reduce((s: number, r: any) => s + Number(r.do_weight || 0), 0).toFixed(2)),
   }
 }
 
 async function buildSecuritySnapshot(supabase: SupabaseClient) {
   const today = todayStr()
   const startOfDay = new Date(today + 'T00:00:00').toISOString()
-  const [{ data: guardPosts }, { data: todayPostLogs }, { data: openShifts }, { data: todayEntries }, { data: overstayed }, { data: incidents }, { data: panics }] = await Promise.all([
+  const sevenDaysAgo = new Date(daysAgoStr(7) + 'T00:00:00').toISOString()
+  const thirtyDaysAgo = new Date(daysAgoStr(30) + 'T00:00:00').toISOString()
+  const [{ data: guardPosts }, { data: todayPostLogs }, { data: openShifts }, { data: entries7d }, { data: entries30dCategoryOnly }, { data: overstayed }, { data: incidents }, { data: panics }] = await Promise.all([
     supabase.from('security_guard_posts').select('id, name'),
     supabase.from('security_post_logs').select('post_name, guard_name, time_in, time_out').gte('time_in', startOfDay),
     supabase.from('security_post_logs').select('post_name, guard_name, time_in').is('time_out', null).order('time_in', { ascending: true }),
-    supabase.from('security_entries').select('category, status').gte('time_in', startOfDay),
+    supabase.from('security_entries').select('category, status, time_in').gte('time_in', sevenDaysAgo),
+    supabase.from('security_entries').select('category').gte('time_in', thirtyDaysAgo),
     supabase.from('security_entries').select('category, person_name, time_in').eq('status', 'in').lt('time_in', new Date(Date.now() - 24 * 3600 * 1000).toISOString()),
     supabase.from('security_incidents').select('type, severity, description, created_at').gte('created_at', daysAgoStr(7)),
     supabase.from('security_panic_logs').select('triggered_by, remark, created_at').gte('created_at', daysAgoStr(7)),
@@ -97,13 +113,18 @@ async function buildSecuritySnapshot(supabase: SupabaseClient) {
   const now = Date.now()
   const overdueShifts = (openShifts || []).filter((s: any) => (now - new Date(s.time_in).getTime()) / 3600000 > 14)
 
-  const counts: Record<string, number> = {}
-  for (const e of todayEntries || []) counts[e.category] = (counts[e.category] || 0) + 1
+  const countBy = (rows: any[], pred: (r: any) => boolean) => {
+    const counts: Record<string, number> = {}
+    for (const e of rows) if (pred(e)) counts[e.category] = (counts[e.category] || 0) + 1
+    return counts
+  }
 
   return {
     guard_posts_not_logged_today: postsNotYetLogged,
     shifts_overdue_over_14h: overdueShifts.map((s: any) => ({ post: s.post_name, guard: s.guard_name, since: s.time_in })),
-    today_entry_counts_by_category: counts,
+    today_entry_counts_by_category: countBy(entries7d || [], e => e.time_in >= startOfDay),
+    last_7_days_entry_counts_by_category: countBy(entries7d || [], () => true),
+    last_30_days_entry_counts_by_category: countBy(entries30dCategoryOnly || [], () => true),
     entries_overstayed_over_24h: (overstayed || []).map((e: any) => ({ category: e.category, name: e.person_name, since: e.time_in })),
     incidents_last_7d: incidents || [],
     panic_alerts_last_7d: panics || [],

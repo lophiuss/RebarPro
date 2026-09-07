@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Sparkles, Send, Settings as SettingsIcon, X, UserPlus, Trash2, Loader2 } from 'lucide-react'
 import {
-  askAiHelper, getSettings, updateSettings, amIAdmin,
+  askAiHelper, getSettings, updateSettings, amISuperAdmin,
   listAllowedPeople, listAllPeople, grantAccess, revokeAccess,
   type Settings, type AllowedPerson,
 } from './actions'
@@ -33,7 +33,7 @@ export default function AiHelperPage() {
   const [messages, setMessages] = useState<Msg[]>([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
-  const [isAdmin, setIsAdmin] = useState(false)
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [settings, setSettings] = useState<Settings | null>(null)
   const [savingSettings, setSavingSettings] = useState(false)
@@ -43,8 +43,8 @@ export default function AiHelperPage() {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    amIAdmin().then(async admin => {
-      setIsAdmin(admin)
+    amISuperAdmin().then(async admin => {
+      setIsSuperAdmin(admin)
       if (admin) {
         const [s, allowed, all] = await Promise.all([getSettings(), listAllowedPeople(), listAllPeople()])
         setSettings(s)
@@ -111,7 +111,7 @@ export default function AiHelperPage() {
     <div className="p-4 md:p-8 max-w-4xl mx-auto flex flex-col h-[calc(100vh-2rem)] md:h-screen">
       <div className="flex items-center justify-between gap-4 mb-4 flex-shrink-0">
         <h1 className="text-3xl font-bold flex items-center gap-2"><Sparkles className="w-7 h-7 text-violet-600" /> AI Helper</h1>
-        {isAdmin && (
+        {isSuperAdmin && (
           <button onClick={() => setShowSettings(true)} className="flex items-center gap-1.5 bg-gray-100 text-gray-700 text-sm font-medium px-3 py-2 rounded-lg hover:bg-gray-200">
             <SettingsIcon className="w-4 h-4" /> Settings
           </button>
