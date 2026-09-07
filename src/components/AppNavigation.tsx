@@ -7,7 +7,7 @@ import {
   Home, List, ClipboardCheck, LogOut, Settings, FileBarChart2, Menu, X,
   ShieldCheck, Building2, Boxes, Scale, PackageOpen, ScrollText, BarChart3,
   ArrowLeftRight, ClipboardList, AlertTriangle, Factory, DoorClosed, KeyRound,
-  Radio, Siren, ClipboardEdit, User
+  Radio, Siren, ClipboardEdit, User, Sparkles
 } from 'lucide-react'
 
 export type Department = 'rebar' | 'cement' | 'security'
@@ -19,6 +19,7 @@ interface Props {
   fullName: string | null
   departments: DepartmentAccess[]
   navPermissions: NavPermission[]
+  canUseAiHelper: boolean
   children: React.ReactNode
 }
 
@@ -90,7 +91,7 @@ export const NAV_ITEMS: Record<Department, NavItem[]> = {
   ],
 }
 
-export default function AppNavigation({ userEmail, fullName, departments, navPermissions, children }: Props) {
+export default function AppNavigation({ userEmail, fullName, departments, navPermissions, canUseAiHelper, children }: Props) {
   const [isOpen, setIsOpen] = useState(false)
   const pathname = usePathname()
   const firstName = (fullName || userEmail.split('@')[0]).split(' ')[0]
@@ -241,6 +242,21 @@ export default function AppNavigation({ userEmail, fullName, departments, navPer
             >
               <ShieldCheck className={`w-5 h-5 ${pathname === '/admin/access' ? 'text-white' : 'text-slate-400'}`} />
               <span>Access Control</span>
+            </Link>
+          )}
+
+          {canUseAiHelper && (
+            <Link
+              href="/ai-helper"
+              onClick={closeSidebar}
+              className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition ${
+                pathname === '/ai-helper'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-300 hover:bg-slate-800/90 hover:text-white'
+              }`}
+            >
+              <Sparkles className={`w-5 h-5 ${pathname === '/ai-helper' ? 'text-white' : 'text-slate-400'}`} />
+              <span>AI Helper</span>
             </Link>
           )}
 

@@ -89,6 +89,17 @@ export async function proxy(request: NextRequest) {
     }
   }
 
+  // Same idea for AI Helper — direct navigation without access bounces home
+  // instead of rendering an empty chat shell that every action call refuses.
+  if (user && request.nextUrl.pathname.startsWith('/ai-helper')) {
+    const { data: allowed } = await supabase.rpc('can_use_ai_helper')
+    if (!allowed) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/'
+      return NextResponse.redirect(url)
+    }
+  }
+
   return supabaseResponse
 }
 
