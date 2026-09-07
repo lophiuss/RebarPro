@@ -152,11 +152,22 @@ export default function AccessControlPage() {
     setAddingPerson(true)
     try {
       await createPerson(newEmail, newPassword, newFullName)
-      setShowAddPerson(false)
-      setNewEmail(''); setNewPassword(''); setNewFullName('')
-      await load()
     } catch (err: any) {
       alert('Error creating person: ' + err.message)
+      setAddingPerson(false)
+      return
+    }
+    // The account is created at this point — close the modal and clear the
+    // form regardless of what happens next, so a hiccup refreshing the list
+    // (a separate network round trip) can never be mistaken for the
+    // creation itself having failed, which used to send someone back to
+    // "Add Person" to retry a signup that had already gone through.
+    setShowAddPerson(false)
+    setNewEmail(''); setNewPassword(''); setNewFullName('')
+    try {
+      await load()
+    } catch (err: any) {
+      alert(`${newEmail || 'The new person'} was created, but the list didn't refresh (${err.message}). Reload the page to see them.`)
     } finally {
       setAddingPerson(false)
     }
