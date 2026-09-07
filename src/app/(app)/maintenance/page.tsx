@@ -40,10 +40,40 @@ function MiniTrend({ current, previous, higherIsBetter, format }: { current: num
   )
 }
 
+// N-bar historical trend, same "no charting library" SVG approach as
+// MiniTrend, generalized to however many month buckets are being shown.
+function TrendBarChart({ data, format }: { data: { label: string; value: number }[]; format: (n: number) => string }) {
+  const max = Math.max(...data.map(d => d.value), 0.0001)
+  const barW = Math.max(8, Math.min(28, Math.floor(280 / Math.max(data.length, 1)) - 4))
+  const gap = 4
+  const chartW = data.length * (barW + gap)
+  const chartH = 70
+  return (
+    <div className="overflow-x-auto">
+      <svg width={Math.max(chartW, 100)} height={chartH + 28} viewBox={`0 0 ${Math.max(chartW, 100)} ${chartH + 28}`}>
+        {data.map((d, i) => {
+          const h = Math.max(2, Math.round((d.value / max) * chartH))
+          const x = i * (barW + gap)
+          return (
+            <g key={i}>
+              <title>{d.label}: {format(d.value)}</title>
+              <rect x={x} y={chartH - h} width={barW} height={h} rx="2" className="fill-orange-500" />
+              <text x={x + barW / 2} y={chartH + 11} textAnchor="middle" className="fill-gray-400" style={{ fontSize: 8 }}>{d.label}</text>
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}
+
 interface SearchParams {
   period?: string
   from?: string
   to?: string
+  chartRange?: string
+  chartFrom?: string
+  chartTo?: string
 }
 
 function pad2(n: number) { return String(n).padStart(2, '0') }
@@ -55,14 +85,84 @@ function isoWeek(d: Date) {
   const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1))
   return Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
 }
+// Same as isoWeek() but also returns the ISO week-year, needed to match
+// maintenance_pm_schedule rows (keyed by year + week_number) into a month
+// bucket by that week's Monday date.
+function isoWeekInfo(d: Date) {
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
+  const dayNum = date.getUTCDay() || 7
+  date.setUTCDate(date.getUTCDate() + 4 - dayNum)
+  const isoYear = date.getUTCFullYear()
+  const yearStart = new Date(Date.UTC(isoYear, 0, 1))
+  const week = Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7)
+  return { isoYear, week }
+}
+function mondayOfIsoWeek(isoYear: number, week: number) {
+  const jan4 = new Date(Date.UTC(isoYear, 0, 4))
+  const jan4Day = jan4.getUTCDay() || 7
+  const week1Monday = new Date(jan4)
+  week1Monday.setUTCDate(jan4.getUTCDate() - (jan4Day - 1))
+  const target = new Date(week1Monday)
+  target.setUTCDate(week1Monday.getUTCDate() + (week - 1) * 7)
+  return target
+}
+// Splits [rangeStart, rangeEnd] into calendar-month buckets, clipped to the
+// range at both ends (so a custom range's partial first/last month only
+// counts the days actually inside it).
+function monthBuckets(rangeStart: Date, rangeEnd: Date) {
+  const buckets: { label: string; start: Date; end: Date }[] = []
+  let cursor = new Date(rangeStart.getFullYear(), rangeStart.getMonth(), 1)
+  let guard = 0
+  while (cursor <= rangeEnd && guard < 60) {
+    guard++
+    const monthEndFull = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0)
+    const start = cursor > rangeStart ? cursor : rangeStart
+    const end = monthEndFull < rangeEnd ? monthEndFull : rangeEnd
+    buckets.push({ label: cursor.toLocaleString('default', { month: 'short', year: '2-digit' }), start, end })
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1)
+  }
+  return buckets
+}
 
 export default async function MaintenanceDashboardPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
-  const { period: rawPeriod, from: rawFrom, to: rawTo } = await searchParams
+  const { period: rawPeriod, from: rawFrom, to: rawTo, chartRange: rawChartRange, chartFrom: rawChartFrom, chartTo: rawChartTo } = await searchParams
   const period = (['this_month', 'custom'].includes(rawPeriod || '') ? rawPeriod : 'this_week') as 'this_week' | 'this_month' | 'custom'
+  const chartRange = (['6m', 'custom'].includes(rawChartRange || '') ? rawChartRange : '12m') as '12m' | '6m' | 'custom'
 
   const supabase = await createClient()
   const today = new Date()
   const todayStr = toStr(today)
+
+  // Range of months the KPI trend charts cover.
+  let chartRangeStart: Date
+  let chartRangeEnd = today
+  if (chartRange === '6m') {
+    chartRangeStart = new Date(today.getFullYear(), today.getMonth() - 5, 1)
+  } else if (chartRange === 'custom') {
+    chartRangeStart = rawChartFrom ? new Date(rawChartFrom + 'T00:00:00') : new Date(today.getFullYear(), today.getMonth() - 11, 1)
+    chartRangeEnd = rawChartTo ? new Date(rawChartTo + 'T00:00:00') : today
+  } else {
+    chartRangeStart = new Date(today.getFullYear(), today.getMonth() - 11, 1)
+  }
+  const chartBuckets = monthBuckets(chartRangeStart, chartRangeEnd)
+  const chartYears = [...new Set(chartBuckets.flatMap(b => [b.start.getFullYear(), b.end.getFullYear()]))]
+
+  function hrefWithChart(overrides: { chartRange?: string; chartFrom?: string; chartTo?: string }) {
+    const merged = { period, from: rawFrom, to: rawTo, chartRange, chartFrom: rawChartFrom, chartTo: rawChartTo, ...overrides }
+    const params = new URLSearchParams()
+    if (merged.period && merged.period !== 'this_week') params.set('period', merged.period)
+    if (merged.period === 'custom') {
+      if (merged.from) params.set('from', merged.from)
+      if (merged.to) params.set('to', merged.to)
+    }
+    if (merged.chartRange && merged.chartRange !== '12m') params.set('chartRange', merged.chartRange)
+    if (merged.chartRange === 'custom') {
+      if (merged.chartFrom) params.set('chartFrom', merged.chartFrom)
+      if (merged.chartTo) params.set('chartTo', merged.chartTo)
+    }
+    const qs = params.toString()
+    return qs ? `/maintenance?${qs}` : '/maintenance'
+  }
 
   const firstOfWeek = new Date(today)
   firstOfWeek.setDate(today.getDate() - ((today.getDay() + 6) % 7)) // Monday
@@ -129,6 +229,7 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
   const [
     { data: equipment }, { data: workRequests }, { data: prevWorkRequests }, { data: pmRows }, { data: spareParts },
     { data: critical }, { data: settingsRow }, { count: pendingCount }, { data: { user } }, { data: weekSubs }, { count: awaitingApprovalCount },
+    { data: chartWorkRequests }, { data: chartPmRows },
   ] = await Promise.all([
     supabase.from('maintenance_equipment').select('id, name, category, target_repair_hours, pm_checklist_template_id').eq('is_active', true),
     supabase.from('maintenance_work_requests').select('id, equipment_id, assigned_at, accepted_at, completed_at, status, created_at').not('equipment_id', 'is', null).in('status', ['completed', 'approved']).gte('created_at', periodStart).lte('created_at', periodEnd + 'T23:59:59'),
@@ -141,6 +242,8 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
     supabase.auth.getUser(),
     supabase.from('maintenance_checklist_submissions').select('equipment_id').gte('submission_date', toStr(weekMonday)).lte('submission_date', toStr(weekSunday)),
     supabase.from('maintenance_work_requests').select('id', { count: 'exact', head: true }).eq('status', 'completed'),
+    supabase.from('maintenance_work_requests').select('id, equipment_id, assigned_at, accepted_at, completed_at, status, created_at').not('equipment_id', 'is', null).in('status', ['completed', 'approved']).gte('created_at', toStr(chartRangeStart)).lte('created_at', toStr(chartRangeEnd) + 'T23:59:59'),
+    supabase.from('maintenance_pm_schedule').select('equipment_id, year, week_number, planned, completed_at').in('year', chartYears),
   ])
 
   let myName = ''
@@ -225,6 +328,54 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
     { label: 'Avg Repair Time', value: `${avgRepairTime.toFixed(1)} h`, sub: 'Per breakdown', warn: false, trend: { current: avgRepairTime, previous: prevAvgRepairTime, higherIsBetter: false, format: hFmt } },
     { label: 'Schedule (Plan vs Actual)', value: `${schedulePct.toFixed(1)}%`, sub: `Week ${weekNumber}, ${year}`, warn: schedulePct < 70, trend: null },
     { label: 'Asset Availability', value: `${availabilityPct.toFixed(1)}%`, sub: 'MTBF / (MTBF + MTTR), fleet-wide', warn: availabilityPct < 90, trend: { current: availabilityPct, previous: prevAvailabilityPct, higherIsBetter: true, format: pctFmt } },
+  ]
+
+  // Per-month KPI history for the trend bar charts below — same formulas as
+  // the cards above, recomputed per bucket. equipmentCount is held constant
+  // across history (today's active-equipment count) rather than
+  // reconstructing historical fleet size, which the schema doesn't track.
+  const chartSeries = chartBuckets.map(b => {
+    const bucketDays = Math.max(1, Math.round((b.end.getTime() - b.start.getTime()) / 86400000) + 1)
+    const bucketPossibleHours = equipmentCount * bucketDays * 24
+    const bucketStartStr = toStr(b.start)
+    const bucketEndStr = toStr(b.end)
+    const bucketBreakdowns = (chartWorkRequests || [])
+      .filter(r => r.created_at >= bucketStartStr && r.created_at <= bucketEndStr + 'T23:59:59')
+      .map(r => ({ ...r, repair_time_hours: workRequestRepairHours(r) }))
+      .filter((r): r is typeof r & { repair_time_hours: number } => r.repair_time_hours !== null)
+    const bDowntime = bucketBreakdowns.reduce((s, r) => s + r.repair_time_hours, 0)
+    const bUptimePct = bucketPossibleHours > 0 ? ((bucketPossibleHours - bDowntime) / bucketPossibleHours) * 100 : 100
+    const bNoOfBreakdown = bucketBreakdowns.length
+    const bWithinTarget = bucketBreakdowns.filter(r => r.repair_time_hours <= (targetById.get(r.equipment_id) ?? defaultTarget)).length
+    const bBrePct = bNoOfBreakdown > 0 ? (bWithinTarget / bNoOfBreakdown) * 100 : 100
+    const bAvgRepairTime = bNoOfBreakdown > 0 ? bDowntime / bNoOfBreakdown : 0
+    const bUptimeHours = Math.max(0, bucketPossibleHours - bDowntime)
+    const bMtbf = bNoOfBreakdown > 0 ? bUptimeHours / bNoOfBreakdown : bUptimeHours
+    const bMttr = bNoOfBreakdown > 0 ? bDowntime / bNoOfBreakdown : 0
+    const bAvailabilityPct = (bMtbf + bMttr) > 0 ? (bMtbf / (bMtbf + bMttr)) * 100 : 100
+
+    // Schedule % for this bucket: weeks whose Monday falls inside it.
+    const bucketPmRows = (chartPmRows || []).filter(r => {
+      const monday = mondayOfIsoWeek(r.year, r.week_number)
+      return monday >= b.start && monday <= b.end
+    })
+    const bPlanned = bucketPmRows.filter(r => r.planned).length
+    const bCompleted = bucketPmRows.filter(r => r.planned && r.completed_at).length
+    const bSchedulePct = bPlanned > 0 ? (bCompleted / bPlanned) * 100 : 100
+
+    return {
+      label: b.label,
+      uptimePct: bUptimePct, noOfBreakdown: bNoOfBreakdown, brePct: bBrePct,
+      avgRepairTime: bAvgRepairTime, schedulePct: bSchedulePct, availabilityPct: bAvailabilityPct,
+    }
+  })
+  const chartMetrics: { key: keyof typeof chartSeries[number]; label: string; format: (n: number) => string }[] = [
+    { key: 'uptimePct', label: 'Machine Uptime', format: pctFmt },
+    { key: 'noOfBreakdown', label: 'No. of Breakdown', format: (n: number) => String(Math.round(n)) },
+    { key: 'brePct', label: 'BRE %', format: pctFmt },
+    { key: 'avgRepairTime', label: 'Avg Repair Time', format: hFmt },
+    { key: 'schedulePct', label: 'Schedule %', format: pctFmt },
+    { key: 'availabilityPct', label: 'Asset Availability', format: pctFmt },
   ]
 
   return (
@@ -321,6 +472,38 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
           <p className="text-xl sm:text-2xl font-bold mt-1 text-slate-800 truncate">{partsRequested} <span className="text-gray-300">/</span> <span className="text-green-600">{partsReceived}</span></p>
           <p className="text-xs text-gray-400 mt-1 truncate">Requested / Received, this period</p>
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <h2 className="text-xl font-bold">KPI History</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+            {[{ key: '12m', label: 'Past 12 Months' }, { key: '6m', label: 'Past 6 Months' }].map(opt => (
+              <a key={opt.key} href={hrefWithChart({ chartRange: opt.key })}
+                className={`px-3 py-1.5 rounded-md text-sm font-semibold transition ${chartRange === opt.key ? 'bg-white shadow-sm text-slate-900' : 'text-gray-500 hover:text-gray-700'}`}>
+                {opt.label}
+              </a>
+            ))}
+          </div>
+          <form method="GET" className="flex items-center gap-1.5 bg-gray-100 rounded-lg p-1">
+            <input type="hidden" name="period" value={period} />
+            {period === 'custom' && <input type="hidden" name="from" value={rawFrom || ''} />}
+            {period === 'custom' && <input type="hidden" name="to" value={rawTo || ''} />}
+            <input type="hidden" name="chartRange" value="custom" />
+            <input type="date" name="chartFrom" defaultValue={chartRange === 'custom' ? toStr(chartRangeStart) : ''} className="border rounded-md px-2 py-1 text-sm bg-white" />
+            <span className="text-gray-400 text-sm">→</span>
+            <input type="date" name="chartTo" defaultValue={chartRange === 'custom' ? toStr(chartRangeEnd) : ''} className="border rounded-md px-2 py-1 text-sm bg-white" />
+            <button type="submit" className={`px-3 py-1 rounded-md text-sm font-semibold transition ${chartRange === 'custom' ? 'bg-white shadow-sm text-slate-900' : 'text-gray-500 hover:text-gray-700'}`}>Go</button>
+          </form>
+        </div>
+      </div>
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 mb-10">
+        {chartMetrics.map(m => (
+          <div key={m.key} title={KPI_TOOLTIPS[m.label] || ''} className="border rounded-xl p-4 bg-white shadow-sm cursor-help">
+            <h3 className="font-semibold text-xs text-gray-500 uppercase truncate mb-2">{m.label}</h3>
+            <TrendBarChart data={chartSeries.map(s => ({ label: s.label, value: s[m.key] as number }))} format={m.format} />
+          </div>
+        ))}
       </div>
     </div>
   )
