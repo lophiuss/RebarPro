@@ -66,9 +66,16 @@ export default function JobHistoryPage() {
     // "Done" = the work is actually finished — completed (awaiting approval)
     // or approved (fully signed off). Excludes pending/assigned/accepted,
     // which still belong in Work Requests, not history.
+    // Plain (left) join, not !inner — an inner join would silently drop
+    // every row with no linked equipment (equipment_id null — common for
+    // the imported multi-machine sweep entries), even when no category
+    // filter is active. PostgREST still supports filtering by the embedded
+    // resource's column (.eq('maintenance_equipment.category', …) below)
+    // on a left join; it just doesn't need to exclude rows outright unless
+    // that filter is actually in play.
     let query = supabase
       .from('maintenance_work_requests')
-      .select('id, requester_name, location, issue_description, status, assigned_to, assigned_at, accepted_at, completed_at, approved_at, approved_by, resolution_photo_drive_id, maintenance_equipment!inner(name, category)', { count: 'exact' })
+      .select('id, requester_name, location, issue_description, status, assigned_to, assigned_at, accepted_at, completed_at, approved_at, approved_by, resolution_photo_drive_id, maintenance_equipment(name, category)', { count: 'exact' })
       .in('status', ['completed', 'approved'])
     if (technicianFilter) query = query.ilike('assigned_to', `%${technicianFilter}%`)
     if (categoryFilter) query = query.eq('maintenance_equipment.category', categoryFilter)
