@@ -112,7 +112,9 @@ export default function SchedulePage() {
   const [pendingSubmissions, setPendingSubmissions] = useState<Submission[]>([])
   const [approvingId, setApprovingId] = useState<number | null>(null)
 
-  const [equipFilter, setEquipFilter] = useState({ q: '', category: '', location: '', condition: '' })
+  const [equipFilter, setEquipFilter] = useState({ q: '', location: '', condition: '' })
+  const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set())
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false)
 
   const [showNewRecurrence, setShowNewRecurrence] = useState(false)
   const [newRec, setNewRec] = useState({ equipmentId: '', frequencyWeeks: '4', startDate: today.toISOString().split('T')[0], assignedTo: '', notes: '' })
@@ -332,7 +334,7 @@ export default function SchedulePage() {
   const categories = [...new Set(equipment.map(e => e.category).filter(Boolean))].sort() as string[]
   const locations = [...new Set(equipment.map(e => e.location).filter(Boolean))].sort() as string[]
   const filteredEquipment = equipment.filter(e => {
-    if (equipFilter.category && e.category !== equipFilter.category) return false
+    if (selectedCategories.size > 0 && !selectedCategories.has(e.category || '')) return false
     if (equipFilter.location && e.location !== equipFilter.location) return false
     if (equipFilter.condition && e.condition !== equipFilter.condition) return false
     if (equipFilter.q) {
@@ -364,6 +366,50 @@ export default function SchedulePage() {
   const myPendingThisWeek = viewYear === realYear
     ? pmRows.filter(r => r.week_number === realWeek && r.planned && !r.completed_at && r.assigned_to === myName)
     : []
+
+  function cellLabel(equipmentId: number, wk: number) {
+    const row = pmRows.find(r => r.equipment_id === equipmentId && r.week_number === wk)
+    if (!row?.planned) return ''
+    return row.completed_at ? 'Done' : 'Planned'
+  }
+
+  function exportCsv() {
+    const header = ['Code', 'Equipment', 'Category', 'Location', ...weeks.map(wk => fmtShort(mondayOfIsoWeek(viewYear, wk)))]
+    const lines = [header.map(h => `"${h}"`).join(',')]
+    for (const eq of filteredEquipment) {
+      const row = [eq.equip_code || '', eq.name, eq.category || '', eq.location || '', ...weeks.map(wk => cellLabel(eq.id, wk))]
+      lines.push(row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+    }
+    const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', `PM_Schedule_${viewYear}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  // No PDF library — opens the current table in a new tab with print-
+  // friendly styling and triggers the browser's print dialog, where "Save
+  // as PDF" is a built-in destination on every major browser.
+  function exportPdf() {
+    const el = document.getElementById('pm-schedule-print-area')
+    if (!el) return
+    const w = window.open('', '_blank', 'width=1100,height=800')
+    if (!w) { alert('Please allow pop-ups for this site to export a PDF.'); return }
+    w.document.write(`<!doctype html><html><head><title>PM Schedule - ${viewYear}</title><style>
+      body{font-family:Arial,sans-serif;padding:16px;color:#111;}
+      h1{font-size:16px;margin:0 0 12px;}
+      table{border-collapse:collapse;width:100%;font-size:9px;}
+      th,td{border:1px solid #ddd;padding:2px 4px;text-align:left;white-space:nowrap;}
+      th{background:#f3f4f6;}
+    </style></head><body><h1>PM Schedule — ${viewYear}</h1>${el.innerHTML}</body></html>`)
+    w.document.close()
+    w.focus()
+    setTimeout(() => w.print(), 400)
+  }
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto">
@@ -455,12 +501,30 @@ export default function SchedulePage() {
           <label className="block text-xs font-medium text-gray-500 mb-1">Search (code or name)</label>
           <input value={equipFilter.q} onChange={e => setEquipFilter({ ...equipFilter, q: e.target.value })} placeholder="e.g. E00092 or Crane" className="w-full border rounded-md px-3 py-2 text-sm" />
         </div>
-        <div>
+        <div className="relative">
           <label className="block text-xs font-medium text-gray-500 mb-1">Category</label>
-          <select value={equipFilter.category} onChange={e => setEquipFilter({ ...equipFilter, category: e.target.value })} className="border rounded-md px-3 py-2 text-sm bg-white w-36">
-            <option value="">All</option>
-            {categories.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
+          <button type="button" onClick={() => setShowCategoryPicker(v => !v)} className="border rounded-md px-3 py-2 text-sm bg-white w-36 text-left truncate">
+            {selectedCategories.size === 0 ? 'All' : `${selectedCategories.size} selected`}
+          </button>
+          {showCategoryPicker && (
+            <div className="absolute z-20 mt-1 bg-white border rounded-lg shadow-lg p-2 w-56 max-h-64 overflow-y-auto">
+              {categories.map(c => (
+                <label key={c} className="flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-gray-50 rounded cursor-pointer">
+                  <input type="checkbox" checked={selectedCategories.has(c)} onChange={e => {
+                    const next = new Set(selectedCategories)
+                    if (e.target.checked) next.add(c); else next.delete(c)
+                    setSelectedCategories(next)
+                  }} className="w-4 h-4 accent-orange-600" />
+                  {c}
+                </label>
+              ))}
+              {categories.length === 0 && <p className="text-xs text-gray-400 px-2 py-1">No categories yet.</p>}
+              <div className="border-t mt-1 pt-1 flex justify-between px-2">
+                <button onClick={() => setSelectedCategories(new Set())} className="text-xs text-gray-500 hover:text-gray-700">Clear</button>
+                <button onClick={() => setShowCategoryPicker(false)} className="text-xs text-orange-600 font-medium hover:text-orange-700">Done</button>
+              </div>
+            </div>
+          )}
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">Location</label>
@@ -476,13 +540,15 @@ export default function SchedulePage() {
             <option value="good">Good</option><option value="fair">Fair</option><option value="poor">Poor</option><option value="spoil">Spoil</option>
           </select>
         </div>
-        {(equipFilter.q || equipFilter.category || equipFilter.location || equipFilter.condition) && (
-          <button onClick={() => setEquipFilter({ q: '', category: '', location: '', condition: '' })} className="text-sm text-gray-500 hover:text-gray-700 px-2 py-2">Clear</button>
+        {(equipFilter.q || selectedCategories.size > 0 || equipFilter.location || equipFilter.condition) && (
+          <button onClick={() => { setEquipFilter({ q: '', location: '', condition: '' }); setSelectedCategories(new Set()) }} className="text-sm text-gray-500 hover:text-gray-700 px-2 py-2">Clear</button>
         )}
-        <span className="text-xs text-gray-400 ml-auto">{filteredEquipment.length} of {equipment.length}</span>
+        <span className="text-xs text-gray-400 ml-auto mr-2">{filteredEquipment.length} of {equipment.length}</span>
+        <button onClick={exportCsv} className="text-sm bg-gray-100 text-gray-700 font-medium px-3 py-2 rounded-lg hover:bg-gray-200">Export to Excel</button>
+        <button onClick={exportPdf} className="text-sm bg-gray-100 text-gray-700 font-medium px-3 py-2 rounded-lg hover:bg-gray-200">Export to PDF</button>
       </div>
 
-      <div className="bg-white border rounded-xl shadow-sm overflow-x-auto mb-10 max-h-[70vh] overflow-y-auto">
+      <div id="pm-schedule-print-area" className="bg-white border rounded-xl shadow-sm overflow-x-auto mb-10 max-h-[70vh] overflow-y-auto print:max-h-none print:overflow-visible">
         <table className="min-w-max text-xs">
           <thead>
             {/* sticky top-0 on every header cell so the week/equipment header

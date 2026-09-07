@@ -19,7 +19,10 @@ export default function MaintenanceSettingsPage() {
   const [items, setItems] = useState<Item[]>([])
   const [expandedTemplate, setExpandedTemplate] = useState<number | null>(null)
 
-  const [newEquip, setNewEquip] = useState({ name: '', equip_code: '', category: '', location: '' })
+  const [newEquip, setNewEquip] = useState({
+    name: '', category: '', location: '', brand: '', condition: '', manager: '', supervisor: '',
+    pic_day: '', pic_night: '', target_repair_hours: '',
+  })
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editData, setEditData] = useState<any>({})
   const [equipFilter, setEquipFilter] = useState({ q: '', category: '', location: '', condition: '' })
@@ -73,10 +76,14 @@ export default function MaintenanceSettingsPage() {
     e.preventDefault()
     if (!newEquip.name.trim()) return
     const { error } = await supabase.from('maintenance_equipment').insert([{
-      ...newEquip, name: newEquip.name.trim(), equip_code: nextEquipCode(),
+      name: newEquip.name.trim(), equip_code: nextEquipCode(),
+      category: newEquip.category || null, location: newEquip.location || null, brand: newEquip.brand || null,
+      condition: newEquip.condition || null, manager: newEquip.manager || null, supervisor: newEquip.supervisor || null,
+      pic_day: newEquip.pic_day || null, pic_night: newEquip.pic_night || null,
+      target_repair_hours: newEquip.target_repair_hours ? Number(newEquip.target_repair_hours) : null,
     }])
     if (error) { alert('Error: ' + error.message); return }
-    setNewEquip({ name: '', equip_code: '', category: '', location: '' })
+    setNewEquip({ name: '', category: '', location: '', brand: '', condition: '', manager: '', supervisor: '', pic_day: '', pic_night: '', target_repair_hours: '' })
     load()
   }
 
@@ -225,7 +232,19 @@ export default function MaintenanceSettingsPage() {
           <div><label className="block text-xs font-medium text-gray-500 mb-1">Name</label><input required value={newEquip.name} onChange={e => setNewEquip({ ...newEquip, name: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-44" /></div>
           <div className="text-xs text-gray-400 self-center pb-2.5">Code: auto-generated ({nextEquipCode()})</div>
           <div><label className="block text-xs font-medium text-gray-500 mb-1">Category</label><input value={newEquip.category} onChange={e => setNewEquip({ ...newEquip, category: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-36" /></div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">Brand</label><input value={newEquip.brand} onChange={e => setNewEquip({ ...newEquip, brand: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-32" /></div>
           <div><label className="block text-xs font-medium text-gray-500 mb-1">Location</label><input value={newEquip.location} onChange={e => setNewEquip({ ...newEquip, location: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-36" /></div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Condition</label>
+            <select value={newEquip.condition} onChange={e => setNewEquip({ ...newEquip, condition: e.target.value })} className="border rounded-md px-3 py-2 text-sm bg-white">
+              <option value="">-</option><option value="good">Good</option><option value="fair">Fair</option><option value="poor">Poor</option><option value="spoil">Spoil</option>
+            </select>
+          </div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">Ownership Manager</label><input value={newEquip.manager} onChange={e => setNewEquip({ ...newEquip, manager: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-32" /></div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">Ownership Supervisor</label><input value={newEquip.supervisor} onChange={e => setNewEquip({ ...newEquip, supervisor: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-32" /></div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">PIC Day</label><input value={newEquip.pic_day} onChange={e => setNewEquip({ ...newEquip, pic_day: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-28" /></div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">PIC Night</label><input value={newEquip.pic_night} onChange={e => setNewEquip({ ...newEquip, pic_night: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-28" /></div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">Target Repair (h)</label><input type="number" step="0.1" value={newEquip.target_repair_hours} onChange={e => setNewEquip({ ...newEquip, target_repair_hours: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-24" /></div>
           <button type="submit" className="flex items-center gap-1.5 bg-orange-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-orange-700"><Plus className="w-4 h-4" /> Add</button>
         </form>
         <div className="bg-white border rounded-xl shadow-sm p-4 mb-4 flex flex-wrap items-end gap-3">

@@ -3,17 +3,17 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { uploadMaintenanceFile } from '../actions'
-import { ClipboardEdit, CheckCircle } from 'lucide-react'
+import { ClipboardEdit, CheckCircle, Pencil, X, Check } from 'lucide-react'
 import PhotoPicker from '@/components/PhotoPicker'
 import PhotoLightbox from '@/components/PhotoLightbox'
 
-type Equipment = { id: number; name: string }
+type Equipment = { id: number; name: string; category: string | null }
 type JobReport = {
   id: number; equipment_id: number | null; category: string | null; report_date: string
   reported_by: string | null; issue_description: string | null; downtime_hours: number | null
   repair_time_hours: number | null; status: string; photo_drive_id: string | null; notes: string | null
   reported_at: string; resolved_at: string | null
-  maintenance_equipment: { name: string } | null
+  maintenance_equipment: { name: string; category: string | null } | null
 }
 
 function hoursBetween(a: string, b: string) {
@@ -60,17 +60,28 @@ export default function JobsPage() {
   })
   const [resolvingId, setResolvingId] = useState<number | null>(null)
   const [photoFile, setPhotoFile] = useState<File | null>(null)
+  const [categoryFilter, setCategoryFilter] = useState('')
+  const [canManage, setCanManage] = useState(false)
+  const [editing, setEditing] = useState<JobReport | null>(null)
+  const [editForm, setEditForm] = useState({ equipmentId: '', category: '', issueDescription: '', notes: '' })
+  const [savingEdit, setSavingEdit] = useState(false)
 
   useEffect(() => { load() }, [])
 
   async function load() {
     setLoading(true)
-    const [{ data: eq }, { data: rep }] = await Promise.all([
-      supabase.from('maintenance_equipment').select('id, name').eq('is_active', true).order('name'),
-      supabase.from('maintenance_job_reports').select('*, maintenance_equipment(name)').order('reported_at', { ascending: false }).limit(100),
+    const { data: { user } } = await supabase.auth.getUser()
+    const [{ data: eq }, { data: rep }, { data: myAccess }] = await Promise.all([
+      // Spoiled equipment is retired — same default-hide as the Equipment
+      // list, so the picker (and the category filter's options) don't fill
+      // up with machines nobody should be logging new issues against.
+      supabase.from('maintenance_equipment').select('id, name, category').eq('is_active', true).or('condition.neq.spoil,condition.is.null').order('name'),
+      supabase.from('maintenance_job_reports').select('*, maintenance_equipment(name, category)').order('reported_at', { ascending: false }).limit(100),
+      user ? supabase.from('user_department_access').select('role').eq('user_id', user.id).eq('department', 'maintenance').maybeSingle() : Promise.resolve({ data: null }),
     ])
     setEquipment(eq || [])
     setReports((rep as any) || [])
+    setCanManage(myAccess?.role === 'admin' || myAccess?.role === 'manager')
     if (eq && eq.length > 0 && !form.equipmentId) setForm(f => ({ ...f, equipmentId: String(eq[0].id) }))
     setLoading(false)
   }
@@ -140,6 +151,39 @@ export default function JobsPage() {
     }
   }
 
+  // Manager can fix a technician's report before it's picked up — some
+  // people can't describe the issue or pick the right machine correctly.
+  function openEdit(r: JobReport) {
+    if (!canManage) return
+    setEditing(r)
+    setEditForm({ equipmentId: r.equipment_id ? String(r.equipment_id) : '', category: r.category || '', issueDescription: r.issue_description || '', notes: r.notes || '' })
+  }
+
+  async function saveEdit() {
+    if (!editing) return
+    setSavingEdit(true)
+    try {
+      const { error } = await supabase.from('maintenance_job_reports').update({
+        equipment_id: editForm.equipmentId ? Number(editForm.equipmentId) : null,
+        category: editForm.category || null,
+        issue_description: editForm.issueDescription.trim(),
+        notes: editForm.notes || null,
+      }).eq('id', editing.id)
+      if (error) throw error
+      setEditing(null)
+      await load()
+    } catch (err: any) {
+      alert('Error: ' + err.message)
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
+  const categories = [...new Set(equipment.map(e => e.category).filter(Boolean))].sort() as string[]
+  const filteredReports = categoryFilter
+    ? reports.filter(r => (r.maintenance_equipment?.category || r.category) === categoryFilter)
+    : reports
+
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto">
       <h1 className="text-3xl font-bold mb-6 flex items-center gap-2"><ClipboardEdit className="w-7 h-7 text-orange-600" /> Job Reports</h1>
@@ -184,7 +228,13 @@ export default function JobsPage() {
         </form>
 
         <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b bg-gray-50"><h2 className="text-sm font-bold text-slate-700">History ({reports.length})</h2></div>
+          <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between gap-3 flex-wrap">
+            <h2 className="text-sm font-bold text-slate-700">History ({filteredReports.length}{categoryFilter ? ` of ${reports.length}` : ''})</h2>
+            <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="border rounded-md px-2 py-1.5 text-xs bg-white">
+              <option value="">All categories</option>
+              {categories.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
           <div className="overflow-auto max-h-[640px]">
             <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-gray-50 sticky top-0">
@@ -198,7 +248,7 @@ export default function JobsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {reports.map(r => (
+                {filteredReports.map(r => (
                   <tr key={r.id} className="hover:bg-gray-50">
                     <td className="px-3 py-2 whitespace-nowrap">{r.report_date}</td>
                     <td className="px-3 py-2 whitespace-nowrap">{r.maintenance_equipment?.name || r.category || '-'}</td>
@@ -215,22 +265,63 @@ export default function JobsPage() {
                       ) : '-'}
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">
-                      {r.status !== 'completed' && (
-                        <button onClick={() => markResolved(r)} disabled={resolvingId === r.id} className="text-xs bg-green-600 disabled:opacity-50 text-white px-2.5 py-1 rounded-lg hover:bg-green-700">
-                          {resolvingId === r.id ? 'Saving...' : 'Mark Resolved'}
-                        </button>
-                      )}
+                      <div className="flex items-center gap-1.5">
+                        {canManage && r.status !== 'completed' && (
+                          <button onClick={() => openEdit(r)} className="text-gray-400 hover:text-blue-600 p-1" title="Edit"><Pencil className="w-3.5 h-3.5" /></button>
+                        )}
+                        {r.status !== 'completed' && (
+                          <button onClick={() => markResolved(r)} disabled={resolvingId === r.id} className="text-xs bg-green-600 disabled:opacity-50 text-white px-2.5 py-1 rounded-lg hover:bg-green-700">
+                            {resolvingId === r.id ? 'Saving...' : 'Mark Resolved'}
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
-                {!loading && reports.length === 0 && (
-                  <tr><td colSpan={6} className="px-3 py-8 text-center text-gray-400">No job reports yet.</td></tr>
+                {!loading && filteredReports.length === 0 && (
+                  <tr><td colSpan={6} className="px-3 py-8 text-center text-gray-400">{reports.length === 0 ? 'No job reports yet.' : 'No job reports in this category.'}</td></tr>
                 )}
               </tbody>
             </table>
           </div>
         </div>
       </div>
+
+      {editing && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold">Edit Job Report</h2>
+              <button onClick={() => setEditing(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Equipment</label>
+                <select value={editForm.equipmentId} onChange={e => setEditForm({ ...editForm, equipmentId: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm bg-white">
+                  <option value="">(Not equipment-specific)</option>
+                  {equipment.map(eq => <option key={eq.id} value={eq.id}>{eq.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Category</label>
+                <input value={editForm.category} onChange={e => setEditForm({ ...editForm, category: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Issue Description</label>
+                <textarea value={editForm.issueDescription} onChange={e => setEditForm({ ...editForm, issueDescription: e.target.value })} rows={3} className="w-full border rounded-md px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Notes</label>
+                <textarea value={editForm.notes} onChange={e => setEditForm({ ...editForm, notes: e.target.value })} rows={2} className="w-full border rounded-md px-3 py-2 text-sm" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-5">
+              <button onClick={() => setEditing(null)} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-200">Cancel</button>
+              <button onClick={saveEdit} disabled={savingEdit} className="flex items-center gap-1.5 bg-orange-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-orange-700"><Check className="w-4 h-4" /> {savingEdit ? 'Saving...' : 'Save'}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <PhotoLightbox src={zoomSrc} onClose={() => setZoomSrc(null)} />
     </div>
