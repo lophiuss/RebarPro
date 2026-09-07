@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { History, ChevronLeft, ChevronRight } from 'lucide-react'
+import { History, ChevronLeft, ChevronRight, Image as ImageIcon } from 'lucide-react'
 import PhotoLightbox from '@/components/PhotoLightbox'
 
 type DoneRequest = {
@@ -36,6 +36,7 @@ export default function JobHistoryPage() {
   const [pageInput, setPageInput] = useState('1')
   const [loading, setLoading] = useState(true)
   const [zoomSrc, setZoomSrc] = useState<string | null>(null)
+  const [bigThumbs, setBigThumbs] = useState(false)
 
   // Lightweight, department-wide data (not just the current page) for the
   // technician/category picklists and the per-technician summary cards —
@@ -163,6 +164,9 @@ export default function JobHistoryPage() {
         {hasFilters && (
           <button onClick={() => { setTechnicianFilter(''); setCategoryFilter(''); setStatusFilter(''); setFromDate(''); setToDate('') }} className="text-sm text-gray-500 hover:text-gray-700 px-2 py-2">Clear</button>
         )}
+        <button onClick={() => setBigThumbs(v => !v)} className={`flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border ${bigThumbs ? 'bg-orange-50 border-orange-300 text-orange-700' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+          <ImageIcon className="w-4 h-4" /> {bigThumbs ? 'Large thumbnails' : 'Small thumbnails'}
+        </button>
         <span className="text-xs text-gray-400 ml-auto">{totalCount === 0 ? 0 : page * PAGE_SIZE + 1}-{Math.min(totalCount, page * PAGE_SIZE + requests.length)} of {totalCount}</span>
       </div>
 
@@ -193,7 +197,7 @@ export default function JobHistoryPage() {
                 </td>
                 <td className="px-4 py-3">
                   {r.resolution_photo_drive_id ? (
-                    <img src={`/api/maintenance/file/${r.resolution_photo_drive_id}`} className="w-10 h-10 rounded object-cover cursor-zoom-in" onClick={() => setZoomSrc(`/api/maintenance/file/${r.resolution_photo_drive_id}`)} />
+                    <img src={`/api/maintenance/file/${r.resolution_photo_drive_id}`} className={`rounded object-cover cursor-zoom-in ${bigThumbs ? 'w-24 h-24' : 'w-10 h-10'}`} onClick={() => setZoomSrc(`/api/maintenance/file/${r.resolution_photo_drive_id}`)} />
                   ) : '-'}
                 </td>
               </tr>

@@ -3,8 +3,17 @@ export const revalidate = 0
 
 import { createClient } from '@/lib/supabase/server'
 import ShoutoutBoard from '@/components/ShoutoutBoard'
-import PublicJobRequestLink from './PublicJobRequestLink'
 import { Wrench, AlertTriangle, Bell } from 'lucide-react'
+
+// KPI formula explanations, shown as a hover tooltip on each card.
+const KPI_TOOLTIPS: Record<string, string> = {
+  'Machine Uptime': 'Uptime % = (Total possible hours − Downtime hours) / Total possible hours × 100. Total possible hours = active equipment count × hours in the selected period.',
+  'No. of Breakdown': 'Count of equipment-linked Work Requests that reached Completed/Approved status within the selected period.',
+  'BRE % (Breakdown Response)': 'BRE % = (No. of breakdowns resolved within target repair time / Total no. of breakdowns) × 100. Target time defaults to the equipment’s configured target (or the department default) in Settings.',
+  'Avg Repair Time': 'Average of (completion time − pickup time) across all breakdowns in the period. Pickup time = accepted time, or assigned/filed time if never explicitly accepted.',
+  'Schedule (Plan vs Actual)': 'Schedule % = (No. of planned PM tasks completed this week / No. of planned PM tasks this week) × 100.',
+  'Asset Availability': 'Availability % = MTBF / (MTBF + MTTR) × 100. MTBF (mean time between failures) = uptime hours / no. of breakdowns. MTTR (mean time to repair) = total repair hours / no. of breakdowns.',
+}
 
 // Small current-vs-previous-period bar pair, rendered as static SVG (no
 // charting library — this is the only chart in the app, and a full library
@@ -267,28 +276,10 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
         </a>
       )}
 
-      <PublicJobRequestLink />
-
       <ShoutoutBoard department="maintenance" />
 
-      <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 mb-10">
-        {cards.map(c => (
-          <div key={c.label} className={`border rounded-xl p-4 shadow-sm overflow-hidden ${c.warn ? 'bg-red-50/70 border-red-200' : 'bg-white'}`}>
-            <h3 className={`font-semibold text-xs uppercase truncate ${c.warn ? 'text-red-700' : 'text-gray-500'}`}>{c.label}</h3>
-            <p className={`text-xl sm:text-2xl font-bold mt-1 truncate ${c.warn ? 'text-red-800' : 'text-slate-800'}`}>{c.value}</p>
-            <p className={`text-xs mt-1 truncate ${c.warn ? 'text-red-600' : 'text-gray-400'}`}>{c.sub}</p>
-            {c.trend && <MiniTrend current={c.trend.current} previous={c.trend.previous} higherIsBetter={c.trend.higherIsBetter} format={c.trend.format} />}
-          </div>
-        ))}
-        <div className="border rounded-xl p-4 bg-white shadow-sm overflow-hidden col-span-2">
-          <h3 className="font-semibold text-xs text-gray-500 uppercase truncate">Spare Part Requested vs Received</h3>
-          <p className="text-xl sm:text-2xl font-bold mt-1 text-slate-800 truncate">{partsRequested} <span className="text-gray-300">/</span> <span className="text-green-600">{partsReceived}</span></p>
-          <p className="text-xs text-gray-400 mt-1 truncate">Requested / Received, this period</p>
-        </div>
-      </div>
-
       <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" /> Critical Issues</h2>
-      <div className="bg-white border rounded-xl shadow-sm overflow-x-auto">
+      <div className="bg-white border rounded-xl shadow-sm overflow-x-auto mb-10">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
@@ -314,6 +305,22 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 mb-10">
+        {cards.map(c => (
+          <div key={c.label} title={KPI_TOOLTIPS[c.label] || ''} className={`border rounded-xl p-4 shadow-sm overflow-hidden cursor-help ${c.warn ? 'bg-red-50/70 border-red-200' : 'bg-white'}`}>
+            <h3 className={`font-semibold text-xs uppercase truncate ${c.warn ? 'text-red-700' : 'text-gray-500'}`}>{c.label}</h3>
+            <p className={`text-xl sm:text-2xl font-bold mt-1 truncate ${c.warn ? 'text-red-800' : 'text-slate-800'}`}>{c.value}</p>
+            <p className={`text-xs mt-1 truncate ${c.warn ? 'text-red-600' : 'text-gray-400'}`}>{c.sub}</p>
+            {c.trend && <MiniTrend current={c.trend.current} previous={c.trend.previous} higherIsBetter={c.trend.higherIsBetter} format={c.trend.format} />}
+          </div>
+        ))}
+        <div title="Total quantity requested vs. total quantity received across all Spare Parts requests filed in this period." className="border rounded-xl p-4 bg-white shadow-sm overflow-hidden col-span-2 cursor-help">
+          <h3 className="font-semibold text-xs text-gray-500 uppercase truncate">Spare Part Requested vs Received</h3>
+          <p className="text-xl sm:text-2xl font-bold mt-1 text-slate-800 truncate">{partsRequested} <span className="text-gray-300">/</span> <span className="text-green-600">{partsReceived}</span></p>
+          <p className="text-xs text-gray-400 mt-1 truncate">Requested / Received, this period</p>
+        </div>
       </div>
     </div>
   )

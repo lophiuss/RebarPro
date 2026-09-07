@@ -3,11 +3,13 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Settings as SettingsIcon, Plus, Trash2, Pencil, Check, X, Download, Upload } from 'lucide-react'
+import PublicJobRequestLink from '../PublicJobRequestLink'
 
 type Equipment = {
   id: number; equip_code: string | null; name: string; category: string | null; brand: string | null
   location: string | null; condition: string | null; manager: string | null; supervisor: string | null
   pic_day: string | null; pic_night: string | null; target_repair_hours: number | null
+  pm_checklist_template_id: number | null
 }
 type Template = { id: number; name: string; scope: string; frequency: string | null; form_code: string | null }
 type Item = { id: number; template_id: number; section_label: string | null; item_no: number | null; description: string }
@@ -21,7 +23,7 @@ export default function MaintenanceSettingsPage() {
 
   const [newEquip, setNewEquip] = useState({
     name: '', category: '', location: '', brand: '', condition: '', manager: '', supervisor: '',
-    pic_day: '', pic_night: '', target_repair_hours: '',
+    pic_day: '', pic_night: '', target_repair_hours: '', pm_checklist_template_id: '',
   })
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editData, setEditData] = useState<any>({})
@@ -81,9 +83,10 @@ export default function MaintenanceSettingsPage() {
       condition: newEquip.condition || null, manager: newEquip.manager || null, supervisor: newEquip.supervisor || null,
       pic_day: newEquip.pic_day || null, pic_night: newEquip.pic_night || null,
       target_repair_hours: newEquip.target_repair_hours ? Number(newEquip.target_repair_hours) : null,
+      pm_checklist_template_id: newEquip.pm_checklist_template_id ? Number(newEquip.pm_checklist_template_id) : null,
     }])
     if (error) { alert('Error: ' + error.message); return }
-    setNewEquip({ name: '', category: '', location: '', brand: '', condition: '', manager: '', supervisor: '', pic_day: '', pic_night: '', target_repair_hours: '' })
+    setNewEquip({ name: '', category: '', location: '', brand: '', condition: '', manager: '', supervisor: '', pic_day: '', pic_night: '', target_repair_hours: '', pm_checklist_template_id: '' })
     load()
   }
 
@@ -214,6 +217,8 @@ export default function MaintenanceSettingsPage() {
     <div className="p-4 md:p-8 max-w-6xl mx-auto space-y-10">
       <h1 className="text-3xl font-bold flex items-center gap-2"><SettingsIcon className="w-7 h-7 text-orange-600" /> Maintenance Settings</h1>
 
+      <PublicJobRequestLink />
+
       <div>
         <h2 className="text-lg font-bold mb-3">Work Request Notifications</h2>
         <div className="bg-white border rounded-xl shadow-sm p-4 flex flex-wrap items-end gap-3">
@@ -245,6 +250,13 @@ export default function MaintenanceSettingsPage() {
           <div><label className="block text-xs font-medium text-gray-500 mb-1">PIC Day</label><input value={newEquip.pic_day} onChange={e => setNewEquip({ ...newEquip, pic_day: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-28" /></div>
           <div><label className="block text-xs font-medium text-gray-500 mb-1">PIC Night</label><input value={newEquip.pic_night} onChange={e => setNewEquip({ ...newEquip, pic_night: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-28" /></div>
           <div><label className="block text-xs font-medium text-gray-500 mb-1">Target Repair (h)</label><input type="number" step="0.1" value={newEquip.target_repair_hours} onChange={e => setNewEquip({ ...newEquip, target_repair_hours: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-24" /></div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Checklist</label>
+            <select value={newEquip.pm_checklist_template_id} onChange={e => setNewEquip({ ...newEquip, pm_checklist_template_id: e.target.value })} className="border rounded-md px-3 py-2 text-sm bg-white w-36">
+              <option value="">None</option>
+              {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
+          </div>
           <button type="submit" className="flex items-center gap-1.5 bg-orange-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-orange-700"><Plus className="w-4 h-4" /> Add</button>
         </form>
         <div className="bg-white border rounded-xl shadow-sm p-4 mb-4 flex flex-wrap items-end gap-3">
@@ -293,6 +305,7 @@ export default function MaintenanceSettingsPage() {
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">PIC Day</th>
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">PIC Night</th>
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">Target Repair (h)</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">Checklist</th>
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">Actions</th>
               </tr>
             </thead>
@@ -316,6 +329,12 @@ export default function MaintenanceSettingsPage() {
                       <td className="px-4 py-2"><input value={editData.pic_day || ''} onChange={e => setEditData({ ...editData, pic_day: e.target.value })} className="border rounded px-2 py-1 w-full" /></td>
                       <td className="px-4 py-2"><input value={editData.pic_night || ''} onChange={e => setEditData({ ...editData, pic_night: e.target.value })} className="border rounded px-2 py-1 w-full" /></td>
                       <td className="px-4 py-2"><input type="number" value={editData.target_repair_hours || ''} onChange={e => setEditData({ ...editData, target_repair_hours: e.target.value ? Number(e.target.value) : null })} className="border rounded px-2 py-1 w-20" /></td>
+                      <td className="px-4 py-2">
+                        <select value={editData.pm_checklist_template_id || ''} onChange={e => setEditData({ ...editData, pm_checklist_template_id: e.target.value ? Number(e.target.value) : null })} className="border rounded px-2 py-1 bg-white w-36">
+                          <option value="">None</option>
+                          {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                        </select>
+                      </td>
                       <td className="px-4 py-2 flex gap-1">
                         <button onClick={saveEdit} className="text-green-600 hover:text-green-800 p-1"><Check className="w-4 h-4" /></button>
                         <button onClick={() => setEditingId(null)} className="text-gray-500 hover:text-gray-700 p-1"><X className="w-4 h-4" /></button>
@@ -334,6 +353,7 @@ export default function MaintenanceSettingsPage() {
                       <td className="px-4 py-2.5">{eq.pic_day || '-'}</td>
                       <td className="px-4 py-2.5">{eq.pic_night || '-'}</td>
                       <td className="px-4 py-2.5">{eq.target_repair_hours ?? '-'}</td>
+                      <td className="px-4 py-2.5">{templates.find(t => t.id === eq.pm_checklist_template_id)?.name || <span className="text-gray-400">-</span>}</td>
                       <td className="px-4 py-2.5 flex gap-1">
                         <button onClick={() => startEdit(eq)} className="text-blue-600 hover:text-blue-800 p-1"><Pencil className="w-4 h-4" /></button>
                         <button onClick={() => deactivate(eq.id)} className="text-red-500 hover:text-red-700 p-1"><Trash2 className="w-4 h-4" /></button>
@@ -343,7 +363,7 @@ export default function MaintenanceSettingsPage() {
                 </tr>
               ))}
               {filteredEquipment.length === 0 && (
-                <tr><td colSpan={12} className="px-4 py-6 text-center text-gray-400">{equipment.length === 0 ? 'No equipment yet.' : 'No equipment matches these filters.'}</td></tr>
+                <tr><td colSpan={13} className="px-4 py-6 text-center text-gray-400">{equipment.length === 0 ? 'No equipment yet.' : 'No equipment matches these filters.'}</td></tr>
               )}
             </tbody>
           </table>
