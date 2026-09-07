@@ -103,13 +103,27 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
   const weekSunday = new Date(weekMonday)
   weekSunday.setDate(weekMonday.getDate() + 6)
 
+  // Breakdown/repair-time KPIs used to read maintenance_job_reports, but
+  // that table is now frozen (Jobs was unified into the Work Request
+  // pipeline — see the "Unify Jobs with the Work Request pipeline" change).
+  // Re-pointed at maintenance_work_requests: any equipment-linked request
+  // that reached completed/approved counts as a resolved breakdown, with
+  // repair time = the gap between it being picked up (accepted, or
+  // assigned/filed if never explicitly accepted — some historical/imported
+  // rows skip straight to approved) and completed.
+  function workRequestRepairHours(r: { assigned_at: string | null; accepted_at: string | null; completed_at: string | null; created_at: string }) {
+    if (!r.completed_at) return null
+    const start = r.accepted_at || r.assigned_at || r.created_at
+    return Math.max(0, (new Date(r.completed_at).getTime() - new Date(start).getTime()) / 3600000)
+  }
+
   const [
-    { data: equipment }, { data: jobReports }, { data: prevJobReports }, { data: pmRows }, { data: spareParts },
+    { data: equipment }, { data: workRequests }, { data: prevWorkRequests }, { data: pmRows }, { data: spareParts },
     { data: critical }, { data: settingsRow }, { count: pendingCount }, { data: { user } }, { data: weekSubs }, { count: awaitingApprovalCount },
   ] = await Promise.all([
     supabase.from('maintenance_equipment').select('id, name, category, target_repair_hours, pm_checklist_template_id').eq('is_active', true),
-    supabase.from('maintenance_job_reports').select('id, equipment_id, category, report_date, downtime_hours, repair_time_hours, status').gte('report_date', periodStart).lte('report_date', periodEnd),
-    supabase.from('maintenance_job_reports').select('id, equipment_id, downtime_hours, repair_time_hours').gte('report_date', prevPeriodStart).lte('report_date', prevPeriodEnd),
+    supabase.from('maintenance_work_requests').select('id, equipment_id, assigned_at, accepted_at, completed_at, status, created_at').not('equipment_id', 'is', null).in('status', ['completed', 'approved']).gte('created_at', periodStart).lte('created_at', periodEnd + 'T23:59:59'),
+    supabase.from('maintenance_work_requests').select('id, equipment_id, assigned_at, accepted_at, completed_at, status, created_at').not('equipment_id', 'is', null).in('status', ['completed', 'approved']).gte('created_at', prevPeriodStart).lte('created_at', prevPeriodEnd + 'T23:59:59'),
     supabase.from('maintenance_pm_schedule').select('id, equipment_id, planned, completed_at, assigned_to').eq('year', year).eq('week_number', weekNumber),
     supabase.from('maintenance_spare_parts_requests').select('quantity_requested, quantity_received').gte('request_date', periodStart).lte('request_date', periodEnd),
     supabase.from('maintenance_critical_issues').select('id, equipment_label, issue, lead_time_note, status, created_at, maintenance_equipment(name)').neq('status', 'completed').neq('status', 'cancelled').order('created_at', { ascending: false }),
@@ -138,18 +152,22 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
   const targetById = new Map((equipment || []).map(e => [e.id, Number(e.target_repair_hours) || Number(settingsRow?.default_target_repair_hours) || 4]))
   const defaultTarget = Number(settingsRow?.default_target_repair_hours) || 4
 
-  const totalDowntime = (jobReports || []).reduce((s, r) => s + (Number(r.downtime_hours) || 0), 0)
+  const breakdownsWithHours = (workRequests || [])
+    .map(r => ({ ...r, repair_time_hours: workRequestRepairHours(r) }))
+    .filter((r): r is typeof r & { repair_time_hours: number } => r.repair_time_hours !== null)
+
+  const totalDowntime = breakdownsWithHours.reduce((s, r) => s + r.repair_time_hours, 0)
   const totalPossibleHours = equipmentCount * periodHours
   const uptimePct = totalPossibleHours > 0 ? ((totalPossibleHours - totalDowntime) / totalPossibleHours) * 100 : 100
 
   // BRE % = (No. of responses within target time / No. of total breakdown) x 100
   // — target time defaults to 2.5h (maintenance_settings.default_target_repair_hours),
   // overridable per equipment via target_repair_hours. Confirmed formula.
-  const breakdowns = (jobReports || []).filter(r => r.repair_time_hours !== null)
+  const breakdowns = breakdownsWithHours
   const noOfBreakdown = breakdowns.length
-  const withinTarget = breakdowns.filter(r => Number(r.repair_time_hours) <= (targetById.get(r.equipment_id) ?? defaultTarget)).length
+  const withinTarget = breakdowns.filter(r => r.repair_time_hours <= (targetById.get(r.equipment_id) ?? defaultTarget)).length
   const brePct = noOfBreakdown > 0 ? (withinTarget / noOfBreakdown) * 100 : 100
-  const avgRepairTime = noOfBreakdown > 0 ? breakdowns.reduce((s, r) => s + Number(r.repair_time_hours), 0) / noOfBreakdown : 0
+  const avgRepairTime = noOfBreakdown > 0 ? breakdowns.reduce((s, r) => s + r.repair_time_hours, 0) / noOfBreakdown : 0
 
   const plannedCount = (pmRows || []).filter(r => r.planned).length
   const completedCount = (pmRows || []).filter(r => r.planned && r.completed_at).length
@@ -161,7 +179,7 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
   // — both use the same breakdown count as the denominator, so it cancels
   // out of the ratio; kept explicit here (rather than simplified) so the
   // formula reads the same as the confirmed reference.
-  const totalRepairHours = breakdowns.reduce((s, r) => s + Number(r.repair_time_hours || 0), 0)
+  const totalRepairHours = breakdowns.reduce((s, r) => s + r.repair_time_hours, 0)
   const uptimeHours = Math.max(0, totalPossibleHours - totalDowntime)
   const mtbf = noOfBreakdown > 0 ? uptimeHours / noOfBreakdown : uptimeHours
   const mttr = noOfBreakdown > 0 ? totalRepairHours / noOfBreakdown : 0
@@ -172,14 +190,17 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
 
   // Same formulas as above, over the immediately-preceding period, purely
   // for the trend bars — not shown as their own KPI cards.
-  const prevTotalDowntime = (prevJobReports || []).reduce((s, r) => s + (Number(r.downtime_hours) || 0), 0)
+  const prevBreakdownsWithHours = (prevWorkRequests || [])
+    .map(r => ({ ...r, repair_time_hours: workRequestRepairHours(r) }))
+    .filter((r): r is typeof r & { repair_time_hours: number } => r.repair_time_hours !== null)
+  const prevTotalDowntime = prevBreakdownsWithHours.reduce((s, r) => s + r.repair_time_hours, 0)
   const prevUptimePct = totalPossibleHours > 0 ? ((totalPossibleHours - prevTotalDowntime) / totalPossibleHours) * 100 : 100
-  const prevBreakdowns = (prevJobReports || []).filter(r => r.repair_time_hours !== null)
+  const prevBreakdowns = prevBreakdownsWithHours
   const prevNoOfBreakdown = prevBreakdowns.length
-  const prevWithinTarget = prevBreakdowns.filter(r => Number(r.repair_time_hours) <= (targetById.get(r.equipment_id) ?? defaultTarget)).length
+  const prevWithinTarget = prevBreakdowns.filter(r => r.repair_time_hours <= (targetById.get(r.equipment_id) ?? defaultTarget)).length
   const prevBrePct = prevNoOfBreakdown > 0 ? (prevWithinTarget / prevNoOfBreakdown) * 100 : 100
-  const prevAvgRepairTime = prevNoOfBreakdown > 0 ? prevBreakdowns.reduce((s, r) => s + Number(r.repair_time_hours), 0) / prevNoOfBreakdown : 0
-  const prevTotalRepairHours = prevBreakdowns.reduce((s, r) => s + Number(r.repair_time_hours || 0), 0)
+  const prevAvgRepairTime = prevNoOfBreakdown > 0 ? prevBreakdowns.reduce((s, r) => s + r.repair_time_hours, 0) / prevNoOfBreakdown : 0
+  const prevTotalRepairHours = prevBreakdowns.reduce((s, r) => s + r.repair_time_hours, 0)
   const prevUptimeHours = Math.max(0, totalPossibleHours - prevTotalDowntime)
   const prevMtbf = prevNoOfBreakdown > 0 ? prevUptimeHours / prevNoOfBreakdown : prevUptimeHours
   const prevMttr = prevNoOfBreakdown > 0 ? prevTotalRepairHours / prevNoOfBreakdown : 0

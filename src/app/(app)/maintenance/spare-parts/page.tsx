@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { PackageSearch, Plus, Pencil, Trash2, Check, X } from 'lucide-react'
+import { PackageSearch, Plus, Pencil, Trash2, Check, X, PackageCheck } from 'lucide-react'
 
 type Equipment = { id: number; name: string }
 type Request = {
   id: number; part_name: string; equipment_id: number | null; location: string | null
   quantity_requested: number; quantity_received: number; request_date: string | null; received_date: string | null
+  received_by: string | null
   maintenance_equipment: { name: string } | null
 }
 
@@ -23,11 +24,20 @@ export default function SparePartsPage() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editData, setEditData] = useState<any>({})
   const [deletingId, setDeletingId] = useState<number | null>(null)
+  const [myIdentifier, setMyIdentifier] = useState('')
+
+  const [receiveTarget, setReceiveTarget] = useState<Request | null>(null)
+  const [receiveForm, setReceiveForm] = useState({ quantityReceived: '', receivedDate: new Date().toISOString().split('T')[0] })
+  const [savingReceive, setSavingReceive] = useState(false)
 
   useEffect(() => { load() }, [])
 
   async function load() {
     setLoading(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data: profile } = user ? await supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle() : { data: null }
+    setMyIdentifier(profile?.full_name || user?.email || '')
+
     const [{ data: req }, { data: eq }] = await Promise.all([
       supabase.from('maintenance_spare_parts_requests').select('*, maintenance_equipment(name)').order('request_date', { ascending: false }).limit(100),
       supabase.from('maintenance_equipment').select('id, name, location').eq('is_active', true).order('name'),
@@ -38,6 +48,35 @@ export default function SparePartsPage() {
     // rather than maintaining a separate list.
     setLocations([...new Set((eq || []).map(e => e.location).filter(Boolean))].sort() as string[])
     setLoading(false)
+  }
+
+  // A lightweight "I received this" action for anyone, separate from the
+  // full edit modal — records who logged the receipt (not just the qty),
+  // per the request to know whose entry it was.
+  function openReceive(r: Request) {
+    setReceiveTarget(r)
+    setReceiveForm({ quantityReceived: String(r.quantity_requested - r.quantity_received || r.quantity_requested), receivedDate: new Date().toISOString().split('T')[0] })
+  }
+
+  async function saveReceive() {
+    if (!receiveTarget) return
+    const addQty = Number(receiveForm.quantityReceived) || 0
+    if (addQty <= 0) { alert('Enter a quantity received'); return }
+    setSavingReceive(true)
+    try {
+      const { error } = await supabase.from('maintenance_spare_parts_requests').update({
+        quantity_received: receiveTarget.quantity_received + addQty,
+        received_date: receiveForm.receivedDate,
+        received_by: myIdentifier || null,
+      }).eq('id', receiveTarget.id)
+      if (error) throw error
+      setReceiveTarget(null)
+      await load()
+    } catch (err: any) {
+      alert('Error: ' + err.message)
+    } finally {
+      setSavingReceive(false)
+    }
   }
 
   async function addRequest(e: React.FormEvent) {
@@ -189,9 +228,15 @@ export default function SparePartsPage() {
                 <td className="px-4 py-3 text-sm">{r.maintenance_equipment?.name || '-'}</td>
                 <td className="px-4 py-3 text-sm">{r.location || '-'}</td>
                 <td className="px-4 py-3 text-sm">{r.quantity_requested}</td>
-                <td className={`px-4 py-3 text-sm font-medium ${r.quantity_received >= r.quantity_requested ? 'text-green-600' : 'text-amber-600'}`}>{r.quantity_received}</td>
+                <td className="px-4 py-3">
+                  <span className={`text-sm font-medium ${r.quantity_received >= r.quantity_requested ? 'text-green-600' : 'text-amber-600'}`}>{r.quantity_received}</span>
+                  {r.received_by && <span className="block text-[11px] text-gray-400">by {r.received_by}{r.received_date ? ` · ${r.received_date}` : ''}</span>}
+                </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-1">
+                    {r.quantity_received < r.quantity_requested && (
+                      <button onClick={() => openReceive(r)} className="flex items-center gap-1 text-xs bg-green-600 text-white font-medium px-2.5 py-1.5 rounded-lg hover:bg-green-700"><PackageCheck className="w-3.5 h-3.5" /> Log Receipt</button>
+                    )}
                     <button onClick={() => startEdit(r)} className="text-blue-600 hover:text-blue-800 p-1"><Pencil className="w-4 h-4" /></button>
                     <button onClick={() => deleteRequest(r.id)} disabled={deletingId === r.id} className="text-red-500 hover:text-red-700 disabled:opacity-50 p-1"><Trash2 className="w-4 h-4" /></button>
                   </div>
@@ -204,6 +249,36 @@ export default function SparePartsPage() {
           </tbody>
         </table>
       </div>
+
+      {receiveTarget && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold">Log Receipt — {receiveTarget.part_name}</h2>
+              <button onClick={() => setReceiveTarget(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Quantity Received Now</label>
+                <input type="number" autoFocus value={receiveForm.quantityReceived} onChange={e => setReceiveForm({ ...receiveForm, quantityReceived: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
+                <p className="text-[11px] text-gray-400 mt-1">{receiveTarget.quantity_received} of {receiveTarget.quantity_requested} already logged.</p>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Date Received</label>
+                <input type="date" value={receiveForm.receivedDate} onChange={e => setReceiveForm({ ...receiveForm, receivedDate: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Logged By</label>
+                <input readOnly value={myIdentifier} className="w-full border rounded-md px-3 py-2 text-sm bg-gray-50 text-gray-500" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-5">
+              <button onClick={() => setReceiveTarget(null)} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-200">Cancel</button>
+              <button onClick={saveReceive} disabled={savingReceive} className="bg-green-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-green-700">{savingReceive ? 'Saving...' : 'Save'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

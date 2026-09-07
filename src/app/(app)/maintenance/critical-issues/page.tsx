@@ -4,11 +4,11 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { AlertTriangle, Plus, X, CheckCircle2 } from 'lucide-react'
 
-type Equipment = { id: number; name: string }
+type Equipment = { id: number; name: string; category: string | null }
 type Issue = {
   id: number; equipment_id: number | null; equipment_label: string | null
   issue: string; lead_time_note: string | null; status: string; created_at: string
-  maintenance_equipment: { name: string } | null
+  maintenance_equipment: { name: string; category: string | null } | null
 }
 
 const STATUS_STYLE: Record<string, string> = {
@@ -26,14 +26,16 @@ export default function CriticalIssuesPage() {
   const [showAdd, setShowAdd] = useState(false)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({ equipmentId: '', equipmentLabel: '', issue: '', leadTimeNote: '' })
+  const [search, setSearch] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('')
 
   useEffect(() => { load() }, [])
 
   async function load() {
     setLoading(true)
     const [{ data: iss }, { data: eq }] = await Promise.all([
-      supabase.from('maintenance_critical_issues').select('*, maintenance_equipment(name)').order('created_at', { ascending: false }),
-      supabase.from('maintenance_equipment').select('id, name').eq('is_active', true).order('name'),
+      supabase.from('maintenance_critical_issues').select('*, maintenance_equipment(name, category)').order('created_at', { ascending: false }),
+      supabase.from('maintenance_equipment').select('id, name, category').eq('is_active', true).order('name'),
     ])
     setIssues((iss as any) || [])
     setEquipment(eq || [])
@@ -70,6 +72,18 @@ export default function CriticalIssuesPage() {
     setIssues(prev => prev.map(i => i.id === id ? { ...i, status } : i))
   }
 
+  const categories = [...new Set(equipment.map(e => e.category).filter(Boolean))].sort() as string[]
+  const filteredIssues = issues.filter(i => {
+    if (categoryFilter && i.maintenance_equipment?.category !== categoryFilter) return false
+    if (search) {
+      const term = search.trim().toLowerCase()
+      const hay = `${i.maintenance_equipment?.name || i.equipment_label || ''} ${i.issue}`.toLowerCase()
+      if (term && !hay.includes(term)) return false
+    }
+    return true
+  })
+  const hasFilters = !!(search || categoryFilter)
+
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto">
       <div className="flex items-center justify-between gap-4 mb-6">
@@ -77,6 +91,22 @@ export default function CriticalIssuesPage() {
         <button onClick={() => setShowAdd(true)} className="flex items-center gap-1.5 bg-red-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-red-700">
           <Plus className="w-4 h-4" /> Report Issue
         </button>
+      </div>
+
+      <div className="bg-white border rounded-xl shadow-sm p-4 mb-4 flex flex-wrap items-end gap-3">
+        <div className="flex-1 min-w-[200px]">
+          <label className="block text-xs font-medium text-gray-500 mb-1">Search</label>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Equipment or issue text" className="w-full border rounded-md px-3 py-2 text-sm" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">Category</label>
+          <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)} className="border rounded-md px-3 py-2 text-sm bg-white w-40">
+            <option value="">All</option>
+            {categories.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+        {hasFilters && <button onClick={() => { setSearch(''); setCategoryFilter('') }} className="text-sm text-gray-500 hover:text-gray-700 px-2 py-2">Clear</button>}
+        <span className="text-xs text-gray-400 ml-auto">{filteredIssues.length} of {issues.length}</span>
       </div>
 
       <div className="bg-white border rounded-xl shadow-sm overflow-x-auto">
@@ -91,7 +121,7 @@ export default function CriticalIssuesPage() {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {issues.map(i => (
+            {filteredIssues.map(i => (
               <tr key={i.id} className="hover:bg-gray-50">
                 <td className="px-4 py-3 text-sm font-medium">{i.maintenance_equipment?.name || i.equipment_label || '-'}</td>
                 <td className="px-4 py-3 text-sm">{i.issue}</td>
@@ -111,8 +141,8 @@ export default function CriticalIssuesPage() {
                 </td>
               </tr>
             ))}
-            {!loading && issues.length === 0 && (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-500">No critical issues logged.</td></tr>
+            {!loading && filteredIssues.length === 0 && (
+              <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-500">{issues.length === 0 ? 'No critical issues logged.' : 'No issues match these filters.'}</td></tr>
             )}
           </tbody>
         </table>

@@ -46,11 +46,20 @@ export default function JobHistoryPage() {
     setLoading(false)
   }
 
-  const technicians = [...new Set(requests.map(r => r.assigned_to).filter(Boolean))].sort() as string[]
+  // assigned_to sometimes holds several names at once (e.g. imported
+  // historical rows like "Jumadi, Saiful") — split on common separators so
+  // the per-technician summary and filter credit each person individually
+  // instead of treating "Jumadi, Saiful" as one distinct technician.
+  function splitNames(assignedTo: string | null): string[] {
+    if (!assignedTo) return []
+    return assignedTo.split(/\s*(?:,|&|;|\band\b)\s*/i).map(n => n.trim()).filter(Boolean)
+  }
+
+  const technicians = [...new Set(requests.flatMap(r => splitNames(r.assigned_to)))].sort()
   const categories = [...new Set(requests.map(r => r.maintenance_equipment?.category).filter(Boolean))].sort() as string[]
 
   const filtered = requests.filter(r => {
-    if (technicianFilter && r.assigned_to !== technicianFilter) return false
+    if (technicianFilter && !splitNames(r.assigned_to).includes(technicianFilter)) return false
     if (categoryFilter && r.maintenance_equipment?.category !== categoryFilter) return false
     if (statusFilter && r.status !== statusFilter) return false
     if (fromDate && (!r.completed_at || r.completed_at < fromDate)) return false
@@ -58,11 +67,13 @@ export default function JobHistoryPage() {
     return true
   })
 
-  // "Done by person" summary — count of approved jobs per technician.
+  // "Done by person" summary — a job with several names in assigned_to
+  // credits each of them (so totals across technicians can add up to more
+  // than the job count — that's expected for shared work, not a bug).
   const perTechnician = technicians.map(t => ({
     name: t,
-    approved: requests.filter(r => r.assigned_to === t && r.status === 'approved').length,
-    total: requests.filter(r => r.assigned_to === t).length,
+    approved: requests.filter(r => splitNames(r.assigned_to).includes(t) && r.status === 'approved').length,
+    total: requests.filter(r => splitNames(r.assigned_to).includes(t)).length,
   })).sort((a, b) => b.approved - a.approved)
 
   const hasFilters = !!(technicianFilter || categoryFilter || statusFilter || fromDate || toDate)

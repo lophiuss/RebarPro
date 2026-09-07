@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { uploadMaintenanceFile, listMaintenanceStaff, type StaffMember } from '../actions'
-import { Inbox, CheckCircle2, UserPlus, X, Pencil, ClipboardCheck, XCircle, PlayCircle } from 'lucide-react'
+import { Inbox, CheckCircle2, UserPlus, X, Pencil, ClipboardCheck, XCircle, PlayCircle, Trash2 } from 'lucide-react'
 import PhotoPicker from '@/components/PhotoPicker'
 import PhotoLightbox from '@/components/PhotoLightbox'
 
@@ -11,7 +11,7 @@ type WorkRequest = {
   id: number; requester_name: string; requester_contact: string | null; location: string | null
   issue_description: string; photo_drive_id: string | null; status: string
   assigned_to: string | null; assigned_at: string | null; accepted_at: string | null
-  completed_at: string | null; resolution_photo_drive_id: string | null
+  completed_at: string | null; resolution_photo_drive_id: string | null; completion_remark: string | null
   approved_at: string | null; approved_by: string | null; rejection_reason: string | null
   created_at: string
 }
@@ -67,6 +67,7 @@ export default function WorkRequestsPage() {
   const [staff, setStaff] = useState<StaffMember[]>([])
   const [completeTarget, setCompleteTarget] = useState<WorkRequest | null>(null)
   const [resolutionPhoto, setResolutionPhoto] = useState<File | null>(null)
+  const [completionRemark, setCompletionRemark] = useState('')
   const [saving, setSaving] = useState(false)
   const [zoomSrc, setZoomSrc] = useState<string | null>(null)
 
@@ -169,19 +170,23 @@ export default function WorkRequestsPage() {
 
   async function doComplete() {
     if (!completeTarget) return
-    if (!resolutionPhoto) { alert('Please attach a photo of the completed work before submitting.'); return }
     setSaving(true)
     try {
-      const blob = await compressImage(resolutionPhoto)
-      const fd = new FormData()
-      fd.set('file', blob, 'resolution.jpg')
-      const resolution_photo_drive_id = await uploadMaintenanceFile(fd)
+      let resolution_photo_drive_id: string | null = null
+      if (resolutionPhoto) {
+        const blob = await compressImage(resolutionPhoto)
+        const fd = new FormData()
+        fd.set('file', blob, 'resolution.jpg')
+        resolution_photo_drive_id = await uploadMaintenanceFile(fd)
+      }
       const { error } = await supabase.from('maintenance_work_requests').update({
-        status: 'completed', completed_at: new Date().toISOString(), resolution_photo_drive_id, rejection_reason: null,
+        status: 'completed', completed_at: new Date().toISOString(), resolution_photo_drive_id,
+        completion_remark: completionRemark.trim() || null, rejection_reason: null,
       }).eq('id', completeTarget.id)
       if (error) throw error
       setCompleteTarget(null)
       setResolutionPhoto(null)
+      setCompletionRemark('')
       await load()
     } catch (err: any) {
       alert('Error: ' + err.message)
@@ -216,6 +221,26 @@ export default function WorkRequestsPage() {
       const { error } = await supabase.from('maintenance_work_requests').update({
         status: 'accepted', completed_at: null, rejection_reason: reason || null,
       }).eq('id', r.id)
+      if (error) throw error
+      await load()
+    } catch (err: any) {
+      alert('Error: ' + err.message)
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  // Manager delete — must be logged (per the request), so the row is
+  // snapshotted into maintenance_deletion_log before it's removed.
+  async function deleteRequest(r: WorkRequest) {
+    if (!confirm(`Delete this job — "${r.issue_description.slice(0, 60)}"? This is logged and cannot be undone.`)) return
+    setBusyId(r.id)
+    try {
+      const { error: logErr } = await supabase.from('maintenance_deletion_log').insert([{
+        table_name: 'maintenance_work_requests', record_id: r.id, record_snapshot: r, deleted_by: myIdentifier || null,
+      }])
+      if (logErr) throw logErr
+      const { error } = await supabase.from('maintenance_work_requests').delete().eq('id', r.id)
       if (error) throw error
       await load()
     } catch (err: any) {
@@ -273,6 +298,7 @@ export default function WorkRequestsPage() {
                     <div className="flex items-center gap-1.5">
                       <button onClick={() => openEdit(r)} className="text-gray-400 hover:text-blue-600 p-1.5" title="Edit before assigning"><Pencil className="w-3.5 h-3.5" /></button>
                       <button onClick={() => { setAssignTarget(r); setAssignee('') }} className="flex items-center gap-1 text-xs bg-orange-600 text-white font-medium px-3 py-1.5 rounded-lg hover:bg-orange-700"><UserPlus className="w-3.5 h-3.5" /> Assign</button>
+                      <button onClick={() => deleteRequest(r)} disabled={busyId === r.id} className="text-red-400 hover:text-red-600 disabled:opacity-50 p-1.5" title="Delete (logged)"><Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
                   </td>
                 </tr>
@@ -296,6 +322,7 @@ export default function WorkRequestsPage() {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Issue</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase"></th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -315,10 +342,13 @@ export default function WorkRequestsPage() {
                   <td className="px-4 py-3">
                     <span className={`text-xs font-bold uppercase rounded-full px-2 py-0.5 ${STATUS_STYLE[r.status] || 'bg-gray-100 text-gray-600'}`}>{r.status}</span>
                   </td>
+                  <td className="px-4 py-3">
+                    <button onClick={() => deleteRequest(r)} disabled={busyId === r.id} className="text-red-400 hover:text-red-600 disabled:opacity-50 p-1.5" title="Delete (logged)"><Trash2 className="w-3.5 h-3.5" /></button>
+                  </td>
                 </tr>
               ))}
               {!loading && inProgress.length === 0 && (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-500">Nothing assigned right now.</td></tr>
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">Nothing assigned right now.</td></tr>
               )}
             </tbody>
           </table>
@@ -342,7 +372,10 @@ export default function WorkRequestsPage() {
                 <tr key={r.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">{r.completed_at ? new Date(r.completed_at).toLocaleString() : '-'}</td>
                   <td className="px-4 py-3 text-sm font-medium whitespace-nowrap">{r.assigned_to || '-'}</td>
-                  <td className="px-4 py-3 text-sm max-w-[240px] truncate">{r.issue_description}</td>
+                  <td className="px-4 py-3 text-sm max-w-[240px]">
+                    <div className="truncate">{r.issue_description}</div>
+                    {r.completion_remark && <div className="text-xs text-gray-500 mt-0.5 truncate">Remark: {r.completion_remark}</div>}
+                  </td>
                   <td className="px-4 py-3">
                     {r.resolution_photo_drive_id ? <img src={`/api/maintenance/file/${r.resolution_photo_drive_id}`} className="w-10 h-10 rounded object-cover cursor-zoom-in" onClick={() => setZoomSrc(`/api/maintenance/file/${r.resolution_photo_drive_id}`)} /> : '-'}
                   </td>
@@ -399,7 +432,7 @@ export default function WorkRequestsPage() {
                         <button onClick={() => acceptTask(r)} disabled={busyId === r.id} className="flex items-center gap-1 text-xs bg-blue-600 disabled:opacity-50 text-white font-medium px-3 py-1.5 rounded-lg hover:bg-blue-700"><PlayCircle className="w-3.5 h-3.5" /> Accept</button>
                       )}
                       {r.status === 'accepted' && (
-                        <button onClick={() => { setCompleteTarget(r); setResolutionPhoto(null) }} className="flex items-center gap-1 text-xs bg-green-600 text-white font-medium px-3 py-1.5 rounded-lg hover:bg-green-700"><CheckCircle2 className="w-3.5 h-3.5" /> Mark Complete</button>
+                        <button onClick={() => { setCompleteTarget(r); setResolutionPhoto(null); setCompletionRemark('') }} className="flex items-center gap-1 text-xs bg-green-600 text-white font-medium px-3 py-1.5 rounded-lg hover:bg-green-700"><CheckCircle2 className="w-3.5 h-3.5" /> Mark Complete</button>
                       )}
                       {r.status === 'completed' && <span className="text-xs text-gray-400">Awaiting manager approval</span>}
                     </td>
@@ -475,8 +508,12 @@ export default function WorkRequestsPage() {
               <h2 className="text-lg font-bold">Complete — {completeTarget.requester_name}</h2>
               <button onClick={() => setCompleteTarget(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>
-            <p className="text-sm text-gray-500 mb-3">Attach a photo showing the completed work. Your manager will review and approve it.</p>
-            <PhotoPicker label="Resolution Photo" file={resolutionPhoto} onChange={setResolutionPhoto} />
+            <p className="text-sm text-gray-500 mb-3">Your manager will review and approve it.</p>
+            <PhotoPicker label="Resolution Photo (optional)" file={resolutionPhoto} onChange={setResolutionPhoto} />
+            <div className="mt-3">
+              <label className="block text-xs font-medium text-gray-500 mb-1">Remark (optional)</label>
+              <textarea value={completionRemark} onChange={e => setCompletionRemark(e.target.value)} rows={3} placeholder="What did you do?" className="w-full border rounded-md px-3 py-2 text-sm" />
+            </div>
             <div className="flex justify-end gap-3 mt-4">
               <button onClick={() => setCompleteTarget(null)} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-200">Cancel</button>
               <button onClick={doComplete} disabled={saving} className="bg-green-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-green-700">{saving ? 'Submitting...' : 'Submit'}</button>

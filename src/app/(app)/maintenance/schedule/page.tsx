@@ -9,7 +9,9 @@ import PhotoPicker from '@/components/PhotoPicker'
 type Equipment = {
   id: number; name: string; equip_code: string | null; category: string | null; location: string | null
   condition: string | null; pm_checklist_template_id: number | null
+  pm_frequency: string | null; pm_pic: string | null
 }
+const PM_FREQUENCY_OPTIONS = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Half-Yearly', 'Yearly']
 type Template = { id: number; name: string; scope: 'single_equipment' | 'section_list'; frequency: string | null }
 type Item = { id: number; template_id: number; section_label: string | null; item_no: number | null; description: string }
 type PmRow = { id: number; equipment_id: number; week_number: number; planned: boolean; completed_at: string | null; assigned_to: string | null }
@@ -140,7 +142,7 @@ export default function SchedulePage() {
     const weekEndStr = weekEnd.toISOString().split('T')[0]
 
     const [{ data: eq }, { data: pm }, { data: tmpl }, { data: rec }, { data: { user } }, { data: weekSubs }, { data: pendingSubs }] = await Promise.all([
-      supabase.from('maintenance_equipment').select('id, name, equip_code, category, location, condition, pm_checklist_template_id').eq('is_active', true).order('name'),
+      supabase.from('maintenance_equipment').select('id, name, equip_code, category, location, condition, pm_checklist_template_id, pm_frequency, pm_pic').eq('is_active', true).order('name'),
       supabase.from('maintenance_pm_schedule').select('id, equipment_id, week_number, planned, completed_at, assigned_to').eq('year', viewYear),
       supabase.from('maintenance_checklist_templates').select('id, name, scope, frequency').order('name'),
       supabase.from('maintenance_pm_recurrence').select('*, maintenance_equipment(name)').order('created_at', { ascending: false }),
@@ -197,13 +199,30 @@ export default function SchedulePage() {
       const { error } = await supabase.from('maintenance_pm_schedule').update({ planned }).eq('id', existing.id)
       if (error) { alert('Error: ' + error.message); return }
       setPmRows(prev => prev.map(r => r.id === existing.id ? { ...r, planned } : r))
-    } else {
-      const { data, error } = await supabase.from('maintenance_pm_schedule').insert([{
-        equipment_id: equipmentId, year: viewYear, week_number: weekNumber, planned,
-      }]).select('id, equipment_id, week_number, planned, completed_at, assigned_to').single()
-      if (error) { alert('Error: ' + error.message); return }
-      setPmRows(prev => [...prev, data])
+      return
     }
+    // Upsert, not a plain insert — local pmRows can be stale relative to the
+    // DB (e.g. a recurrence rule already created this exact
+    // equipment/year/week row after the last load()), and a plain insert
+    // then hits maintenance_pm_schedule's (equipment_id, year, week_number)
+    // unique constraint instead of just updating it.
+    const { data, error } = await supabase.from('maintenance_pm_schedule')
+      .upsert([{ equipment_id: equipmentId, year: viewYear, week_number: weekNumber, planned }], { onConflict: 'equipment_id,year,week_number' })
+      .select('id, equipment_id, week_number, planned, completed_at, assigned_to')
+      .single()
+    if (error) { alert('Error: ' + error.message); return }
+    setPmRows(prev => [...prev.filter(r => r.id !== data.id), data])
+  }
+
+  // Manager-set PM frequency/PIC label, shown as columns next to Equipment
+  // — purely descriptive/reference fields (the recurrence rule above is
+  // what actually generates scheduled weeks), so managers can see and set
+  // "this one's quarterly, assigned to X" at a glance without opening
+  // Settings or a recurrence modal.
+  async function updateEquipmentField(equipmentId: number, field: 'pm_frequency' | 'pm_pic', value: string) {
+    const { error } = await supabase.from('maintenance_equipment').update({ [field]: value || null }).eq('id', equipmentId)
+    if (error) { alert('Error: ' + error.message); return }
+    setEquipment(prev => prev.map(e => e.id === equipmentId ? { ...e, [field]: value || null } : e))
   }
 
   function handleCellClick(equipmentId: number, weekNumber: number) {
@@ -600,13 +619,15 @@ export default function SchedulePage() {
                 (month, then date/week) — the second row's `top` has to equal
                 the first row's rendered height or it scrolls out from under it. */}
             <tr>
-              <th className="sticky left-0 top-0 z-20 bg-gray-100 border-r"></th>
+              <th colSpan={3} className="sticky left-0 top-0 z-20 bg-gray-100 border-r"></th>
               {monthGroups.map((g, i) => (
                 <th key={i} colSpan={g.span} className="sticky top-0 z-10 bg-gray-100 text-gray-500 text-[10px] font-semibold uppercase border-r py-1">{g.month}</th>
               ))}
             </tr>
             <tr>
               <th className="sticky left-0 top-[22px] z-20 bg-gray-50 px-3 py-2 text-left font-medium text-gray-500 uppercase border-r">Equipment</th>
+              <th className="sticky top-[22px] z-10 bg-gray-50 px-2 py-2 text-left font-medium text-gray-500 uppercase border-r">Frequency</th>
+              <th className="sticky top-[22px] z-10 bg-gray-50 px-2 py-2 text-left font-medium text-gray-500 uppercase border-r">PIC</th>
               {weeks.map(wk => {
                 const isCurrent = viewYear === realYear && wk === realWeek
                 return (
@@ -622,6 +643,19 @@ export default function SchedulePage() {
             {filteredEquipment.map(eq => (
               <tr key={eq.id}>
                 <td className="sticky left-0 bg-white px-3 py-1.5 font-medium border-r whitespace-nowrap">{eq.name}</td>
+                <td className="bg-white px-1.5 py-1 border-r whitespace-nowrap">
+                  {canManage ? (
+                    <select value={eq.pm_frequency || ''} onChange={e => updateEquipmentField(eq.id, 'pm_frequency', e.target.value)} className="border rounded px-1 py-0.5 text-[11px] bg-white w-24">
+                      <option value="">-</option>
+                      {PM_FREQUENCY_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}
+                    </select>
+                  ) : (eq.pm_frequency || '-')}
+                </td>
+                <td className="bg-white px-1.5 py-1 border-r whitespace-nowrap">
+                  {canManage ? (
+                    <input defaultValue={eq.pm_pic || ''} onBlur={e => e.target.value !== (eq.pm_pic || '') && updateEquipmentField(eq.id, 'pm_pic', e.target.value)} placeholder="PIC" className="border rounded px-1 py-0.5 text-[11px] w-20" />
+                  ) : (eq.pm_pic || '-')}
+                </td>
                 {weeks.map(wk => {
                   const row = pmRows.find(r => r.equipment_id === eq.id && r.week_number === wk)
                   const planned = row?.planned
@@ -643,7 +677,7 @@ export default function SchedulePage() {
               </tr>
             ))}
             {!loading && filteredEquipment.length === 0 && (
-              <tr><td colSpan={53} className="px-3 py-6 text-center text-gray-400">{equipment.length === 0 ? 'No equipment yet.' : 'No equipment matches these filters.'}</td></tr>
+              <tr><td colSpan={55} className="px-3 py-6 text-center text-gray-400">{equipment.length === 0 ? 'No equipment yet.' : 'No equipment matches these filters.'}</td></tr>
             )}
           </tbody>
         </table>

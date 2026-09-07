@@ -91,6 +91,24 @@ def match_equipment(name):
     return best['id'] if best and best_score >= 1 else None
 
 
+def extract_drive_id(evidence_text):
+    """The sheet's Evidence column holds a Drive link (usually
+    'open?id=XXX', sometimes '/file/d/XXX/view'), occasionally several
+    comma-separated links, or just a bare filename with no URL at all.
+    Our schema only stores one photo per request, so only the first
+    resolvable link is used."""
+    s = norm(evidence_text)
+    if not s:
+        return None
+    m = re.search(r'[?&]id=([\w-]{15,})', s)
+    if m:
+        return m.group(1)
+    m = re.search(r'/file/d/([\w-]{15,})', s)
+    if m:
+        return m.group(1)
+    return None
+
+
 NOISE_VALUES = {'', 'na', 'n/a', '-', 'nil', 'none'}
 
 
@@ -166,6 +184,7 @@ for r in rows:
         'issue_description': issue_description,
         'status': status,
         'created_at': (start or end).isoformat() if (start or end) else None,
+        'resolution_photo_drive_id': extract_drive_id(r.get('Evidence (photo & job report)')),
     }
     if status in ('approved', 'cancelled'):
         row['assigned_to'] = assigned_to
@@ -187,6 +206,9 @@ by_status = {}
 for r in out:
     by_status[r['status']] = by_status.get(r['status'], 0) + 1
 print('By status:', by_status)
+
+with_photo = sum(1 for r in out if r.get('resolution_photo_drive_id'))
+print(f'Rows with a resolvable evidence photo: {with_photo}/{len(out)}')
 
 with open(f'{FOLDER}/job_history_data.json', 'w', encoding='utf-8') as f:
     json.dump(out, f, indent=2, ensure_ascii=False)
