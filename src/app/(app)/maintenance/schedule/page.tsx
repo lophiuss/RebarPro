@@ -82,6 +82,9 @@ function mondayOfIsoWeek(isoYear: number, week: number) {
 function fmtShort(d: Date) {
   return `${String(d.getUTCDate()).padStart(2, '0')}/${String(d.getUTCMonth() + 1).padStart(2, '0')}`
 }
+function toStr(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 // Builds the maintenance_pm_schedule rows a recurrence rule implies, every
 // frequencyWeeks weeks starting from startDate, for a ~2-year horizon —
 // "keeps continuing for the coming date" without needing a background job;
@@ -104,7 +107,8 @@ export default function SchedulePage() {
   const { isoYear: realYear, week: realWeek } = isoWeekInfo(today)
 
   const [viewYear, setViewYear] = useState(realYear)
-  const [viewMode, setViewMode] = useState<'week' | 'month'>('week')
+  const [viewMode, setViewMode] = useState<'day' | 'week' | 'month'>('week')
+  const [viewDay, setViewDay] = useState(today)
   const [equipment, setEquipment] = useState<Equipment[]>([])
   const [pmRows, setPmRows] = useState<PmRow[]>([])
   const [templates, setTemplates] = useState<Template[]>([])
@@ -146,6 +150,14 @@ export default function SchedulePage() {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => { load() }, [viewYear])
+
+  // Day view is anchored to a specific calendar date rather than viewYear —
+  // if the picked date's ISO week-year differs from what's loaded, sync
+  // viewYear so the day's row data actually gets fetched.
+  const { isoYear: dayYear, week: dayWeek } = isoWeekInfo(viewDay)
+  useEffect(() => {
+    if (viewMode === 'day' && dayYear !== viewYear) setViewYear(dayYear)
+  }, [viewDay, viewMode])
 
   async function load() {
     setLoading(true)
@@ -528,6 +540,31 @@ export default function SchedulePage() {
     setTimeout(() => w.print(), 400)
   }
 
+  // Shared Frequency/PIC controls — used identically by Day, Week, and
+  // Month views so all three stay in sync rather than duplicating the
+  // open/save/cancel-plan logic per view.
+  function FrequencyControl({ eq }: { eq: Equipment }) {
+    if (!canManage) return <>{eq.pm_frequency || '-'}</>
+    return (
+      <select
+        value={eq.pm_frequency || ''}
+        onChange={e => e.target.value ? openPlan(eq, e.target.value) : undoPlan(eq)}
+        className="border rounded px-1 py-0.5 text-[11px] bg-white w-24"
+      >
+        <option value="">-</option>
+        {PM_FREQUENCY_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}
+      </select>
+    )
+  }
+  function PicControl({ eq }: { eq: Equipment }) {
+    if (!canManage) return <>{eq.pm_pic || '-'}</>
+    return (
+      <button onClick={() => openPlan(eq)} className="border rounded px-1.5 py-0.5 text-[11px] bg-white hover:bg-gray-50 w-20 text-left truncate" title="Click to set/change PIC">
+        {eq.pm_pic || <span className="text-gray-400">Set PIC</span>}
+      </button>
+    )
+  }
+
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto">
       <h1 className="text-3xl font-bold mb-6 flex items-center gap-2"><CalendarClock className="w-7 h-7 text-orange-600" /> Schedule &amp; Checklists</h1>
@@ -598,15 +635,24 @@ export default function SchedulePage() {
       <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
         <div className="flex items-center gap-2">
           <h2 className="text-lg font-bold">PM Schedule</h2>
-          <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
-            <button onClick={() => setViewYear(y => y - 1)} className="p-1 rounded hover:bg-white"><ChevronLeft className="w-4 h-4" /></button>
-            <span className="text-sm font-semibold px-1 w-12 text-center">{viewYear}</span>
-            <button onClick={() => setViewYear(y => y + 1)} className="p-1 rounded hover:bg-white"><ChevronRight className="w-4 h-4" /></button>
-          </div>
+          {viewMode === 'day' ? (
+            <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+              <button onClick={() => setViewDay(d => new Date(d.getTime() - 86400000))} className="p-1 rounded hover:bg-white"><ChevronLeft className="w-4 h-4" /></button>
+              <input type="date" value={toStr(viewDay)} onChange={e => e.target.value && setViewDay(new Date(e.target.value + 'T00:00:00'))} className="text-sm font-semibold px-1 bg-transparent border-0 focus:ring-0" />
+              <button onClick={() => setViewDay(d => new Date(d.getTime() + 86400000))} className="p-1 rounded hover:bg-white"><ChevronRight className="w-4 h-4" /></button>
+              <button onClick={() => setViewDay(new Date())} className="text-xs text-orange-600 font-medium px-2 hover:text-orange-700">Today</button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+              <button onClick={() => setViewYear(y => y - 1)} className="p-1 rounded hover:bg-white"><ChevronLeft className="w-4 h-4" /></button>
+              <span className="text-sm font-semibold px-1 w-12 text-center">{viewYear}</span>
+              <button onClick={() => setViewYear(y => y + 1)} className="p-1 rounded hover:bg-white"><ChevronRight className="w-4 h-4" /></button>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
-            {(['week', 'month'] as const).map(m => (
+            {(['day', 'week', 'month'] as const).map(m => (
               <button key={m} onClick={() => setViewMode(m)} className={`px-3 py-1.5 rounded-md text-xs font-semibold capitalize transition ${viewMode === m ? 'bg-white shadow-sm text-slate-900' : 'text-gray-500 hover:text-gray-700'}`}>{m}</button>
             ))}
           </div>
@@ -670,6 +716,59 @@ export default function SchedulePage() {
         <button onClick={exportPdf} className="text-sm bg-gray-100 text-gray-700 font-medium px-3 py-2 rounded-lg hover:bg-gray-200">Export to PDF</button>
       </div>
 
+      {viewMode === 'day' && (
+        <div className="bg-white border rounded-xl shadow-sm overflow-x-auto mb-10">
+          <p className="text-xs text-gray-500 px-3 pt-3">
+            {viewDay.toLocaleDateString('default', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+            {' '}&middot; ISO Week {dayWeek}, {dayYear}
+            {toStr(viewDay) === toStr(today) ? <span className="ml-2 text-blue-600 font-semibold">Today</span> : null}
+          </p>
+          <table className="min-w-full text-xs mt-2">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase border-r">Equipment</th>
+                <th className="px-2 py-2 text-left font-medium text-gray-500 uppercase border-r">Frequency</th>
+                <th className="px-2 py-2 text-left font-medium text-gray-500 uppercase border-r">PIC</th>
+                <th className="px-2 py-2 text-left font-medium text-gray-500 uppercase border-r">This Week's Status</th>
+                <th className="px-2 py-2 text-left font-medium text-gray-500 uppercase"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {filteredEquipment.map(eq => {
+                const row = pmRows.find(r => r.equipment_id === eq.id && r.week_number === dayWeek)
+                const planned = row?.planned
+                const done = !!row?.completed_at
+                const isCurrentWeek = dayYear === realYear && dayWeek === realWeek
+                const clickable = canManage || (isCurrentWeek && planned)
+                return (
+                  <tr key={eq.id}>
+                    <td className="px-3 py-1.5 font-medium border-r whitespace-nowrap">{eq.name}</td>
+                    <td className="px-2 py-1 border-r whitespace-nowrap"><FrequencyControl eq={eq} /></td>
+                    <td className="px-2 py-1 border-r whitespace-nowrap"><PicControl eq={eq} /></td>
+                    <td className="px-2 py-1 border-r whitespace-nowrap">
+                      {!planned ? <span className="text-gray-300">Not scheduled</span> :
+                        done ? <span className="text-green-600 font-semibold flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> Done</span> :
+                        <span className="text-yellow-600 font-semibold">Planned{row?.assigned_to ? ` — ${row.assigned_to}` : ''}</span>}
+                    </td>
+                    <td className="px-2 py-1">
+                      {clickable && (
+                        <button onClick={() => handleCellClick(eq.id, dayWeek)} className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium px-2.5 py-1 rounded-lg">
+                          {!planned ? 'Schedule' : done ? 'Undo Done' : 'Mark Done'}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+              {!loading && filteredEquipment.length === 0 && (
+                <tr><td colSpan={5} className="px-3 py-6 text-center text-gray-400">{equipment.length === 0 ? 'No equipment yet.' : 'No equipment matches these filters.'}</td></tr>
+              )}
+            </tbody>
+          </table>
+          <p className="text-xs text-gray-400 px-3 py-2 border-t">Status reflects the whole ISO week ({fmtShort(mondayOfIsoWeek(dayYear, dayWeek))} onward) this date falls in — the schedule is planned at week granularity. Switch to Week view for the full-year grid.</p>
+        </div>
+      )}
+
       {viewMode === 'week' && (
       <div id="pm-schedule-print-area" className="bg-white border rounded-xl shadow-sm overflow-x-auto mb-10 max-h-[70vh] overflow-y-auto print:max-h-none print:overflow-visible">
         <table className="min-w-max text-xs">
@@ -706,25 +805,8 @@ export default function SchedulePage() {
             {filteredEquipment.map(eq => (
               <tr key={eq.id}>
                 <td className="sticky left-0 bg-white px-3 py-1.5 font-medium border-r whitespace-nowrap">{eq.name}</td>
-                <td className="bg-white px-1.5 py-1 border-r whitespace-nowrap">
-                  {canManage ? (
-                    <select
-                      value={eq.pm_frequency || ''}
-                      onChange={e => e.target.value ? openPlan(eq, e.target.value) : undoPlan(eq)}
-                      className="border rounded px-1 py-0.5 text-[11px] bg-white w-24"
-                    >
-                      <option value="">-</option>
-                      {PM_FREQUENCY_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}
-                    </select>
-                  ) : (eq.pm_frequency || '-')}
-                </td>
-                <td className="bg-white px-1.5 py-1 border-r whitespace-nowrap">
-                  {canManage ? (
-                    <button onClick={() => openPlan(eq)} className="border rounded px-1.5 py-0.5 text-[11px] bg-white hover:bg-gray-50 w-20 text-left truncate" title="Click to set/change PIC">
-                      {eq.pm_pic || <span className="text-gray-400">Set PIC</span>}
-                    </button>
-                  ) : (eq.pm_pic || '-')}
-                </td>
+                <td className="bg-white px-1.5 py-1 border-r whitespace-nowrap"><FrequencyControl eq={eq} /></td>
+                <td className="bg-white px-1.5 py-1 border-r whitespace-nowrap"><PicControl eq={eq} /></td>
                 {weeks.map(wk => {
                   const row = pmRows.find(r => r.equipment_id === eq.id && r.week_number === wk)
                   const planned = row?.planned
@@ -772,8 +854,8 @@ export default function SchedulePage() {
                 return (
                   <tr key={eq.id}>
                     <td className="px-3 py-1.5 font-medium border-r whitespace-nowrap sticky left-0 bg-white">{eq.name}</td>
-                    <td className="px-2 py-1 border-r whitespace-nowrap">{eq.pm_frequency || '-'}</td>
-                    <td className="px-2 py-1 border-r whitespace-nowrap">{eq.pm_pic || '-'}</td>
+                    <td className="px-2 py-1 border-r whitespace-nowrap"><FrequencyControl eq={eq} /></td>
+                    <td className="px-2 py-1 border-r whitespace-nowrap"><PicControl eq={eq} /></td>
                     {monthGroups.map((g, i) => {
                       const monthWeeks = weeks.slice(wkCursor - 1, wkCursor - 1 + g.span)
                       wkCursor += g.span
@@ -908,9 +990,14 @@ export default function SchedulePage() {
                 <p className="text-[11px] text-gray-400 mt-1">They'll see a reminder here and on the Dashboard during the week each occurrence falls in.</p>
               </div>
             </div>
-            <div className="flex justify-end gap-3 mt-5">
-              <button onClick={() => setPlanEquipment(null)} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-200">Cancel</button>
-              <button onClick={savePlan} disabled={savingPlan} className="bg-orange-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-orange-700">{savingPlan ? 'Saving...' : 'Save Plan'}</button>
+            <div className="flex justify-between items-center gap-3 mt-5">
+              {planEquipment.pm_frequency && (
+                <button onClick={() => { const eq = planEquipment; setPlanEquipment(null); undoPlan(eq) }} className="text-red-600 text-sm font-medium hover:text-red-800 px-2 py-2">Cancel Plan</button>
+              )}
+              <div className="flex justify-end gap-3 ml-auto">
+                <button onClick={() => setPlanEquipment(null)} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-200">Close</button>
+                <button onClick={savePlan} disabled={savingPlan} className="bg-orange-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-orange-700">{savingPlan ? 'Saving...' : 'Save Plan'}</button>
+              </div>
             </div>
           </div>
         </div>
