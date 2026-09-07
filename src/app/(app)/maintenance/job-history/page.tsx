@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { History, ChevronLeft, ChevronRight, Image as ImageIcon } from 'lucide-react'
+import { History, ChevronLeft, ChevronRight, Image as ImageIcon, X } from 'lucide-react'
 import PhotoLightbox from '@/components/PhotoLightbox'
 
 type DoneRequest = {
@@ -37,6 +37,7 @@ export default function JobHistoryPage() {
   const [loading, setLoading] = useState(true)
   const [zoomSrc, setZoomSrc] = useState<string | null>(null)
   const [bigThumbs, setBigThumbs] = useState(false)
+  const [detailRow, setDetailRow] = useState<DoneRequest | null>(null)
 
   // Lightweight, department-wide data (not just the current page) for the
   // technician/category picklists and the per-technician summary cards —
@@ -185,7 +186,7 @@ export default function JobHistoryPage() {
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {requests.map(r => (
-              <tr key={r.id} className="hover:bg-gray-50">
+              <tr key={r.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setDetailRow(r)}>
                 <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">{r.completed_at ? new Date(r.completed_at).toLocaleString() : '-'}</td>
                 <td className="px-4 py-3 text-sm font-medium whitespace-nowrap">{r.assigned_to || '-'}</td>
                 <td className="px-4 py-3 text-sm whitespace-nowrap">{r.maintenance_equipment?.name || r.location || '-'}</td>
@@ -197,7 +198,7 @@ export default function JobHistoryPage() {
                 </td>
                 <td className="px-4 py-3">
                   {r.resolution_photo_drive_id ? (
-                    <img src={`/api/maintenance/file/${r.resolution_photo_drive_id}`} className={`rounded object-cover cursor-zoom-in ${bigThumbs ? 'w-24 h-24' : 'w-10 h-10'}`} onClick={() => setZoomSrc(`/api/maintenance/file/${r.resolution_photo_drive_id}`)} />
+                    <img src={`/api/maintenance/file/${r.resolution_photo_drive_id}`} className={`rounded object-cover cursor-zoom-in ${bigThumbs ? 'w-24 h-24' : 'w-10 h-10'}`} onClick={e => { e.stopPropagation(); setZoomSrc(`/api/maintenance/file/${r.resolution_photo_drive_id}`) }} />
                   ) : '-'}
                 </td>
               </tr>
@@ -232,6 +233,74 @@ export default function JobHistoryPage() {
       </div>
 
       <PhotoLightbox src={zoomSrc} onClose={() => setZoomSrc(null)} />
+
+      {detailRow && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setDetailRow(null)}>
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold">Job Detail</h2>
+              <button onClick={() => setDetailRow(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="space-y-3 text-sm">
+              <div>
+                <span className={`text-xs font-bold uppercase rounded-full px-2 py-0.5 ${detailRow.status === 'approved' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>{detailRow.status}</span>
+              </div>
+              <div>
+                <div className="text-xs font-medium text-gray-400 uppercase">Issue</div>
+                <div className="mt-0.5">{detailRow.issue_description}</div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <div className="text-xs font-medium text-gray-400 uppercase">Equipment</div>
+                  <div className="mt-0.5">{detailRow.maintenance_equipment?.name || '-'}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-gray-400 uppercase">Category</div>
+                  <div className="mt-0.5">{detailRow.maintenance_equipment?.category || '-'}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-gray-400 uppercase">Location</div>
+                  <div className="mt-0.5">{detailRow.location || '-'}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-gray-400 uppercase">Requested By</div>
+                  <div className="mt-0.5">{detailRow.requester_name || '-'}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-gray-400 uppercase">Done By</div>
+                  <div className="mt-0.5">{detailRow.assigned_to || '-'}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-gray-400 uppercase">Time Taken</div>
+                  <div className="mt-0.5">{detailRow.completed_at && detailRow.accepted_at ? `${hoursBetween(detailRow.accepted_at, detailRow.completed_at)} h` : '-'}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-gray-400 uppercase">Assigned</div>
+                  <div className="mt-0.5">{detailRow.assigned_at ? new Date(detailRow.assigned_at).toLocaleString() : '-'}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-gray-400 uppercase">Accepted</div>
+                  <div className="mt-0.5">{detailRow.accepted_at ? new Date(detailRow.accepted_at).toLocaleString() : '-'}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-gray-400 uppercase">Completed</div>
+                  <div className="mt-0.5">{detailRow.completed_at ? new Date(detailRow.completed_at).toLocaleString() : '-'}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-gray-400 uppercase">Approved</div>
+                  <div className="mt-0.5">{detailRow.approved_at ? new Date(detailRow.approved_at).toLocaleString() : '-'}{detailRow.approved_by ? ` — ${detailRow.approved_by}` : ''}</div>
+                </div>
+              </div>
+              {detailRow.resolution_photo_drive_id && (
+                <div>
+                  <div className="text-xs font-medium text-gray-400 uppercase mb-1">Evidence Photo</div>
+                  <img src={`/api/maintenance/file/${detailRow.resolution_photo_drive_id}`} className="rounded-lg max-h-72 cursor-zoom-in" onClick={() => setZoomSrc(`/api/maintenance/file/${detailRow.resolution_photo_drive_id}`)} />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

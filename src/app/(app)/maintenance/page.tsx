@@ -253,12 +253,15 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
   }
   const myPendingPm = (pmRows || []).filter(r => r.planned && !r.completed_at && r.assigned_to === myName)
 
-  // Same "outstanding" definition as the Schedule page: has a checklist
-  // template, planned this week, no submission filed yet — surfaced here
-  // too so a technician sees it without navigating away from Dashboard.
-  const submittedEquipIds = new Set((weekSubs || []).map(s => s.equipment_id).filter((id): id is number => id != null))
+  // "Due this week" = planned this week and not yet marked complete —
+  // regardless of whether the equipment has a checklist template attached.
+  // Previously this only fired for equipment WITH a template (via a missing
+  // checklist submission), so any equipment planned without one never
+  // prompted at all even though it was genuinely due. completed_at (not the
+  // checklist-submission table) is now the source of truth for "done".
   const plannedThisWeekIds = new Set((pmRows || []).filter(r => r.planned).map(r => r.equipment_id))
-  const outstandingChecklists = (equipment || []).filter(e => e.pm_checklist_template_id && plannedThisWeekIds.has(e.id) && !submittedEquipIds.has(e.id))
+  const completedThisWeekIds = new Set((pmRows || []).filter(r => r.planned && r.completed_at).map(r => r.equipment_id))
+  const outstandingChecklists = (equipment || []).filter(e => plannedThisWeekIds.has(e.id) && !completedThisWeekIds.has(e.id))
 
   const equipmentCount = (equipment || []).length
   const targetById = new Map((equipment || []).map(e => [e.id, Number(e.target_repair_hours) || Number(settingsRow?.default_target_repair_hours) || 4]))
@@ -422,8 +425,8 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
 
       {outstandingChecklists.length > 0 && (
         <a href="/maintenance/schedule" className="block bg-red-50 border border-red-200 rounded-xl px-5 py-3 mb-6 text-sm font-semibold text-red-800 hover:bg-red-100">
-          ⚠️ {outstandingChecklists.length} checklist{outstandingChecklists.length === 1 ? '' : 's'} outstanding this week — {outstandingChecklists.map(e => e.name).join(', ')}
-          <span className="block font-normal text-red-600 text-xs mt-0.5">Click to open the checklist for any of these on the Schedule page.</span>
+          ⚠️ {outstandingChecklists.length} PM task{outstandingChecklists.length === 1 ? '' : 's'} due this week, not yet marked done — {outstandingChecklists.map(e => e.name).join(', ')}
+          <span className="block font-normal text-red-600 text-xs mt-0.5">Click to review on the Schedule page.</span>
         </a>
       )}
 

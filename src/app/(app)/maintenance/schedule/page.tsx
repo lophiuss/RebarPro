@@ -27,8 +27,13 @@ type Recurrence = {
 type Submission = {
   id: number; template_id: number; equipment_id: number | null; submission_date: string
   done_by: string | null; verified_by: string | null; status: string; approved_by: string | null
+  rejection_reason?: string | null; photo_drive_id?: string | null
   maintenance_checklist_templates: { name: string } | null
   maintenance_equipment: { name: string } | null
+}
+type SubmissionItemDetail = {
+  result: string; qty: number | null; remark: string | null
+  maintenance_checklist_items: { description: string; section_label: string | null } | null
 }
 
 async function compressImage(file: File): Promise<Blob> {
@@ -120,8 +125,20 @@ export default function SchedulePage() {
 
   const [weekSubmittedEquipIds, setWeekSubmittedEquipIds] = useState<Set<number>>(new Set())
   const [currentWeekPlannedIds, setCurrentWeekPlannedIds] = useState<Set<number>>(new Set())
+  const [currentWeekDoneIds, setCurrentWeekDoneIds] = useState<Set<number>>(new Set())
   const [pendingSubmissions, setPendingSubmissions] = useState<Submission[]>([])
   const [approvingId, setApprovingId] = useState<number | null>(null)
+
+  // Checklist History — every submission ever filed (pending/approved/
+  // rejected), in one place, so a "done" checklist has somewhere permanent
+  // to be reviewed rather than only existing transiently in the pending-
+  // approval queue until it's actioned.
+  const [showChecklistHistory, setShowChecklistHistory] = useState(false)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historySubmissions, setHistorySubmissions] = useState<Submission[]>([])
+  const [historyFilter, setHistoryFilter] = useState({ status: '', equipmentId: '' })
+  const [expandedHistoryId, setExpandedHistoryId] = useState<number | null>(null)
+  const [expandedHistoryItems, setExpandedHistoryItems] = useState<SubmissionItemDetail[]>([])
 
   const [equipFilter, setEquipFilter] = useState({ q: '', location: '', condition: '' })
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set())
@@ -188,9 +205,11 @@ export default function SchedulePage() {
     // separately rather than reused from the `pm` query above.
     if (viewYear === realYear) {
       setCurrentWeekPlannedIds(new Set((pm || []).filter(r => r.week_number === realWeek && r.planned).map(r => r.equipment_id)))
+      setCurrentWeekDoneIds(new Set((pm || []).filter(r => r.week_number === realWeek && r.planned && r.completed_at).map(r => r.equipment_id)))
     } else {
-      const { data: curPm } = await supabase.from('maintenance_pm_schedule').select('equipment_id, planned').eq('year', realYear).eq('week_number', realWeek)
+      const { data: curPm } = await supabase.from('maintenance_pm_schedule').select('equipment_id, planned, completed_at').eq('year', realYear).eq('week_number', realWeek)
       setCurrentWeekPlannedIds(new Set((curPm || []).filter(r => r.planned).map(r => r.equipment_id)))
+      setCurrentWeekDoneIds(new Set((curPm || []).filter(r => r.planned && r.completed_at).map(r => r.equipment_id)))
     }
     let manages = false
     if (user) {
@@ -355,6 +374,21 @@ export default function SchedulePage() {
     openFill(template, eq.id)
   }
 
+  // One-click "mark done" for equipment due this week that has no
+  // checklist template (nothing to fill in) — writes directly by
+  // equipment/year/week rather than relying on local pmRows, since the
+  // Outstanding list can be showing regardless of which year the grid is
+  // currently browsing.
+  async function markDueDone(eq: Equipment) {
+    const { data, error } = await supabase.from('maintenance_pm_schedule')
+      .update({ completed_at: new Date().toISOString() })
+      .eq('equipment_id', eq.id).eq('year', realYear).eq('week_number', realWeek)
+      .select('id, equipment_id, week_number, planned, completed_at, assigned_to').maybeSingle()
+    if (error) { alert('Error: ' + error.message); return }
+    setCurrentWeekDoneIds(prev => new Set(prev).add(eq.id))
+    if (data && viewYear === realYear) setPmRows(prev => prev.map(r => r.id === data.id ? data : r))
+  }
+
   async function submitChecklist() {
     if (!fillTemplate) return
     if (fillTemplate.scope === 'single_equipment' && !fillEquipmentId) { alert('Please select the equipment'); return }
@@ -443,6 +477,32 @@ export default function SchedulePage() {
     }
   }
 
+  async function openChecklistHistory() {
+    setShowChecklistHistory(true)
+    setExpandedHistoryId(null)
+    setHistoryLoading(true)
+    let q = supabase.from('maintenance_checklist_submissions')
+      .select('*, maintenance_checklist_templates(name), maintenance_equipment(name)')
+      .order('submission_date', { ascending: false }).order('id', { ascending: false }).limit(300)
+    if (historyFilter.status) q = q.eq('status', historyFilter.status)
+    if (historyFilter.equipmentId) q = q.eq('equipment_id', Number(historyFilter.equipmentId))
+    const { data, error } = await q
+    if (error) alert('Error: ' + error.message)
+    setHistorySubmissions((data as any) || [])
+    setHistoryLoading(false)
+  }
+
+  async function toggleHistoryExpand(sub: Submission) {
+    if (expandedHistoryId === sub.id) { setExpandedHistoryId(null); return }
+    setExpandedHistoryId(sub.id)
+    setExpandedHistoryItems([])
+    const { data, error } = await supabase.from('maintenance_checklist_submission_items')
+      .select('result, qty, remark, maintenance_checklist_items(description, section_label)')
+      .eq('submission_id', sub.id)
+    if (error) { alert('Error: ' + error.message); return }
+    setExpandedHistoryItems((data as any) || [])
+  }
+
   const weeks = Array.from({ length: 52 }, (_, i) => i + 1)
   // Groups consecutive weeks under the month their Monday falls in, for the
   // header's month row (colSpan per group).
@@ -475,12 +535,16 @@ export default function SchedulePage() {
   })
   const managersAndSupervisors = staff.filter(s => s.role === 'admin' || s.role === 'manager')
 
-  // Outstanding = has a checklist template, planned for this week, and no
-  // submission filed yet this week — the "auto light up" list. Grouped by
-  // category so a technician can jump straight to "Crane" -> click the
-  // model -> fill it, per the requested flow.
+  // Outstanding = planned for this week and not yet marked complete — the
+  // "auto light up" list. Applies whether or not the equipment has a
+  // checklist template: equipment with one is missing a filed submission
+  // (or its schedule row just isn't completed yet); equipment without one
+  // is only ever completed via the direct "Mark Done" action. Previously
+  // this required a checklist template, so planned equipment without one
+  // never prompted at all. Grouped by category so a technician can jump
+  // straight to "Crane" -> click the model -> fill it, per the requested flow.
   const outstanding = equipment.filter(e =>
-    e.pm_checklist_template_id && currentWeekPlannedIds.has(e.id) && !weekSubmittedEquipIds.has(e.id)
+    currentWeekPlannedIds.has(e.id) && !currentWeekDoneIds.has(e.id)
   )
   const outstandingByCategory = outstanding.reduce((acc: Record<string, Equipment[]>, e) => {
     const key = e.category || 'Uncategorized'
@@ -579,15 +643,18 @@ export default function SchedulePage() {
 
       {outstanding.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-xl p-5 mb-6">
-          <h2 className="text-sm font-bold text-red-800 flex items-center gap-2 mb-3"><AlertTriangle className="w-4 h-4" /> Outstanding This Week ({outstanding.length}) — checklist not yet filed</h2>
+          <h2 className="text-sm font-bold text-red-800 flex items-center gap-2 mb-3"><AlertTriangle className="w-4 h-4" /> PM Due This Week ({outstanding.length}) — not yet marked done</h2>
           <div className="space-y-3">
             {Object.entries(outstandingByCategory).map(([cat, eqs]) => (
               <div key={cat}>
                 <div className="text-xs font-semibold text-red-700 uppercase mb-1.5">{cat}</div>
                 <div className="flex flex-wrap gap-2">
                   {eqs.map(e => (
-                    <button key={e.id} onClick={() => openFillForEquipment(e)} className="bg-white border border-red-300 text-red-800 text-sm font-medium px-3 py-1.5 rounded-lg hover:bg-red-100">
+                    <button key={e.id} onClick={() => e.pm_checklist_template_id ? openFillForEquipment(e) : markDueDone(e)}
+                      title={e.pm_checklist_template_id ? 'Click to fill in the checklist' : 'No checklist assigned — click to mark done'}
+                      className="bg-white border border-red-300 text-red-800 text-sm font-medium px-3 py-1.5 rounded-lg hover:bg-red-100">
                       {e.name}
+                      {!e.pm_checklist_template_id && <span className="ml-1.5 text-[10px] font-normal text-red-500">(mark done)</span>}
                     </button>
                   ))}
                 </div>
@@ -675,7 +742,7 @@ export default function SchedulePage() {
             {selectedCategories.size === 0 ? 'All' : `${selectedCategories.size} selected`}
           </button>
           {showCategoryPicker && (
-            <div className="absolute z-20 mt-1 bg-white border rounded-lg shadow-lg p-2 w-56 max-h-64 overflow-y-auto">
+            <div className="absolute z-30 mt-1 bg-white border rounded-lg shadow-lg p-2 w-56 max-h-64 overflow-y-auto">
               {categories.map(c => (
                 <label key={c} className="flex items-center gap-2 px-2 py-1.5 text-sm hover:bg-gray-50 rounded cursor-pointer">
                   <input type="checkbox" checked={selectedCategories.has(c)} onChange={e => {
@@ -878,7 +945,10 @@ export default function SchedulePage() {
         </div>
       )}
 
-      <h2 className="text-lg font-bold mb-3 flex items-center gap-2"><ClipboardList className="w-5 h-5" /> Checklist Templates</h2>
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-lg font-bold flex items-center gap-2"><ClipboardList className="w-5 h-5" /> Checklist Templates</h2>
+        <button onClick={openChecklistHistory} className="text-sm text-gray-500 hover:text-gray-700 px-3 py-2">Checklist History</button>
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {templates.map(t => (
           <div key={t.id} className="bg-white border rounded-xl shadow-sm p-4">
@@ -1089,6 +1159,104 @@ export default function SchedulePage() {
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showChecklistHistory && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-3xl w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold">Checklist History</h2>
+              <button onClick={() => setShowChecklistHistory(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="flex flex-wrap items-end gap-3 mb-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
+                <select value={historyFilter.status} onChange={e => setHistoryFilter({ ...historyFilter, status: e.target.value })} className="border rounded-md px-3 py-2 text-sm bg-white w-32">
+                  <option value="">All</option>
+                  <option value="pending">Pending</option>
+                  <option value="approved">Approved</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Equipment</label>
+                <select value={historyFilter.equipmentId} onChange={e => setHistoryFilter({ ...historyFilter, equipmentId: e.target.value })} className="border rounded-md px-3 py-2 text-sm bg-white w-40">
+                  <option value="">All</option>
+                  {equipment.map(eq => <option key={eq.id} value={eq.id}>{eq.name}</option>)}
+                </select>
+              </div>
+              <button onClick={openChecklistHistory} className="bg-orange-600 text-white text-sm font-medium px-3 py-2 rounded-lg hover:bg-orange-700">Apply</button>
+            </div>
+            <div className="max-h-[28rem] overflow-y-auto border rounded-lg">
+              <table className="min-w-full text-sm">
+                <thead className="bg-gray-50 sticky top-0">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Template</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Equipment</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Done By</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {historySubmissions.map(s => (
+                    <>
+                      <tr key={s.id} className="cursor-pointer hover:bg-gray-50" onClick={() => toggleHistoryExpand(s)}>
+                        <td className="px-3 py-2 whitespace-nowrap">{s.submission_date}</td>
+                        <td className="px-3 py-2">{s.maintenance_checklist_templates?.name || '-'}</td>
+                        <td className="px-3 py-2">{s.maintenance_equipment?.name || '-'}</td>
+                        <td className="px-3 py-2">{s.done_by || '-'}</td>
+                        <td className="px-3 py-2">
+                          <span className={`text-xs font-bold uppercase rounded-full px-2 py-0.5 ${s.status === 'approved' ? 'bg-green-100 text-green-700' : s.status === 'rejected' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>{s.status}</span>
+                        </td>
+                        <td className="px-3 py-2 text-xs text-gray-400">{expandedHistoryId === s.id ? 'Hide ▲' : 'Details ▼'}</td>
+                      </tr>
+                      {expandedHistoryId === s.id && (
+                        <tr>
+                          <td colSpan={6} className="px-3 py-3 bg-gray-50">
+                            <div className="text-xs text-gray-500 mb-2 flex flex-wrap gap-x-4 gap-y-1">
+                              <span>Verified by: {s.verified_by || '-'}</span>
+                              <span>Approved/Actioned by: {s.approved_by || '-'}</span>
+                              {s.status === 'rejected' && s.rejection_reason && <span className="text-red-600">Rejection reason: {s.rejection_reason}</span>}
+                              {s.photo_drive_id && <a href={`/api/maintenance/file/${s.photo_drive_id}`} target="_blank" className="text-blue-600 hover:underline">View evidence photo</a>}
+                            </div>
+                            {expandedHistoryItems.length === 0 ? (
+                              <p className="text-xs text-gray-400">No item-level results recorded for this submission.</p>
+                            ) : (
+                              <table className="min-w-full text-xs">
+                                <tbody className="divide-y divide-gray-200">
+                                  {expandedHistoryItems.map((it, i) => (
+                                    <tr key={i}>
+                                      <td className="py-1 pr-2 text-gray-400 w-28">{it.maintenance_checklist_items?.section_label || '-'}</td>
+                                      <td className="py-1 pr-2">{it.maintenance_checklist_items?.description || '-'}</td>
+                                      <td className="py-1 pr-2 w-16">
+                                        <span className={`font-bold uppercase ${it.result === 'ok' ? 'text-green-600' : 'text-red-600'}`}>{it.result}</span>
+                                      </td>
+                                      <td className="py-1 pr-2 w-16">{it.qty ?? ''}</td>
+                                      <td className="py-1 text-gray-500">{it.remark || ''}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  ))}
+                  {!historyLoading && historySubmissions.length === 0 && (
+                    <tr><td colSpan={6} className="px-3 py-6 text-center text-gray-400">No checklist submissions yet.</td></tr>
+                  )}
+                  {historyLoading && (
+                    <tr><td colSpan={6} className="px-3 py-6 text-center text-gray-400">Loading...</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs text-gray-400 mt-3">Shows the most recent 300 submissions matching the filters above — this is the permanent record of every checklist filed, whatever its approval status.</p>
           </div>
         </div>
       )}
