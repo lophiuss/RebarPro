@@ -8,7 +8,7 @@ type Equipment = { id: number; name: string }
 type Request = {
   id: number; part_name: string; equipment_id: number | null; location: string | null
   quantity_requested: number; quantity_received: number; request_date: string | null; received_date: string | null
-  received_by: string | null
+  received_by: string | null; remark: string | null; requisition_number: string | null
   maintenance_equipment: { name: string } | null
 }
 
@@ -18,7 +18,7 @@ export default function SparePartsPage() {
   const [equipment, setEquipment] = useState<Equipment[]>([])
   const [locations, setLocations] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
-  const [form, setForm] = useState({ partName: '', equipmentId: '', location: '', quantityRequested: '', requestDate: new Date().toISOString().split('T')[0] })
+  const [form, setForm] = useState({ partName: '', equipmentId: '', location: '', quantityRequested: '', requestDate: new Date().toISOString().split('T')[0], requisitionNumber: '', remark: '' })
   const [saving, setSaving] = useState(false)
 
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -91,9 +91,11 @@ export default function SparePartsPage() {
         quantity_requested: Number(form.quantityRequested),
         quantity_received: 0,
         request_date: form.requestDate,
+        requisition_number: form.requisitionNumber.trim() || null,
+        remark: form.remark.trim() || null,
       }])
       if (error) throw error
-      setForm({ partName: '', equipmentId: '', location: '', quantityRequested: '', requestDate: new Date().toISOString().split('T')[0] })
+      setForm({ partName: '', equipmentId: '', location: '', quantityRequested: '', requestDate: new Date().toISOString().split('T')[0], requisitionNumber: '', remark: '' })
       await load()
     } catch (err: any) {
       alert('Error: ' + err.message)
@@ -108,6 +110,7 @@ export default function SparePartsPage() {
       part_name: r.part_name, equipment_id: r.equipment_id ?? '', location: r.location || '',
       quantity_requested: r.quantity_requested, quantity_received: r.quantity_received,
       request_date: r.request_date || '', received_date: r.received_date || '',
+      requisition_number: r.requisition_number || '', remark: r.remark || '',
     })
   }
 
@@ -121,6 +124,8 @@ export default function SparePartsPage() {
       quantity_received: Number(editData.quantity_received) || 0,
       request_date: editData.request_date || null,
       received_date: editData.received_date || null,
+      requisition_number: editData.requisition_number.trim() || null,
+      remark: editData.remark.trim() || null,
     }).eq('id', editingId)
     if (error) { alert('Error: ' + error.message); return }
     setEditingId(null)
@@ -172,6 +177,14 @@ export default function SparePartsPage() {
           <label className="block text-xs font-medium text-gray-500 mb-1">Request Date</label>
           <input type="date" value={form.requestDate} onChange={e => setForm({ ...form, requestDate: e.target.value })} className="border rounded-md px-3 py-2 text-sm" />
         </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">Requisition No.</label>
+          <input value={form.requisitionNumber} onChange={e => setForm({ ...form, requisitionNumber: e.target.value })} placeholder="e.g. PR-2026-0142" className="border rounded-md px-3 py-2 text-sm w-36" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">Remark</label>
+          <input value={form.remark} onChange={e => setForm({ ...form, remark: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-40" />
+        </div>
         <button type="submit" disabled={saving} className="flex items-center gap-1.5 bg-orange-600 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-orange-700">
           <Plus className="w-4 h-4" /> {saving ? 'Saving...' : 'Add Request'}
         </button>
@@ -182,11 +195,13 @@ export default function SparePartsPage() {
           <thead className="bg-gray-50">
             <tr>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Request Date</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Requisition No.</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Part</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Equipment</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Requested</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Received</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Remark</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
             </tr>
           </thead>
@@ -194,6 +209,7 @@ export default function SparePartsPage() {
             {requests.map(r => editingId === r.id ? (
               <tr key={r.id} className="bg-orange-50/40">
                 <td className="px-4 py-2"><input type="date" value={editData.request_date} onChange={e => setEditData({ ...editData, request_date: e.target.value })} className="border rounded px-2 py-1 text-sm" /></td>
+                <td className="px-4 py-2"><input value={editData.requisition_number} onChange={e => setEditData({ ...editData, requisition_number: e.target.value })} className="border rounded px-2 py-1 text-sm w-28" /></td>
                 <td className="px-4 py-2"><input value={editData.part_name} onChange={e => setEditData({ ...editData, part_name: e.target.value })} className="border rounded px-2 py-1 text-sm w-full" /></td>
                 <td className="px-4 py-2">
                   <select value={editData.equipment_id} onChange={e => setEditData({ ...editData, equipment_id: e.target.value })} className="border rounded px-2 py-1 text-sm bg-white w-full">
@@ -214,6 +230,7 @@ export default function SparePartsPage() {
                     <input type="date" value={editData.received_date} onChange={e => setEditData({ ...editData, received_date: e.target.value })} className="border rounded px-2 py-1 text-xs w-32" />
                   </div>
                 </td>
+                <td className="px-4 py-2"><input value={editData.remark} onChange={e => setEditData({ ...editData, remark: e.target.value })} className="border rounded px-2 py-1 text-sm w-32" /></td>
                 <td className="px-4 py-2">
                   <div className="flex items-center gap-1">
                     <button onClick={saveEdit} className="text-green-600 hover:text-green-800 p-1"><Check className="w-4 h-4" /></button>
@@ -224,6 +241,7 @@ export default function SparePartsPage() {
             ) : (
               <tr key={r.id} className="hover:bg-gray-50">
                 <td className="px-4 py-3 text-sm whitespace-nowrap">{r.request_date || '-'}</td>
+                <td className="px-4 py-3 text-sm">{r.requisition_number || '-'}</td>
                 <td className="px-4 py-3 text-sm font-medium">{r.part_name}</td>
                 <td className="px-4 py-3 text-sm">{r.maintenance_equipment?.name || '-'}</td>
                 <td className="px-4 py-3 text-sm">{r.location || '-'}</td>
@@ -232,6 +250,7 @@ export default function SparePartsPage() {
                   <span className={`text-sm font-medium ${r.quantity_received >= r.quantity_requested ? 'text-green-600' : 'text-amber-600'}`}>{r.quantity_received}</span>
                   {r.received_by && <span className="block text-[11px] text-gray-400">by {r.received_by}{r.received_date ? ` · ${r.received_date}` : ''}</span>}
                 </td>
+                <td className="px-4 py-3 text-sm text-gray-500 max-w-[160px] truncate">{r.remark || '-'}</td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-1">
                     {r.quantity_received < r.quantity_requested && (
@@ -244,7 +263,7 @@ export default function SparePartsPage() {
               </tr>
             ))}
             {!loading && requests.length === 0 && (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">No spare part requests yet.</td></tr>
+              <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-500">No spare part requests yet.</td></tr>
             )}
           </tbody>
         </table>

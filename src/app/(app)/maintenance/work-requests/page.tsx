@@ -51,7 +51,7 @@ function hoursBetween(a: string, b: string) {
 // an exact full-string match.
 function splitNames(assignedTo: string | null): string[] {
   if (!assignedTo) return []
-  return assignedTo.split(/\s*(?:,|&|;|\band\b)\s*/i).map(n => n.trim()).filter(Boolean)
+  return assignedTo.split(/\s*(?:,|\/|&|;|\band\b)\s*/i).map(n => n.trim()).filter(Boolean)
 }
 
 const STATUS_STYLE: Record<string, string> = {

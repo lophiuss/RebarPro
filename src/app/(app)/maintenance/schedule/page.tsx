@@ -12,6 +12,10 @@ type Equipment = {
   pm_frequency: string | null; pm_pic: string | null
 }
 const PM_FREQUENCY_OPTIONS = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Half-Yearly', 'Yearly']
+// The PM grid is week-granularity (one cell per ISO week) — "Daily" can't
+// literally mean a per-day cell here, so it maps to "planned every week",
+// the closest representable meaning within this grid.
+const PM_FREQUENCY_WEEKS: Record<string, number> = { Daily: 1, Weekly: 1, Monthly: 4, Quarterly: 13, 'Half-Yearly': 26, Yearly: 52 }
 type Template = { id: number; name: string; scope: 'single_equipment' | 'section_list'; frequency: string | null }
 type Item = { id: number; template_id: number; section_label: string | null; item_no: number | null; description: string }
 type PmRow = { id: number; equipment_id: number; week_number: number; planned: boolean; completed_at: string | null; assigned_to: string | null }
@@ -100,6 +104,7 @@ export default function SchedulePage() {
   const { isoYear: realYear, week: realWeek } = isoWeekInfo(today)
 
   const [viewYear, setViewYear] = useState(realYear)
+  const [viewMode, setViewMode] = useState<'week' | 'month'>('week')
   const [equipment, setEquipment] = useState<Equipment[]>([])
   const [pmRows, setPmRows] = useState<PmRow[]>([])
   const [templates, setTemplates] = useState<Template[]>([])
@@ -122,6 +127,15 @@ export default function SchedulePage() {
   const [newRec, setNewRec] = useState({ equipmentId: '', frequencyWeeks: '4', startDate: today.toISOString().split('T')[0], assignedTo: '', notes: '' })
   const [savingRec, setSavingRec] = useState(false)
   const [showRecurrenceList, setShowRecurrenceList] = useState(false)
+
+  // Quick per-equipment "set the PM plan" flow off the Frequency/PIC
+  // columns — picking a frequency (or clicking an existing PIC to change
+  // it) opens this instead of requiring the full New Recurring Schedule
+  // form. Confirming creates the same maintenance_pm_recurrence rule +
+  // generated weeks that form does.
+  const [planEquipment, setPlanEquipment] = useState<Equipment | null>(null)
+  const [planForm, setPlanForm] = useState({ frequency: '', startDate: today.toISOString().split('T')[0], pic: '' })
+  const [savingPlan, setSavingPlan] = useState(false)
 
   const [fillTemplate, setFillTemplate] = useState<Template | null>(null)
   const [fillEquipmentId, setFillEquipmentId] = useState('')
@@ -214,15 +228,58 @@ export default function SchedulePage() {
     setPmRows(prev => [...prev.filter(r => r.id !== data.id), data])
   }
 
-  // Manager-set PM frequency/PIC label, shown as columns next to Equipment
-  // — purely descriptive/reference fields (the recurrence rule above is
-  // what actually generates scheduled weeks), so managers can see and set
-  // "this one's quarterly, assigned to X" at a glance without opening
-  // Settings or a recurrence modal.
-  async function updateEquipmentField(equipmentId: number, field: 'pm_frequency' | 'pm_pic', value: string) {
-    const { error } = await supabase.from('maintenance_equipment').update({ [field]: value || null }).eq('id', equipmentId)
-    if (error) { alert('Error: ' + error.message); return }
-    setEquipment(prev => prev.map(e => e.id === equipmentId ? { ...e, [field]: value || null } : e))
+  function openPlan(eq: Equipment, presetFrequency?: string) {
+    setPlanEquipment(eq)
+    setPlanForm({ frequency: presetFrequency || eq.pm_frequency || 'Weekly', startDate: today.toISOString().split('T')[0], pic: eq.pm_pic || '' })
+  }
+
+  // Confirming the plan creates a real recurrence rule (same mechanism as
+  // "New Recurring Schedule") and generates its weeks going forward, then
+  // stamps the equipment's Frequency/PIC columns to match — this is what
+  // makes picking a frequency actually auto-plan from the chosen date,
+  // instead of just being a label.
+  async function savePlan() {
+    if (!planEquipment || !planForm.frequency || !planForm.startDate) return
+    setSavingPlan(true)
+    try {
+      const freqWeeks = PM_FREQUENCY_WEEKS[planForm.frequency] || 4
+      const { error: recErr } = await supabase.from('maintenance_pm_recurrence').insert([{
+        equipment_id: planEquipment.id, frequency_weeks: freqWeeks, start_date: planForm.startDate, assigned_to: planForm.pic || null,
+      }])
+      if (recErr) throw recErr
+      const rows = buildRecurrenceRows(planEquipment.id, freqWeeks, planForm.startDate, planForm.pic || null)
+      const { error: upErr } = await supabase.from('maintenance_pm_schedule').upsert(rows, { onConflict: 'equipment_id,year,week_number' })
+      if (upErr) throw upErr
+      const { error: eqErr } = await supabase.from('maintenance_equipment').update({
+        pm_frequency: planForm.frequency, pm_pic: planForm.pic || null,
+      }).eq('id', planEquipment.id)
+      if (eqErr) throw eqErr
+      setPlanEquipment(null)
+      await load()
+    } catch (err: any) {
+      alert('Error: ' + err.message)
+    } finally {
+      setSavingPlan(false)
+    }
+  }
+
+  // "Undo" — stops the recurrence(s) generating further weeks for this
+  // equipment and clears its Frequency/PIC columns. Already-generated weeks
+  // stay on the calendar (same as deleting a recurrence from the list).
+  async function undoPlan(eq: Equipment) {
+    if (!confirm(`Stop ${eq.name}'s PM plan? Already-scheduled weeks stay on the calendar — this only stops it from planning further weeks and clears Frequency/PIC.`)) return
+    try {
+      const toStop = recurrences.filter(r => r.equipment_id === eq.id)
+      for (const r of toStop) {
+        const { error } = await supabase.from('maintenance_pm_recurrence').delete().eq('id', r.id)
+        if (error) throw error
+      }
+      const { error: eqErr } = await supabase.from('maintenance_equipment').update({ pm_frequency: null, pm_pic: null }).eq('id', eq.id)
+      if (eqErr) throw eqErr
+      await load()
+    } catch (err: any) {
+      alert('Error: ' + err.message)
+    }
   }
 
   function handleCellClick(equipmentId: number, weekNumber: number) {
@@ -548,6 +605,11 @@ export default function SchedulePage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+            {(['week', 'month'] as const).map(m => (
+              <button key={m} onClick={() => setViewMode(m)} className={`px-3 py-1.5 rounded-md text-xs font-semibold capitalize transition ${viewMode === m ? 'bg-white shadow-sm text-slate-900' : 'text-gray-500 hover:text-gray-700'}`}>{m}</button>
+            ))}
+          </div>
           <button onClick={() => setShowRecurrenceList(true)} className="text-sm text-gray-500 hover:text-gray-700 px-3 py-2">Recurring Schedules ({recurrences.filter(r => r.is_active).length})</button>
           <button onClick={() => setShowNewRecurrence(true)} className="flex items-center gap-1.5 bg-orange-600 text-white text-sm font-medium px-3 py-2 rounded-lg hover:bg-orange-700">
             <Plus className="w-4 h-4" /> New Recurring Schedule
@@ -608,6 +670,7 @@ export default function SchedulePage() {
         <button onClick={exportPdf} className="text-sm bg-gray-100 text-gray-700 font-medium px-3 py-2 rounded-lg hover:bg-gray-200">Export to PDF</button>
       </div>
 
+      {viewMode === 'week' && (
       <div id="pm-schedule-print-area" className="bg-white border rounded-xl shadow-sm overflow-x-auto mb-10 max-h-[70vh] overflow-y-auto print:max-h-none print:overflow-visible">
         <table className="min-w-max text-xs">
           <thead>
@@ -645,7 +708,11 @@ export default function SchedulePage() {
                 <td className="sticky left-0 bg-white px-3 py-1.5 font-medium border-r whitespace-nowrap">{eq.name}</td>
                 <td className="bg-white px-1.5 py-1 border-r whitespace-nowrap">
                   {canManage ? (
-                    <select value={eq.pm_frequency || ''} onChange={e => updateEquipmentField(eq.id, 'pm_frequency', e.target.value)} className="border rounded px-1 py-0.5 text-[11px] bg-white w-24">
+                    <select
+                      value={eq.pm_frequency || ''}
+                      onChange={e => e.target.value ? openPlan(eq, e.target.value) : undoPlan(eq)}
+                      className="border rounded px-1 py-0.5 text-[11px] bg-white w-24"
+                    >
                       <option value="">-</option>
                       {PM_FREQUENCY_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}
                     </select>
@@ -653,7 +720,9 @@ export default function SchedulePage() {
                 </td>
                 <td className="bg-white px-1.5 py-1 border-r whitespace-nowrap">
                   {canManage ? (
-                    <input defaultValue={eq.pm_pic || ''} onBlur={e => e.target.value !== (eq.pm_pic || '') && updateEquipmentField(eq.id, 'pm_pic', e.target.value)} placeholder="PIC" className="border rounded px-1 py-0.5 text-[11px] w-20" />
+                    <button onClick={() => openPlan(eq)} className="border rounded px-1.5 py-0.5 text-[11px] bg-white hover:bg-gray-50 w-20 text-left truncate" title="Click to set/change PIC">
+                      {eq.pm_pic || <span className="text-gray-400">Set PIC</span>}
+                    </button>
                   ) : (eq.pm_pic || '-')}
                 </td>
                 {weeks.map(wk => {
@@ -682,6 +751,50 @@ export default function SchedulePage() {
           </tbody>
         </table>
       </div>
+      )}
+
+      {viewMode === 'month' && (
+        <div className="bg-white border rounded-xl shadow-sm overflow-x-auto mb-10">
+          <table className="min-w-full text-xs">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase border-r sticky left-0 bg-gray-50">Equipment</th>
+                <th className="px-2 py-2 text-left font-medium text-gray-500 uppercase border-r">Frequency</th>
+                <th className="px-2 py-2 text-left font-medium text-gray-500 uppercase border-r">PIC</th>
+                {monthGroups.map((g, i) => (
+                  <th key={i} className={`px-2 py-2 text-center font-medium uppercase border-r ${g.month === today.toLocaleString('default', { month: 'short', timeZone: 'UTC' }) && viewYear === realYear ? 'bg-blue-50 text-blue-700' : 'text-gray-500'}`}>{g.month}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {filteredEquipment.map(eq => {
+                let wkCursor = 1
+                return (
+                  <tr key={eq.id}>
+                    <td className="px-3 py-1.5 font-medium border-r whitespace-nowrap sticky left-0 bg-white">{eq.name}</td>
+                    <td className="px-2 py-1 border-r whitespace-nowrap">{eq.pm_frequency || '-'}</td>
+                    <td className="px-2 py-1 border-r whitespace-nowrap">{eq.pm_pic || '-'}</td>
+                    {monthGroups.map((g, i) => {
+                      const monthWeeks = weeks.slice(wkCursor - 1, wkCursor - 1 + g.span)
+                      wkCursor += g.span
+                      const rows = monthWeeks.map(wk => pmRows.find(r => r.equipment_id === eq.id && r.week_number === wk)).filter(Boolean) as PmRow[]
+                      const planned = rows.filter(r => r.planned)
+                      const done = planned.filter(r => r.completed_at)
+                      const label = planned.length === 0 ? '-' : `${done.length}/${planned.length}`
+                      const color = planned.length === 0 ? 'text-gray-300' : done.length === planned.length ? 'text-green-600 font-semibold' : 'text-amber-600 font-semibold'
+                      return <td key={i} className={`px-2 py-1.5 text-center border-r ${color}`}>{label}</td>
+                    })}
+                  </tr>
+                )
+              })}
+              {!loading && filteredEquipment.length === 0 && (
+                <tr><td colSpan={15} className="px-3 py-6 text-center text-gray-400">{equipment.length === 0 ? 'No equipment yet.' : 'No equipment matches these filters.'}</td></tr>
+              )}
+            </tbody>
+          </table>
+          <p className="text-xs text-gray-400 px-3 py-2 border-t">Done / Planned weeks per month. Switch to Week view to tick off an individual week.</p>
+        </div>
+      )}
 
       <h2 className="text-lg font-bold mb-3 flex items-center gap-2"><ClipboardList className="w-5 h-5" /> Checklist Templates</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -762,6 +875,42 @@ export default function SchedulePage() {
             <div className="flex justify-end gap-3">
               <button onClick={() => setFillTemplate(null)} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-200">Cancel</button>
               <button onClick={submitChecklist} disabled={saving} className="bg-orange-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-orange-700">{saving ? 'Submitting...' : 'Submit Checklist'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {planEquipment && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold">PM Plan — {planEquipment.name}</h2>
+              <button onClick={() => setPlanEquipment(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Frequency</label>
+                <select value={planForm.frequency} onChange={e => setPlanForm({ ...planForm, frequency: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm bg-white">
+                  {PM_FREQUENCY_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}
+                </select>
+                {planForm.frequency === 'Daily' && <p className="text-[11px] text-gray-400 mt-1">This grid plans by week, so Daily plans every week — the closest fit.</p>}
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Start From</label>
+                <input required type="date" value={planForm.startDate} onChange={e => setPlanForm({ ...planForm, startDate: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">PIC</label>
+                <select value={planForm.pic} onChange={e => setPlanForm({ ...planForm, pic: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm bg-white">
+                  <option value="">(Unassigned)</option>
+                  {staff.map(s => <option key={s.name} value={s.name}>{s.name} ({s.role})</option>)}
+                </select>
+                <p className="text-[11px] text-gray-400 mt-1">They'll see a reminder here and on the Dashboard during the week each occurrence falls in.</p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-5">
+              <button onClick={() => setPlanEquipment(null)} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-200">Cancel</button>
+              <button onClick={savePlan} disabled={savingPlan} className="bg-orange-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-orange-700">{savingPlan ? 'Saving...' : 'Save Plan'}</button>
             </div>
           </div>
         </div>
