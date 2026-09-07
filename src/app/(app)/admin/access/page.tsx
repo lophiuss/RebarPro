@@ -361,7 +361,13 @@ export default function AccessControlPage() {
       {currentDept && (() => {
         const dept = currentDept
         const deptPeople = profiles.filter(p => accessFor(p.id, dept))
-        const grantablePeople = profiles.filter(p => !accessFor(p.id, dept))
+        // Sorted by name (listPeople() itself sorts by email, which made
+        // this dropdown's order look arbitrary relative to the names shown)
+        // — several people share a first name only (e.g. two "Anim"s), so
+        // this also needs the email visible to actually tell them apart.
+        const grantablePeople = profiles
+          .filter(p => !accessFor(p.id, dept))
+          .sort((a, b) => (a.full_name || a.email).localeCompare(b.full_name || b.email))
         const roles = ROLES[dept].filter(r => r !== 'admin')
         return (
           <>
@@ -373,7 +379,11 @@ export default function AccessControlPage() {
                   <label className="block text-xs font-medium text-gray-500 mb-1">Person</label>
                   <select value={grantUserId} onChange={e => setGrantUserId(e.target.value)} className="border rounded-md px-3 py-2 text-sm bg-white w-64">
                     <option value="">Select a person…</option>
-                    {grantablePeople.map(p => <option key={p.id} value={p.id}>{p.full_name || p.email || p.id}</option>)}
+                    {grantablePeople.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.full_name ? `${p.full_name} — ${p.email}` : (p.email || p.id)}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>
