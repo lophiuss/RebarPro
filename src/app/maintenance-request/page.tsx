@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
-import { submitWorkRequest } from './actions'
+import { useEffect, useState } from 'react'
+import { submitWorkRequest, listPublicEquipmentOptions, type PublicEquipmentOption } from './actions'
 import { Wrench, CheckCircle2, Camera } from 'lucide-react'
+import CategoryEquipmentPicker from '@/components/CategoryEquipmentPicker'
 
 async function compressToDataUrl(file: File): Promise<string> {
   const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -30,9 +31,14 @@ async function compressToDataUrl(file: File): Promise<string> {
 
 export default function MaintenanceRequestPage() {
   const [form, setForm] = useState({ requesterName: '', requesterContact: '', location: '', issueDescription: '' })
+  const [equipmentOptions, setEquipmentOptions] = useState<PublicEquipmentOption[]>([])
+  const [category, setCategory] = useState('')
+  const [equipmentId, setEquipmentId] = useState('')
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [done, setDone] = useState(false)
+
+  useEffect(() => { listPublicEquipmentOptions().then(setEquipmentOptions).catch(() => {}) }, [])
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -40,7 +46,7 @@ export default function MaintenanceRequestPage() {
     setSubmitting(true)
     try {
       const photoDataUrl = photoFile ? await compressToDataUrl(photoFile) : undefined
-      await submitWorkRequest({ ...form, photoDataUrl })
+      await submitWorkRequest({ ...form, equipmentId, photoDataUrl })
       setDone(true)
     } catch (err: any) {
       alert('Something went wrong: ' + err.message)
@@ -83,6 +89,10 @@ export default function MaintenanceRequestPage() {
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">Location</label>
             <input value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} placeholder="e.g. PLO 68 Batching Plant 1" className="w-full border border-gray-300 rounded-lg px-3.5 py-2.5 text-sm" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Which machine? (optional)</label>
+            <CategoryEquipmentPicker options={equipmentOptions} categoryValue={category} equipmentValue={equipmentId} onCategoryChange={setCategory} onEquipmentChange={setEquipmentId} />
           </div>
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1.5">What's the issue? *</label>

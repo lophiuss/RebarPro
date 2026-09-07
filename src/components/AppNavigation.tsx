@@ -8,7 +8,7 @@ import {
   ShieldCheck, Building2, Boxes, Scale, PackageOpen, ScrollText, BarChart3,
   ArrowLeftRight, ClipboardList, AlertTriangle, Factory, DoorClosed, KeyRound,
   Radio, Siren, ClipboardEdit, User, Sparkles, Wrench, CalendarClock,
-  PackageSearch, Inbox
+  PackageSearch, Inbox, History
 } from 'lucide-react'
 
 export type Department = 'rebar' | 'cement' | 'security' | 'maintenance'
@@ -99,6 +99,7 @@ export const NAV_ITEMS: Record<Department, NavItem[]> = {
     { href: '/maintenance/jobs', label: 'Jobs', icon: ClipboardEdit },
     { href: '/maintenance/schedule', label: 'Schedule & Checklists', icon: CalendarClock },
     { href: '/maintenance/work-requests', label: 'Work Requests', icon: Inbox },
+    { href: '/maintenance/job-history', label: 'Job History', icon: History },
     { href: '/maintenance/spare-parts', label: 'Spare Parts', icon: PackageSearch },
     { href: '/maintenance/critical-issues', label: 'Critical Issues', icon: AlertTriangle },
     { href: '/maintenance/settings', label: 'Settings', icon: Settings },

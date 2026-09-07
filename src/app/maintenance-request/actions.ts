@@ -11,10 +11,31 @@ import { uploadToDrive } from '@/lib/google-drive'
 // The photo upload itself needs no Supabase auth (uploadToDrive only talks
 // to Google, not Supabase) — safe here because this file's only export is
 // this one narrow insert path, not a general-purpose upload endpoint.
+export type PublicEquipmentOption = { id: number; name: string; category: string | null }
+
+// Read-only, narrow (id/name/category only — no location, ownership, or
+// anything else) equipment list for the public form's category -> item
+// picker. Needs the service-role client since an anonymous visitor has no
+// session at all, so no RLS-satisfying request is possible; kept safe by
+// only ever selecting these three columns and excluding retired/spoiled
+// equipment, same as the logged-in Equipment list's own default.
+export async function listPublicEquipmentOptions(): Promise<PublicEquipmentOption[]> {
+  const admin = createAdminClient()
+  const { data, error } = await admin
+    .from('maintenance_equipment')
+    .select('id, name, category')
+    .eq('is_active', true)
+    .or('condition.neq.spoil,condition.is.null')
+    .order('name')
+  if (error) throw error
+  return data || []
+}
+
 export async function submitWorkRequest(input: {
   requesterName: string
   requesterContact: string
   location: string
+  equipmentId?: string
   issueDescription: string
   photoDataUrl?: string
 }): Promise<void> {
@@ -39,6 +60,7 @@ export async function submitWorkRequest(input: {
     requester_name: requesterName,
     requester_contact: input.requesterContact?.trim() || null,
     location: input.location?.trim() || null,
+    equipment_id: input.equipmentId ? Number(input.equipmentId) : null,
     issue_description: issueDescription,
     photo_drive_id,
     status: 'pending',
