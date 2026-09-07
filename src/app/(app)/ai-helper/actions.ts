@@ -2,8 +2,8 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { askGemini, type ChatMessage, type Effort } from '@/lib/gemini'
-import { buildGroundingSnapshot } from '@/lib/ai-helper-data'
+import { askGeminiWithTools, type ChatMessage, type Effort } from '@/lib/gemini'
+import { schemaReferenceText, queryDatabaseToolDeclaration, executeQueryDatabase } from '@/lib/ai-helper-tools'
 
 export type Settings = { model: string; effort: Effort; system_instructions: string }
 export type AllowedPerson = { id: string; email: string; full_name: string | null }
@@ -11,16 +11,24 @@ export type AllowedPerson = { id: string; email: string; full_name: string | nul
 const BASE_INSTRUCTIONS = `You are AlphaVision's AI Helper, an internal assistant for a rebar inventory,
 cement plant, and site security management system.
 
+You have a "query_database" tool that runs a real, live read-only query against one table and
+returns the actual matching rows — there is no pre-built summary handed to you. Use it as many
+times as you need before answering.
+
 Hard rules — never break these:
-- Only use facts found in the "DATA SNAPSHOT" JSON provided below. Never invent, estimate, or
-  assume a number, name, or fact that isn't in that JSON.
-- If something needed to answer isn't in the snapshot, say plainly that the data isn't available
+- Never state a number, name, count, or fact you did not just get back from query_database.
+  If you haven't queried for something, query for it before claiming it.
+- If a query comes back with zero rows, that could mean there's genuinely no matching data, OR
+  that this user's account doesn't have access to that department (has_dept_access RLS silently
+  returns empty rather than an error). Say which is more likely rather than assuming "all clear".
+- If something needed to answer truly isn't queryable with the tables you have, say so plainly
   rather than guessing.
-- If a section of the snapshot is marked as inaccessible (the user has no access to that
-  department), say so instead of claiming there's no data for it.
-- Simple forecasting/reasoning ON TOP of the given numbers (e.g. "at this usage rate, X days of
-  stock remain") is fine, as long as the inputs are numbers actually present in the snapshot.
-- Keep answers concise and operational — this is read by managers deciding what to act on today.`
+- Simple reasoning ON TOP of real queried numbers (e.g. "at this rate, X days of stock remain")
+  is fine — the inputs just have to be real.
+- Keep answers concise and operational — this is read by managers deciding what to act on today.
+
+SCHEMA REFERENCE (only these tables are queryable):
+${schemaReferenceText()}`
 
 async function requireAccess() {
   const supabase = await createClient()
@@ -109,31 +117,28 @@ export async function revokeAccess(userId: string): Promise<void> {
 export async function askAiHelper(messages: ChatMessage[]): Promise<string> {
   const { supabase, user } = await requireAccess()
 
-  // The grounding snapshot is built with the CALLER's own session — RLS
-  // means a department they don't have access to just comes back empty, so
-  // we also record which departments they can actually see, and tell the
-  // model explicitly, rather than letting it assume "empty" means "healthy".
-  const { data: access } = await supabase.from('user_department_access').select('department').eq('user_id', user.id)
-  const myDepartments = (access || []).map(a => a.department)
-
-  const [snapshot, settings] = await Promise.all([
-    buildGroundingSnapshot(supabase),
+  const [{ data: access }, settings] = await Promise.all([
+    supabase.from('user_department_access').select('department').eq('user_id', user.id),
     getSettings(),
   ])
-
-  const snapshotForModel = {
-    ...snapshot,
-    accessible_departments: myDepartments,
-    rebar: myDepartments.includes('rebar') ? snapshot.rebar : { access: 'none — this user has no Rebar department access' },
-    cement: myDepartments.includes('cement') ? snapshot.cement : { access: 'none — this user has no BPlant/Cement department access' },
-    security: myDepartments.includes('security') ? snapshot.security : { access: 'none — this user has no Security department access' },
-  }
+  const myDepartments = (access || []).map(a => a.department)
 
   const systemInstruction = [
     BASE_INSTRUCTIONS,
+    `\nToday's date is ${new Date().toISOString().split('T')[0]}.`,
+    `This user has access to these departments: ${myDepartments.join(', ') || '(none)'}.`,
     settings.system_instructions?.trim() ? `\nAdditional instructions from this organization's admin:\n${settings.system_instructions.trim()}` : '',
-    `\n\nDATA SNAPSHOT (JSON):\n${JSON.stringify(snapshotForModel)}`,
   ].join('\n')
 
-  return askGemini({ model: settings.model, effort: settings.effort, systemInstruction, messages })
+  return askGeminiWithTools({
+    model: settings.model,
+    effort: settings.effort,
+    systemInstruction,
+    messages,
+    tools: [queryDatabaseToolDeclaration()],
+    executeTool: async (name, args) => {
+      if (name === 'query_database') return executeQueryDatabase(supabase, args)
+      return { error: `Unknown tool: ${name}` }
+    },
+  })
 }
