@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Settings as SettingsIcon, Plus, Trash2, Pencil, Check, X } from 'lucide-react'
+import { Settings as SettingsIcon, Plus, Trash2, Pencil, Check, X, Download, Upload } from 'lucide-react'
 
 type Equipment = {
   id: number; equip_code: string | null; name: string; category: string | null; brand: string | null
@@ -57,10 +57,24 @@ export default function MaintenanceSettingsPage() {
     }
   }
 
+  // Auto-generates the next "E00001"-style code from the highest numeric
+  // suffix currently in use (matches the format INVENTORY.xlsx's historical
+  // migration used) — no more hand-typing a code that might collide.
+  function nextEquipCode() {
+    let max = 0
+    for (const eq of equipment) {
+      const m = /^E(\d+)$/.exec(eq.equip_code || '')
+      if (m) max = Math.max(max, parseInt(m[1], 10))
+    }
+    return `E${String(max + 1).padStart(5, '0')}`
+  }
+
   async function addEquipment(e: React.FormEvent) {
     e.preventDefault()
     if (!newEquip.name.trim()) return
-    const { error } = await supabase.from('maintenance_equipment').insert([{ ...newEquip, name: newEquip.name.trim() }])
+    const { error } = await supabase.from('maintenance_equipment').insert([{
+      ...newEquip, name: newEquip.name.trim(), equip_code: nextEquipCode(),
+    }])
     if (error) { alert('Error: ' + error.message); return }
     setNewEquip({ name: '', equip_code: '', category: '', location: '' })
     load()
@@ -100,6 +114,61 @@ export default function MaintenanceSettingsPage() {
     const { error } = await supabase.from('maintenance_checklist_templates').delete().eq('id', id)
     if (error) { alert('Error: ' + error.message); return }
     load()
+  }
+
+  // Export/import a template + its items as one JSON file — lets a template
+  // built here be handed to another AlphaVision install, or kept as a
+  // backup before editing it heavily.
+  function exportTemplate(t: Template) {
+    const tItems = items.filter(i => i.template_id === t.id).sort((a, b) => (a.item_no ?? 0) - (b.item_no ?? 0))
+    const payload = {
+      name: t.name, scope: t.scope, frequency: t.frequency, form_code: t.form_code,
+      items: tItems.map(i => ({ section_label: i.section_label, item_no: i.item_no, description: i.description })),
+    }
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', `${t.name.replace(/[^A-Za-z0-9]+/g, '-')}.json`)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  const [importingTemplate, setImportingTemplate] = useState(false)
+
+  async function importTemplateFile(file: File) {
+    setImportingTemplate(true)
+    try {
+      const text = await file.text()
+      const parsed = JSON.parse(text)
+      if (!parsed?.name || !Array.isArray(parsed.items)) throw new Error('Not a valid checklist template file')
+      let name = String(parsed.name)
+      if (templates.some(t => t.name === name)) name = `${name} (imported)`
+      const scope = parsed.scope === 'section_list' ? 'section_list' : 'single_equipment'
+
+      const { data: tmpl, error: tErr } = await supabase.from('maintenance_checklist_templates').insert([{
+        name, scope, frequency: parsed.frequency || null, form_code: parsed.form_code || null,
+      }]).select('id').single()
+      if (tErr) throw tErr
+
+      const rows = parsed.items.map((it: any, idx: number) => ({
+        template_id: tmpl.id, section_label: it.section_label || null,
+        item_no: Number.isFinite(it.item_no) ? it.item_no : idx + 1,
+        description: String(it.description || ''),
+      })).filter((r: any) => r.description.trim())
+      if (rows.length > 0) {
+        const { error: iErr } = await supabase.from('maintenance_checklist_items').insert(rows)
+        if (iErr) throw iErr
+      }
+      await load()
+      alert(`Imported "${name}" with ${rows.length} items.`)
+    } catch (err: any) {
+      alert('Import failed: ' + err.message)
+    } finally {
+      setImportingTemplate(false)
+    }
   }
 
   async function addItem(templateId: number) {
@@ -154,7 +223,7 @@ export default function MaintenanceSettingsPage() {
         <h2 className="text-lg font-bold mb-3">Equipment</h2>
         <form onSubmit={addEquipment} className="bg-white border rounded-xl shadow-sm p-4 mb-4 flex flex-wrap items-end gap-3">
           <div><label className="block text-xs font-medium text-gray-500 mb-1">Name</label><input required value={newEquip.name} onChange={e => setNewEquip({ ...newEquip, name: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-44" /></div>
-          <div><label className="block text-xs font-medium text-gray-500 mb-1">Code</label><input value={newEquip.equip_code} onChange={e => setNewEquip({ ...newEquip, equip_code: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-28" /></div>
+          <div className="text-xs text-gray-400 self-center pb-2.5">Code: auto-generated ({nextEquipCode()})</div>
           <div><label className="block text-xs font-medium text-gray-500 mb-1">Category</label><input value={newEquip.category} onChange={e => setNewEquip({ ...newEquip, category: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-36" /></div>
           <div><label className="block text-xs font-medium text-gray-500 mb-1">Location</label><input value={newEquip.location} onChange={e => setNewEquip({ ...newEquip, location: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-36" /></div>
           <button type="submit" className="flex items-center gap-1.5 bg-orange-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-orange-700"><Plus className="w-4 h-4" /> Add</button>
@@ -263,7 +332,14 @@ export default function MaintenanceSettingsPage() {
       </div>
 
       <div>
-        <h2 className="text-lg font-bold mb-3">Checklist Templates</h2>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-bold">Checklist Templates</h2>
+          <label className={`flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg cursor-pointer ${importingTemplate ? 'bg-gray-100 text-gray-400' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+            <Upload className="w-4 h-4" /> {importingTemplate ? 'Importing...' : 'Import Template'}
+            <input type="file" accept="application/json" className="hidden" disabled={importingTemplate}
+              onChange={e => { const f = e.target.files?.[0]; if (f) importTemplateFile(f); e.target.value = '' }} />
+          </label>
+        </div>
         <form onSubmit={addTemplate} className="bg-white border rounded-xl shadow-sm p-4 mb-4 flex flex-wrap items-end gap-3">
           <div><label className="block text-xs font-medium text-gray-500 mb-1">Name</label><input required value={newTemplate.name} onChange={e => setNewTemplate({ ...newTemplate, name: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-56" /></div>
           <div>
@@ -289,7 +365,10 @@ export default function MaintenanceSettingsPage() {
                     <span className="font-semibold text-sm">{t.name}</span>
                     <span className="text-xs text-gray-400 ml-2">{t.scope === 'single_equipment' ? 'Per equipment' : 'Multi-section'} · {tItems.length} items</span>
                   </div>
-                  <button onClick={e => { e.stopPropagation(); deleteTemplate(t.id) }} className="text-red-500 hover:text-red-700 p-1"><Trash2 className="w-4 h-4" /></button>
+                  <div className="flex items-center gap-1">
+                    <button onClick={e => { e.stopPropagation(); exportTemplate(t) }} className="text-gray-400 hover:text-blue-600 p-1" title="Export as JSON"><Download className="w-4 h-4" /></button>
+                    <button onClick={e => { e.stopPropagation(); deleteTemplate(t.id) }} className="text-red-500 hover:text-red-700 p-1" title="Delete"><Trash2 className="w-4 h-4" /></button>
+                  </div>
                 </div>
                 {isOpen && (
                   <div className="border-t px-4 py-3">

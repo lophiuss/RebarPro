@@ -97,11 +97,16 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
   const prevPeriodStart = toStr(prevPeriodStartDate)
   const prevPeriodEnd = toStr(prevPeriodEndDate)
 
+  const weekMonday = new Date(today)
+  weekMonday.setDate(today.getDate() - ((today.getDay() + 6) % 7))
+  const weekSunday = new Date(weekMonday)
+  weekSunday.setDate(weekMonday.getDate() + 6)
+
   const [
     { data: equipment }, { data: jobReports }, { data: prevJobReports }, { data: pmRows }, { data: spareParts },
-    { data: critical }, { data: settingsRow }, { count: pendingCount }, { data: { user } },
+    { data: critical }, { data: settingsRow }, { count: pendingCount }, { data: { user } }, { data: weekSubs },
   ] = await Promise.all([
-    supabase.from('maintenance_equipment').select('id, name, target_repair_hours').eq('is_active', true),
+    supabase.from('maintenance_equipment').select('id, name, category, target_repair_hours, pm_checklist_template_id').eq('is_active', true),
     supabase.from('maintenance_job_reports').select('id, equipment_id, category, report_date, downtime_hours, repair_time_hours, status').gte('report_date', periodStart).lte('report_date', periodEnd),
     supabase.from('maintenance_job_reports').select('id, equipment_id, downtime_hours, repair_time_hours').gte('report_date', prevPeriodStart).lte('report_date', prevPeriodEnd),
     supabase.from('maintenance_pm_schedule').select('id, equipment_id, planned, completed_at, assigned_to').eq('year', year).eq('week_number', weekNumber),
@@ -110,6 +115,7 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
     supabase.from('maintenance_settings').select('default_target_repair_hours').eq('id', 1).single(),
     supabase.from('maintenance_work_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
     supabase.auth.getUser(),
+    supabase.from('maintenance_checklist_submissions').select('equipment_id').gte('submission_date', toStr(weekMonday)).lte('submission_date', toStr(weekSunday)),
   ])
 
   let myName = ''
@@ -118,6 +124,13 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
     myName = profile?.full_name || user.email || ''
   }
   const myPendingPm = (pmRows || []).filter(r => r.planned && !r.completed_at && r.assigned_to === myName)
+
+  // Same "outstanding" definition as the Schedule page: has a checklist
+  // template, planned this week, no submission filed yet — surfaced here
+  // too so a technician sees it without navigating away from Dashboard.
+  const submittedEquipIds = new Set((weekSubs || []).map(s => s.equipment_id).filter((id): id is number => id != null))
+  const plannedThisWeekIds = new Set((pmRows || []).filter(r => r.planned).map(r => r.equipment_id))
+  const outstandingChecklists = (equipment || []).filter(e => e.pm_checklist_template_id && plannedThisWeekIds.has(e.id) && !submittedEquipIds.has(e.id))
 
   const equipmentCount = (equipment || []).length
   const targetById = new Map((equipment || []).map(e => [e.id, Number(e.target_repair_hours) || Number(settingsRow?.default_target_repair_hours) || 4]))
@@ -213,8 +226,15 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
       )}
 
       {myPendingPm.length > 0 && (
-        <a href="/maintenance/schedule" className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-5 py-3 mb-6 text-sm font-semibold text-amber-800 hover:bg-amber-100">
+        <a href="/maintenance/schedule" className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-5 py-3 mb-3 text-sm font-semibold text-amber-800 hover:bg-amber-100">
           <Bell className="w-4 h-4 flex-shrink-0" /> You have {myPendingPm.length} PM task{myPendingPm.length === 1 ? '' : 's'} assigned to you this week — click to review
+        </a>
+      )}
+
+      {outstandingChecklists.length > 0 && (
+        <a href="/maintenance/schedule" className="block bg-red-50 border border-red-200 rounded-xl px-5 py-3 mb-6 text-sm font-semibold text-red-800 hover:bg-red-100">
+          ⚠️ {outstandingChecklists.length} checklist{outstandingChecklists.length === 1 ? '' : 's'} outstanding this week — {outstandingChecklists.map(e => e.name).join(', ')}
+          <span className="block font-normal text-red-600 text-xs mt-0.5">Click to open the checklist for any of these on the Schedule page.</span>
         </a>
       )}
 

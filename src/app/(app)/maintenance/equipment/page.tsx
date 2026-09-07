@@ -4,13 +4,7 @@ export const revalidate = 0
 import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import { Wrench } from 'lucide-react'
-
-const CONDITION_STYLE: Record<string, string> = {
-  good: 'bg-green-100 text-green-700',
-  fair: 'bg-yellow-100 text-yellow-700',
-  poor: 'bg-orange-100 text-orange-700',
-  spoil: 'bg-red-100 text-red-700',
-}
+import EquipmentTable from './EquipmentTable'
 
 interface SearchParams {
   q?: string
@@ -31,6 +25,12 @@ export default async function EquipmentListPage({ searchParams }: { searchParams
   const { q, category, location, condition } = await searchParams
   const supabase = await createClient()
 
+  const { data: { user } } = await supabase.auth.getUser()
+  const { data: myAccess } = user
+    ? await supabase.from('user_department_access').select('role').eq('user_id', user.id).eq('department', 'maintenance').maybeSingle()
+    : { data: null }
+  const canManage = myAccess?.role === 'admin' || myAccess?.role === 'manager'
+
   // Unfiltered pass just for the category/location dropdown option lists —
   // independent of whatever filters are currently applied, so switching one
   // filter doesn't shrink the others' choices.
@@ -43,7 +43,7 @@ export default async function EquipmentListPage({ searchParams }: { searchParams
 
   let query = supabase
     .from('maintenance_equipment')
-    .select('id, equip_code, name, category, location, condition, manager, supervisor, pic_day, pic_night')
+    .select('id, equip_code, name, category, brand, location, purpose, condition, manager, supervisor, pic_day, pic_night, target_repair_hours')
     .eq('is_active', true)
 
   // Spoiled equipment is retired/unusable — hidden from the working list by
@@ -65,17 +65,6 @@ export default async function EquipmentListPage({ searchParams }: { searchParams
   }
 
   const { data: equipment } = await query.order('name')
-
-  function hrefWith(overrides: Partial<SearchParams>) {
-    const merged = { q, category, location, condition, ...overrides }
-    const params = new URLSearchParams()
-    if (merged.q) params.set('q', merged.q)
-    if (merged.category) params.set('category', merged.category)
-    if (merged.location) params.set('location', merged.location)
-    if (merged.condition) params.set('condition', merged.condition)
-    const qs = params.toString()
-    return qs ? `/maintenance/equipment?${qs}` : '/maintenance/equipment'
-  }
 
   const hasFilters = !!(q || category || location || condition)
 
@@ -116,41 +105,7 @@ export default async function EquipmentListPage({ searchParams }: { searchParams
         {hasFilters && <Link href="/maintenance/equipment" className="text-sm text-gray-500 hover:text-gray-700 px-2 py-2">Clear</Link>}
       </form>
 
-      <div className="bg-white border rounded-xl shadow-sm overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Code</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Condition</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ownership</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">PIC (Day / Night)</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {(equipment || []).map(e => (
-              <tr key={e.id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">{e.equip_code || '-'}</td>
-                <td className="px-4 py-3 text-sm font-medium whitespace-nowrap">
-                  <Link href={`/maintenance/equipment/${e.id}`} className="text-blue-600 hover:text-blue-800 hover:underline">{e.name}</Link>
-                </td>
-                <td className="px-4 py-3 text-sm whitespace-nowrap">{e.category || '-'}</td>
-                <td className="px-4 py-3 text-sm whitespace-nowrap">{e.location || '-'}</td>
-                <td className="px-4 py-3 whitespace-nowrap">
-                  {e.condition ? <span className={`text-xs font-bold uppercase rounded-full px-2 py-0.5 ${CONDITION_STYLE[e.condition] || 'bg-gray-100 text-gray-600'}`}>{e.condition}</span> : '-'}
-                </td>
-                <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">{[e.manager, e.supervisor].filter(Boolean).join(' / ') || '-'}</td>
-                <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">{[e.pic_day, e.pic_night].filter(Boolean).join(' / ') || '-'}</td>
-              </tr>
-            ))}
-            {(!equipment || equipment.length === 0) && (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">{hasFilters ? 'No equipment matches these filters.' : 'No equipment yet — add some in Settings.'}</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      <EquipmentTable equipment={equipment || []} canManage={canManage} hasFilters={hasFilters} />
     </div>
   )
 }

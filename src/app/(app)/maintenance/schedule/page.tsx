@@ -2,10 +2,14 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { listMaintenanceStaff, type StaffMember } from '../actions'
-import { CalendarClock, ClipboardList, X, Plus, Trash2, ChevronLeft, ChevronRight, Bell } from 'lucide-react'
+import { listMaintenanceStaff, uploadMaintenanceFile, type StaffMember } from '../actions'
+import { CalendarClock, ClipboardList, X, Plus, Trash2, ChevronLeft, ChevronRight, Bell, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react'
+import PhotoPicker from '@/components/PhotoPicker'
 
-type Equipment = { id: number; name: string; equip_code: string | null; category: string | null; location: string | null; condition: string | null }
+type Equipment = {
+  id: number; name: string; equip_code: string | null; category: string | null; location: string | null
+  condition: string | null; pm_checklist_template_id: number | null
+}
 type Template = { id: number; name: string; scope: 'single_equipment' | 'section_list'; frequency: string | null }
 type Item = { id: number; template_id: number; section_label: string | null; item_no: number | null; description: string }
 type PmRow = { id: number; equipment_id: number; week_number: number; planned: boolean; completed_at: string | null; assigned_to: string | null }
@@ -13,6 +17,37 @@ type Recurrence = {
   id: number; equipment_id: number; frequency_weeks: number; start_date: string
   assigned_to: string | null; notes: string | null; is_active: boolean
   maintenance_equipment: { name: string } | null
+}
+type Submission = {
+  id: number; template_id: number; equipment_id: number | null; submission_date: string
+  done_by: string | null; verified_by: string | null; status: string; approved_by: string | null
+  maintenance_checklist_templates: { name: string } | null
+  maintenance_equipment: { name: string } | null
+}
+
+async function compressImage(file: File): Promise<Blob> {
+  if (!file.type.startsWith('image/')) return file
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const i = new Image()
+    i.onload = () => resolve(i)
+    i.onerror = reject
+    i.src = dataUrl
+  })
+  const MAX = 900
+  let { width, height } = img
+  if (width > height) { if (width > MAX) { height *= MAX / width; width = MAX } }
+  else if (height > MAX) { width *= MAX / height; height = MAX }
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  canvas.getContext('2d')!.drawImage(img, 0, 0, width, height)
+  return new Promise<Blob>(resolve => canvas.toBlob(blob => resolve(blob || file), 'image/jpeg', 0.75))
 }
 
 // ISO week helpers. isoWeekInfo mirrors the previous isoWeek() but also
@@ -69,7 +104,13 @@ export default function SchedulePage() {
   const [recurrences, setRecurrences] = useState<Recurrence[]>([])
   const [staff, setStaff] = useState<StaffMember[]>([])
   const [myName, setMyName] = useState('')
+  const [canManage, setCanManage] = useState(false)
   const [loading, setLoading] = useState(true)
+
+  const [weekSubmittedEquipIds, setWeekSubmittedEquipIds] = useState<Set<number>>(new Set())
+  const [currentWeekPlannedIds, setCurrentWeekPlannedIds] = useState<Set<number>>(new Set())
+  const [pendingSubmissions, setPendingSubmissions] = useState<Submission[]>([])
+  const [approvingId, setApprovingId] = useState<number | null>(null)
 
   const [equipFilter, setEquipFilter] = useState({ q: '', category: '', location: '', condition: '' })
 
@@ -83,27 +124,54 @@ export default function SchedulePage() {
   const [items, setItems] = useState<Item[]>([])
   const [results, setResults] = useState<Record<number, { result: string; qty: string; remark: string }>>({})
   const [verifiedBy, setVerifiedBy] = useState('')
+  const [checklistPhoto, setChecklistPhoto] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => { load() }, [viewYear])
 
   async function load() {
     setLoading(true)
-    const [{ data: eq }, { data: pm }, { data: tmpl }, { data: rec }, { data: { user } }] = await Promise.all([
-      supabase.from('maintenance_equipment').select('id, name, equip_code, category, location, condition').eq('is_active', true).order('name'),
+    const weekStart = mondayOfIsoWeek(realYear, realWeek)
+    const weekEnd = new Date(weekStart)
+    weekEnd.setUTCDate(weekStart.getUTCDate() + 6)
+    const weekStartStr = weekStart.toISOString().split('T')[0]
+    const weekEndStr = weekEnd.toISOString().split('T')[0]
+
+    const [{ data: eq }, { data: pm }, { data: tmpl }, { data: rec }, { data: { user } }, { data: weekSubs }, { data: pendingSubs }] = await Promise.all([
+      supabase.from('maintenance_equipment').select('id, name, equip_code, category, location, condition, pm_checklist_template_id').eq('is_active', true).order('name'),
       supabase.from('maintenance_pm_schedule').select('id, equipment_id, week_number, planned, completed_at, assigned_to').eq('year', viewYear),
       supabase.from('maintenance_checklist_templates').select('id, name, scope, frequency').order('name'),
       supabase.from('maintenance_pm_recurrence').select('*, maintenance_equipment(name)').order('created_at', { ascending: false }),
       supabase.auth.getUser(),
+      supabase.from('maintenance_checklist_submissions').select('equipment_id').gte('submission_date', weekStartStr).lte('submission_date', weekEndStr),
+      supabase.from('maintenance_checklist_submissions').select('*, maintenance_checklist_templates(name), maintenance_equipment(name)').eq('status', 'pending').order('submission_date', { ascending: false }),
     ])
     setEquipment(eq || [])
     setPmRows(pm || [])
     setTemplates(tmpl || [])
     setRecurrences((rec as any) || [])
-    if (user) {
-      const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle()
-      setMyName(profile?.full_name || user.email || '')
+    setWeekSubmittedEquipIds(new Set((weekSubs || []).map(s => s.equipment_id).filter((id): id is number => id != null)))
+    setPendingSubmissions((pendingSubs as any) || [])
+
+    // "Outstanding" needs THIS week's planned equipment regardless of which
+    // year the grid above is currently browsing (viewYear), so it's fetched
+    // separately rather than reused from the `pm` query above.
+    if (viewYear === realYear) {
+      setCurrentWeekPlannedIds(new Set((pm || []).filter(r => r.week_number === realWeek && r.planned).map(r => r.equipment_id)))
+    } else {
+      const { data: curPm } = await supabase.from('maintenance_pm_schedule').select('equipment_id, planned').eq('year', realYear).eq('week_number', realWeek)
+      setCurrentWeekPlannedIds(new Set((curPm || []).filter(r => r.planned).map(r => r.equipment_id)))
     }
+    let manages = false
+    if (user) {
+      const [{ data: profile }, { data: myAccess }] = await Promise.all([
+        supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle(),
+        supabase.from('user_department_access').select('role').eq('user_id', user.id).eq('department', 'maintenance').maybeSingle(),
+      ])
+      setMyName(profile?.full_name || user.email || '')
+      manages = myAccess?.role === 'admin' || myAccess?.role === 'manager'
+    }
+    setCanManage(manages)
     setStaff(await listMaintenanceStaff().catch(() => []))
     setLoading(false)
   }
@@ -147,13 +215,22 @@ export default function SchedulePage() {
     await load()
   }
 
-  async function openFill(template: Template) {
+  async function openFill(template: Template, presetEquipmentId?: number) {
     setFillTemplate(template)
-    setFillEquipmentId('')
+    setFillEquipmentId(presetEquipmentId ? String(presetEquipmentId) : '')
     setVerifiedBy('')
+    setChecklistPhoto(null)
     const { data } = await supabase.from('maintenance_checklist_items').select('*').eq('template_id', template.id).order('item_no')
     setItems(data || [])
     setResults({})
+  }
+
+  // Jumps straight into a specific machine's checklist from the Outstanding
+  // list — skips picking a template card + then an equipment dropdown.
+  function openFillForEquipment(eq: Equipment) {
+    const template = templates.find(t => t.id === eq.pm_checklist_template_id)
+    if (!template) { alert('This equipment has no checklist template assigned — set one in Settings.'); return }
+    openFill(template, eq.id)
   }
 
   async function submitChecklist() {
@@ -161,12 +238,20 @@ export default function SchedulePage() {
     if (fillTemplate.scope === 'single_equipment' && !fillEquipmentId) { alert('Please select the equipment'); return }
     setSaving(true)
     try {
+      let photo_drive_id: string | null = null
+      if (checklistPhoto) {
+        const blob = await compressImage(checklistPhoto)
+        const fd = new FormData()
+        fd.set('file', blob, 'photo.jpg')
+        photo_drive_id = await uploadMaintenanceFile(fd)
+      }
       const { data: sub, error } = await supabase.from('maintenance_checklist_submissions').insert([{
         template_id: fillTemplate.id,
         equipment_id: fillTemplate.scope === 'single_equipment' ? Number(fillEquipmentId) : null,
         submission_date: new Date().toISOString().split('T')[0],
         done_by: myName || null,
         verified_by: verifiedBy || null,
+        photo_drive_id,
       }]).select('id').single()
       if (error) throw error
 
@@ -182,11 +267,57 @@ export default function SchedulePage() {
         if (itemErr) throw itemErr
       }
       setFillTemplate(null)
-      alert('Checklist submitted')
+      alert('Checklist submitted — awaiting manager approval.')
+      await load()
     } catch (err: any) {
       alert('Error: ' + err.message)
     } finally {
       setSaving(false)
+    }
+  }
+
+  // Approving is the "auto mark done": it stamps the submission and, for a
+  // single-equipment checklist, also marks that equipment's matching
+  // PM-schedule week complete — the manual grid toggle still exists as a
+  // manager override, but this is the normal path now.
+  async function approveSubmission(sub: Submission) {
+    setApprovingId(sub.id)
+    try {
+      const approvedAt = new Date().toISOString()
+      const { error } = await supabase.from('maintenance_checklist_submissions').update({
+        status: 'approved', approved_by: myName || null, approved_at: approvedAt,
+      }).eq('id', sub.id)
+      if (error) throw error
+
+      if (sub.equipment_id) {
+        const { isoYear, week } = isoWeekInfo(new Date(sub.submission_date + 'T00:00:00Z'))
+        const { data: pmRow } = await supabase.from('maintenance_pm_schedule').select('id').eq('equipment_id', sub.equipment_id).eq('year', isoYear).eq('week_number', week).maybeSingle()
+        if (pmRow) {
+          await supabase.from('maintenance_pm_schedule').update({ completed_at: approvedAt }).eq('id', pmRow.id)
+        }
+      }
+      await load()
+    } catch (err: any) {
+      alert('Error: ' + err.message)
+    } finally {
+      setApprovingId(null)
+    }
+  }
+
+  async function rejectSubmission(sub: Submission) {
+    const reason = window.prompt('Reason for rejecting this checklist (the technician will need to redo it):')
+    if (reason === null) return
+    setApprovingId(sub.id)
+    try {
+      const { error } = await supabase.from('maintenance_checklist_submissions').update({
+        status: 'rejected', approved_by: myName || null, approved_at: new Date().toISOString(), rejection_reason: reason || null,
+      }).eq('id', sub.id)
+      if (error) throw error
+      await load()
+    } catch (err: any) {
+      alert('Error: ' + err.message)
+    } finally {
+      setApprovingId(null)
     }
   }
 
@@ -213,6 +344,20 @@ export default function SchedulePage() {
   })
   const managersAndSupervisors = staff.filter(s => s.role === 'admin' || s.role === 'manager')
 
+  // Outstanding = has a checklist template, planned for this week, and no
+  // submission filed yet this week — the "auto light up" list. Grouped by
+  // category so a technician can jump straight to "Crane" -> click the
+  // model -> fill it, per the requested flow.
+  const outstanding = equipment.filter(e =>
+    e.pm_checklist_template_id && currentWeekPlannedIds.has(e.id) && !weekSubmittedEquipIds.has(e.id)
+  )
+  const outstandingByCategory = outstanding.reduce((acc: Record<string, Equipment[]>, e) => {
+    const key = e.category || 'Uncategorized'
+    acc[key] = acc[key] || []
+    acc[key].push(e)
+    return acc
+  }, {})
+
   // "Auto remind": this week's cells assigned to me, not yet done — surfaced
   // as an in-app banner here (and on the Dashboard) rather than email, so it
   // doesn't need a new cron/notification pipeline.
@@ -229,6 +374,61 @@ export default function SchedulePage() {
           <Bell className="w-4 h-4 flex-shrink-0" />
           You have {myPendingThisWeek.length} PM task{myPendingThisWeek.length === 1 ? '' : 's'} assigned to you this week ({fmtShort(mondayOfIsoWeek(realYear, realWeek))}):{' '}
           {myPendingThisWeek.map(r => equipment.find(e => e.id === r.equipment_id)?.name || '?').join(', ')}
+        </div>
+      )}
+
+      {outstanding.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-5 mb-6">
+          <h2 className="text-sm font-bold text-red-800 flex items-center gap-2 mb-3"><AlertTriangle className="w-4 h-4" /> Outstanding This Week ({outstanding.length}) — checklist not yet filed</h2>
+          <div className="space-y-3">
+            {Object.entries(outstandingByCategory).map(([cat, eqs]) => (
+              <div key={cat}>
+                <div className="text-xs font-semibold text-red-700 uppercase mb-1.5">{cat}</div>
+                <div className="flex flex-wrap gap-2">
+                  {eqs.map(e => (
+                    <button key={e.id} onClick={() => openFillForEquipment(e)} className="bg-white border border-red-300 text-red-800 text-sm font-medium px-3 py-1.5 rounded-lg hover:bg-red-100">
+                      {e.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {canManage && pendingSubmissions.length > 0 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-5 mb-6">
+          <h2 className="text-sm font-bold text-blue-800 flex items-center gap-2 mb-3"><ClipboardList className="w-4 h-4" /> Checklists Awaiting Your Approval ({pendingSubmissions.length})</h2>
+          <div className="bg-white rounded-lg border border-blue-100 overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-blue-50/60">
+                <tr>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-blue-700 uppercase">Date</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-blue-700 uppercase">Template</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-blue-700 uppercase">Equipment</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-blue-700 uppercase">Done By</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-blue-700 uppercase"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {pendingSubmissions.map(s => (
+                  <tr key={s.id}>
+                    <td className="px-3 py-2 whitespace-nowrap">{s.submission_date}</td>
+                    <td className="px-3 py-2">{s.maintenance_checklist_templates?.name || '-'}</td>
+                    <td className="px-3 py-2">{s.maintenance_equipment?.name || '-'}</td>
+                    <td className="px-3 py-2">{s.done_by || '-'}</td>
+                    <td className="px-3 py-2">
+                      <div className="flex items-center gap-1.5">
+                        <button onClick={() => approveSubmission(s)} disabled={approvingId === s.id} className="flex items-center gap-1 text-xs bg-green-600 disabled:opacity-50 text-white font-medium px-2.5 py-1.5 rounded-lg hover:bg-green-700"><CheckCircle2 className="w-3.5 h-3.5" /> Approve</button>
+                        <button onClick={() => rejectSubmission(s)} disabled={approvingId === s.id} className="flex items-center gap-1 text-xs bg-gray-100 disabled:opacity-50 text-gray-600 font-medium px-2.5 py-1.5 rounded-lg hover:bg-gray-200"><XCircle className="w-3.5 h-3.5" /> Reject</button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -405,6 +605,10 @@ export default function SchedulePage() {
                 </select>
               </div>
             </div>
+            <div className="mb-4">
+              <PhotoPicker label="Evidence Photo (optional)" file={checklistPhoto} onChange={setChecklistPhoto} />
+            </div>
+            <p className="text-xs text-gray-400 mb-4">Submitting sends this checklist for manager approval — the equipment's PM schedule week marks done once approved.</p>
             <div className="flex justify-end gap-3">
               <button onClick={() => setFillTemplate(null)} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-200">Cancel</button>
               <button onClick={submitChecklist} disabled={saving} className="bg-orange-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-orange-700">{saving ? 'Submitting...' : 'Submit Checklist'}</button>
