@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ShieldCheck, Trash2, UserPlus, Pencil, X, User as UserIcon, Eye, Settings as SettingsIcon, LogOut } from 'lucide-react'
+import { ShieldCheck, Trash2, UserPlus, Pencil, X, User as UserIcon, Eye, Settings as SettingsIcon, LogOut, RefreshCw } from 'lucide-react'
 import { listPeople, createPerson, updatePersonProfile, resetPersonPassword, setPersonActive, type Person } from './actions'
 import { NAV_ITEMS, type Department } from '@/components/AppNavigation'
 
@@ -322,12 +322,22 @@ export default function AccessControlPage() {
     <div className="p-4 md:p-8 max-w-5xl mx-auto">
       <div className="flex items-start justify-between gap-4 mb-2">
         <h1 className="text-3xl font-bold">Access Control</h1>
-        <button
-          onClick={() => setShowAddPerson(true)}
-          className="flex items-center gap-1.5 bg-slate-900 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-slate-800 flex-shrink-0"
-        >
-          <UserPlus className="w-4 h-4" /> Add Person
-        </button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            onClick={load}
+            disabled={loading}
+            title="Reload the people/access lists — a full data refetch, not just a page reload (which can be served from cache and miss recent changes)"
+            className="flex items-center gap-1.5 bg-white border text-gray-600 text-sm font-medium px-3 py-2 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
+          </button>
+          <button
+            onClick={() => setShowAddPerson(true)}
+            className="flex items-center gap-1.5 bg-slate-900 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-slate-800"
+          >
+            <UserPlus className="w-4 h-4" /> Add Person
+          </button>
+        </div>
       </div>
       <p className="text-sm text-gray-500 mb-6">
         Grant or revoke department access for people who already have an account. New people can
