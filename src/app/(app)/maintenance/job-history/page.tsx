@@ -33,6 +33,7 @@ export default function JobHistoryPage() {
   const [requests, setRequests] = useState<DoneRequest[]>([])
   const [totalCount, setTotalCount] = useState(0)
   const [page, setPage] = useState(0)
+  const [pageInput, setPageInput] = useState('1')
   const [loading, setLoading] = useState(true)
   const [zoomSrc, setZoomSrc] = useState<string | null>(null)
 
@@ -50,6 +51,7 @@ export default function JobHistoryPage() {
 
   useEffect(() => { loadSummary() }, [])
   useEffect(() => { setPage(0) }, [technicianFilter, categoryFilter, statusFilter, fromDate, toDate])
+  useEffect(() => { setPageInput(String(page + 1)) }, [page])
   useEffect(() => { loadPage() }, [page, technicianFilter, categoryFilter, statusFilter, fromDate, toDate])
 
   async function loadSummary() {
@@ -103,6 +105,12 @@ export default function JobHistoryPage() {
 
   const hasFilters = !!(technicianFilter || categoryFilter || statusFilter || fromDate || toDate)
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
+
+  function jumpToPageInput() {
+    const n = Math.min(totalPages, Math.max(1, Math.round(Number(pageInput)) || 1))
+    setPageInput(String(n))
+    setPage(n - 1)
+  }
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto">
@@ -197,14 +205,26 @@ export default function JobHistoryPage() {
         </table>
       </div>
 
-      <div className="flex items-center justify-between mt-4">
+      <div className="flex items-center justify-center gap-2 mt-4 flex-wrap">
+        <button onClick={() => setPage(p => Math.max(0, p - 10))} disabled={page === 0} className="text-sm bg-white border disabled:opacity-40 text-gray-700 font-medium px-3 py-2 rounded-lg hover:bg-gray-50">-10</button>
         <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} className="flex items-center gap-1 text-sm bg-white border disabled:opacity-40 text-gray-700 font-medium px-3 py-2 rounded-lg hover:bg-gray-50">
           <ChevronLeft className="w-4 h-4" /> Previous
         </button>
-        <span className="text-sm text-gray-500">Page {page + 1} of {totalPages}</span>
+        <span className="text-sm text-gray-500 flex items-center gap-1.5">
+          Page
+          <input
+            type="number" min={1} max={totalPages} value={pageInput}
+            onChange={e => setPageInput(e.target.value)}
+            onBlur={jumpToPageInput}
+            onKeyDown={e => e.key === 'Enter' && (e.currentTarget.blur())}
+            className="w-14 border rounded-md px-2 py-1 text-center text-sm"
+          />
+          of {totalPages}
+        </span>
         <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1} className="flex items-center gap-1 text-sm bg-white border disabled:opacity-40 text-gray-700 font-medium px-3 py-2 rounded-lg hover:bg-gray-50">
           Next <ChevronRight className="w-4 h-4" />
         </button>
+        <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 10))} disabled={page >= totalPages - 1} className="text-sm bg-white border disabled:opacity-40 text-gray-700 font-medium px-3 py-2 rounded-lg hover:bg-gray-50">+10</button>
       </div>
 
       <PhotoLightbox src={zoomSrc} onClose={() => setZoomSrc(null)} />
