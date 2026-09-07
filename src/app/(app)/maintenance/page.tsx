@@ -67,7 +67,7 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
 
   const [
     { data: equipment }, { data: jobReports }, { data: pmRows }, { data: spareParts },
-    { data: critical }, { data: settingsRow }, { data: pendingWorkRequests },
+    { data: critical }, { data: settingsRow }, { count: pendingCount },
   ] = await Promise.all([
     supabase.from('maintenance_equipment').select('id, name, target_repair_hours').eq('is_active', true),
     supabase.from('maintenance_job_reports').select('id, equipment_id, category, report_date, downtime_hours, repair_time_hours, status').gte('report_date', periodStart).lte('report_date', periodEnd),
@@ -98,8 +98,6 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
 
   const partsRequested = (spareParts || []).reduce((s, r) => s + (Number(r.quantity_requested) || 0), 0)
   const partsReceived = (spareParts || []).reduce((s, r) => s + (Number(r.quantity_received) || 0), 0)
-
-  const pendingCount = pendingWorkRequests?.length ?? (pendingWorkRequests as any)?.count ?? 0
 
   const cards = [
     { label: 'Machine Uptime', value: `${uptimePct.toFixed(1)}%`, sub: 'This period', warn: uptimePct < 90 },
@@ -134,7 +132,7 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
       </div>
       <p className="text-xs text-gray-400 mb-6">KPIs reflect <strong>{periodLabel}</strong> ({periodStart} → {periodEnd}), across {equipmentCount} active equipment.</p>
 
-      {pendingCount > 0 && (
+      {!!pendingCount && pendingCount > 0 && (
         <a href="/maintenance/work-requests" className="block bg-amber-50 border border-amber-200 rounded-xl px-5 py-3 mb-6 text-sm font-semibold text-amber-800 hover:bg-amber-100">
           🔔 {pendingCount} pending Work Request{pendingCount === 1 ? '' : 's'} awaiting assignment — click to review
         </a>

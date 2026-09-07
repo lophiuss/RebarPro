@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { uploadMaintenanceFile } from '../actions'
+import { uploadMaintenanceFile, listMaintenanceStaff, type StaffMember } from '../actions'
 import { Inbox, CheckCircle2, UserPlus, X } from 'lucide-react'
 import PhotoPicker from '@/components/PhotoPicker'
 import PhotoLightbox from '@/components/PhotoLightbox'
@@ -49,9 +49,11 @@ export default function WorkRequestsPage() {
   const [requests, setRequests] = useState<WorkRequest[]>([])
   const [myEmail, setMyEmail] = useState<string | null>(null)
   const [myName, setMyName] = useState<string | null>(null)
+  const [canManage, setCanManage] = useState(false)
   const [loading, setLoading] = useState(true)
   const [assignTarget, setAssignTarget] = useState<WorkRequest | null>(null)
   const [assignee, setAssignee] = useState('')
+  const [staff, setStaff] = useState<StaffMember[]>([])
   const [completeTarget, setCompleteTarget] = useState<WorkRequest | null>(null)
   const [resolutionPhoto, setResolutionPhoto] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
@@ -63,11 +65,25 @@ export default function WorkRequestsPage() {
     setLoading(true)
     const { data: { user } } = await supabase.auth.getUser()
     setMyEmail(user?.email ?? null)
-    const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', user?.id).maybeSingle()
+    const [{ data: profile }, { data: myAccess }] = await Promise.all([
+      supabase.from('profiles').select('full_name').eq('id', user?.id).maybeSingle(),
+      supabase.from('user_department_access').select('role').eq('user_id', user?.id).eq('department', 'maintenance').maybeSingle(),
+    ])
     setMyName(profile?.full_name ?? null)
+    // Pending Queue + assigning work to someone else is a manager/admin
+    // action — a technician only gets My Tasks, matching the PRD's intended
+    // role split (this wasn't actually enforced before, letting anyone
+    // assign work to anyone).
+    const manages = myAccess?.role === 'admin' || myAccess?.role === 'manager'
+    setCanManage(manages)
+    if (!manages) setTab('my_tasks')
 
-    const { data } = await supabase.from('maintenance_work_requests').select('*').order('created_at', { ascending: false }).limit(200)
+    const [{ data }, staffList] = await Promise.all([
+      supabase.from('maintenance_work_requests').select('*').order('created_at', { ascending: false }).limit(200),
+      manages ? listMaintenanceStaff().catch(() => []) : Promise.resolve([]),
+    ])
     setRequests(data || [])
+    setStaff(staffList)
     setLoading(false)
   }
 
@@ -121,16 +137,18 @@ export default function WorkRequestsPage() {
     <div className="p-4 md:p-8 max-w-6xl mx-auto">
       <h1 className="text-3xl font-bold mb-6 flex items-center gap-2"><Inbox className="w-7 h-7 text-orange-600" /> Work Requests</h1>
 
-      <div className="flex gap-1 bg-gray-100 rounded-lg p-1 mb-6 w-fit">
-        <button onClick={() => setTab('pending')} className={`px-4 py-2 rounded-md text-sm font-semibold transition ${tab === 'pending' ? 'bg-white shadow-sm text-slate-900' : 'text-gray-500 hover:text-gray-700'}`}>
-          Pending Queue ({pending.length})
-        </button>
-        <button onClick={() => setTab('my_tasks')} className={`px-4 py-2 rounded-md text-sm font-semibold transition ${tab === 'my_tasks' ? 'bg-white shadow-sm text-slate-900' : 'text-gray-500 hover:text-gray-700'}`}>
-          My Tasks
-        </button>
-      </div>
+      {canManage && (
+        <div className="flex gap-1 bg-gray-100 rounded-lg p-1 mb-6 w-fit">
+          <button onClick={() => setTab('pending')} className={`px-4 py-2 rounded-md text-sm font-semibold transition ${tab === 'pending' ? 'bg-white shadow-sm text-slate-900' : 'text-gray-500 hover:text-gray-700'}`}>
+            Pending Queue ({pending.length})
+          </button>
+          <button onClick={() => setTab('my_tasks')} className={`px-4 py-2 rounded-md text-sm font-semibold transition ${tab === 'my_tasks' ? 'bg-white shadow-sm text-slate-900' : 'text-gray-500 hover:text-gray-700'}`}>
+            My Tasks
+          </button>
+        </div>
+      )}
 
-      {tab === 'pending' && (
+      {tab === 'pending' && canManage && (
         <div className="bg-white border rounded-xl shadow-sm overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
@@ -216,8 +234,12 @@ export default function WorkRequestsPage() {
               <h2 className="text-lg font-bold">Assign — {assignTarget.requester_name}</h2>
               <button onClick={() => setAssignTarget(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Assign To (staff name)</label>
-            <input value={assignee} onChange={e => setAssignee(e.target.value)} className="w-full border rounded-md px-3 py-2 text-sm mb-4" autoFocus />
+            <label className="block text-xs font-medium text-gray-500 mb-1">Assign To</label>
+            <select value={assignee} onChange={e => setAssignee(e.target.value)} className="w-full border rounded-md px-3 py-2 text-sm bg-white mb-4" autoFocus>
+              <option value="">Select staff…</option>
+              {staff.map(s => <option key={s.name} value={s.name}>{s.name} ({s.role})</option>)}
+            </select>
+            {staff.length === 0 && <p className="text-xs text-gray-400 -mt-3 mb-4">No maintenance staff found — grant access in Access Control first.</p>}
             <div className="flex justify-end gap-3">
               <button onClick={() => setAssignTarget(null)} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-200">Cancel</button>
               <button onClick={doAssign} disabled={saving || !assignee.trim()} className="bg-orange-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-orange-700">{saving ? 'Saving...' : 'Assign'}</button>
