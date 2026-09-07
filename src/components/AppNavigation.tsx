@@ -116,6 +116,8 @@ export default function AppNavigation({ userEmail, fullName, departments, navPer
     ? 'rebar'
     : pathname.startsWith('/security')
     ? 'security'
+    : pathname.startsWith('/maintenance')
+    ? 'maintenance'
     : departments[0]?.department ?? null
 
   const activeRole = departments.find(d => d.department === activeDept)?.role
