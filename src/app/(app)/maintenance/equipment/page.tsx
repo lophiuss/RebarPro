@@ -14,10 +14,16 @@ const CONDITION_STYLE: Record<string, string> = {
 
 export default async function EquipmentListPage() {
   const supabase = await createClient()
+  // Spoiled equipment is retired/unusable — hide it from the working list by
+  // default so it doesn't clutter day-to-day use. It's never deleted, and
+  // stays fully editable (including reverting the condition) in Settings.
   const { data: equipment } = await supabase
     .from('maintenance_equipment')
     .select('id, equip_code, name, category, location, condition, manager, supervisor, pic_day, pic_night')
     .eq('is_active', true)
+    // .neq() excludes NULLs too (SQL <> with NULL is never true) — equipment
+    // with no condition set yet must still show, so allow NULL explicitly.
+    .or('condition.neq.spoil,condition.is.null')
     .order('name')
 
   return (

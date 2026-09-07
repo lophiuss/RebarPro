@@ -86,6 +86,9 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
   const totalPossibleHours = equipmentCount * periodHours
   const uptimePct = totalPossibleHours > 0 ? ((totalPossibleHours - totalDowntime) / totalPossibleHours) * 100 : 100
 
+  // BRE % = (No. of responses within target time / No. of total breakdown) x 100
+  // — target time defaults to 2.5h (maintenance_settings.default_target_repair_hours),
+  // overridable per equipment via target_repair_hours. Confirmed formula.
   const breakdowns = (jobReports || []).filter(r => r.repair_time_hours !== null)
   const noOfBreakdown = breakdowns.length
   const withinTarget = breakdowns.filter(r => Number(r.repair_time_hours) <= (targetById.get(r.equipment_id) ?? defaultTarget)).length
@@ -96,6 +99,18 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
   const completedCount = (pmRows || []).filter(r => r.planned && r.completed_at).length
   const schedulePct = plannedCount > 0 ? (completedCount / plannedCount) * 100 : 100
 
+  // Availability % = MTBF / (MTBF + MTTR) x 100. Confirmed formula.
+  // MTBF (mean time between failures) = uptime hours / no. of breakdowns
+  // MTTR (mean time to repair) = total repair hours / no. of breakdowns
+  // — both use the same breakdown count as the denominator, so it cancels
+  // out of the ratio; kept explicit here (rather than simplified) so the
+  // formula reads the same as the confirmed reference.
+  const totalRepairHours = breakdowns.reduce((s, r) => s + Number(r.repair_time_hours || 0), 0)
+  const uptimeHours = Math.max(0, totalPossibleHours - totalDowntime)
+  const mtbf = noOfBreakdown > 0 ? uptimeHours / noOfBreakdown : uptimeHours
+  const mttr = noOfBreakdown > 0 ? totalRepairHours / noOfBreakdown : 0
+  const availabilityPct = (mtbf + mttr) > 0 ? (mtbf / (mtbf + mttr)) * 100 : 100
+
   const partsRequested = (spareParts || []).reduce((s, r) => s + (Number(r.quantity_requested) || 0), 0)
   const partsReceived = (spareParts || []).reduce((s, r) => s + (Number(r.quantity_received) || 0), 0)
 
@@ -105,7 +120,7 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
     { label: 'BRE % (Breakdown Response)', value: `${brePct.toFixed(1)}%`, sub: 'Resolved within target', warn: brePct < 80 },
     { label: 'Avg Repair Time', value: `${avgRepairTime.toFixed(1)} h`, sub: 'Per breakdown', warn: false },
     { label: 'Schedule (Plan vs Actual)', value: `${schedulePct.toFixed(1)}%`, sub: `Week ${weekNumber}, ${year}`, warn: schedulePct < 70 },
-    { label: 'Asset Availability', value: `${uptimePct.toFixed(1)}%`, sub: 'Fleet-wide', warn: uptimePct < 90 },
+    { label: 'Asset Availability', value: `${availabilityPct.toFixed(1)}%`, sub: 'MTBF / (MTBF + MTTR), fleet-wide', warn: availabilityPct < 90 },
   ]
 
   return (

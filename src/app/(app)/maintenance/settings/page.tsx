@@ -148,7 +148,11 @@ export default function MaintenanceSettingsPage() {
           <table className="min-w-full divide-y divide-gray-200 text-sm">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Code</th>
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Brand</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Condition</th>
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Manager</th>
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Supervisor</th>
@@ -163,7 +167,11 @@ export default function MaintenanceSettingsPage() {
                 <tr key={eq.id}>
                   {editingId === eq.id ? (
                     <>
+                      <td className="px-4 py-2"><input value={editData.equip_code || ''} onChange={e => setEditData({ ...editData, equip_code: e.target.value || null })} className="border rounded px-2 py-1 w-20" /></td>
                       <td className="px-4 py-2"><input value={editData.name} onChange={e => setEditData({ ...editData, name: e.target.value })} className="border rounded px-2 py-1 w-full" /></td>
+                      <td className="px-4 py-2"><input value={editData.category || ''} onChange={e => setEditData({ ...editData, category: e.target.value || null })} className="border rounded px-2 py-1 w-28" /></td>
+                      <td className="px-4 py-2"><input value={editData.brand || ''} onChange={e => setEditData({ ...editData, brand: e.target.value || null })} className="border rounded px-2 py-1 w-28" /></td>
+                      <td className="px-4 py-2"><input value={editData.location || ''} onChange={e => setEditData({ ...editData, location: e.target.value || null })} className="border rounded px-2 py-1 w-32" /></td>
                       <td className="px-4 py-2">
                         <select value={editData.condition || ''} onChange={e => setEditData({ ...editData, condition: e.target.value || null })} className="border rounded px-2 py-1 bg-white">
                           <option value="">-</option><option value="good">Good</option><option value="fair">Fair</option><option value="poor">Poor</option><option value="spoil">Spoil</option>
@@ -181,7 +189,11 @@ export default function MaintenanceSettingsPage() {
                     </>
                   ) : (
                     <>
+                      <td className="px-4 py-2.5 text-gray-500">{eq.equip_code || '-'}</td>
                       <td className="px-4 py-2.5 font-medium">{eq.name}</td>
+                      <td className="px-4 py-2.5">{eq.category || '-'}</td>
+                      <td className="px-4 py-2.5">{eq.brand || '-'}</td>
+                      <td className="px-4 py-2.5">{eq.location || '-'}</td>
                       <td className="px-4 py-2.5">{eq.condition || '-'}</td>
                       <td className="px-4 py-2.5">{eq.manager || '-'}</td>
                       <td className="px-4 py-2.5">{eq.supervisor || '-'}</td>
@@ -196,7 +208,7 @@ export default function MaintenanceSettingsPage() {
                   )}
                 </tr>
               ))}
-              {equipment.length === 0 && <tr><td colSpan={8} className="px-4 py-6 text-center text-gray-400">No equipment yet.</td></tr>}
+              {equipment.length === 0 && <tr><td colSpan={12} className="px-4 py-6 text-center text-gray-400">No equipment yet.</td></tr>}
             </tbody>
           </table>
         </div>

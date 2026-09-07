@@ -12,7 +12,12 @@ type JobReport = {
   id: number; equipment_id: number | null; category: string | null; report_date: string
   reported_by: string | null; issue_description: string | null; downtime_hours: number | null
   repair_time_hours: number | null; status: string; photo_drive_id: string | null; notes: string | null
+  reported_at: string; resolved_at: string | null
   maintenance_equipment: { name: string } | null
+}
+
+function hoursBetween(a: string, b: string) {
+  return Math.max(0, (new Date(b).getTime() - new Date(a).getTime()) / 3600000)
 }
 
 async function compressImage(file: File): Promise<Blob> {
@@ -51,8 +56,9 @@ export default function JobsPage() {
 
   const [form, setForm] = useState({
     equipmentId: '', category: '', reportDate: new Date().toISOString().split('T')[0],
-    issueDescription: '', downtimeHours: '', repairTimeHours: '', notes: '',
+    issueDescription: '', notes: '',
   })
+  const [resolvingId, setResolvingId] = useState<number | null>(null)
   const [photoFile, setPhotoFile] = useState<File | null>(null)
 
   useEffect(() => { load() }, [])
@@ -61,7 +67,7 @@ export default function JobsPage() {
     setLoading(true)
     const [{ data: eq }, { data: rep }] = await Promise.all([
       supabase.from('maintenance_equipment').select('id, name').eq('is_active', true).order('name'),
-      supabase.from('maintenance_job_reports').select('*, maintenance_equipment(name)').order('report_date', { ascending: false }).limit(100),
+      supabase.from('maintenance_job_reports').select('*, maintenance_equipment(name)').order('reported_at', { ascending: false }).limit(100),
     ])
     setEquipment(eq || [])
     setReports((rep as any) || [])
@@ -92,23 +98,45 @@ export default function JobsPage() {
         equipment_id: form.equipmentId ? Number(form.equipmentId) : null,
         category: form.category || null,
         report_date: form.reportDate,
+        reported_at: new Date().toISOString(),
         reported_by: profile?.full_name || user?.email || null,
         issue_description: form.issueDescription.trim(),
-        downtime_hours: form.downtimeHours ? Number(form.downtimeHours) : 0,
-        repair_time_hours: form.repairTimeHours ? Number(form.repairTimeHours) : null,
-        status: form.repairTimeHours ? 'completed' : 'open',
+        status: 'open',
         photo_drive_id,
         notes: form.notes || null,
       }])
       if (error) throw error
       showSuccess('✓ Job report saved')
-      setForm(f => ({ ...f, issueDescription: '', downtimeHours: '', repairTimeHours: '', notes: '' }))
+      setForm(f => ({ ...f, issueDescription: '', notes: '' }))
       setPhotoFile(null)
       await load()
     } catch (err: any) {
       alert('Error: ' + err.message)
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  // Downtime/repair time are no longer typed in — resolving a report stamps
+  // resolved_at and derives both hour figures from the elapsed time since
+  // it was reported (same simplification Work Requests use: one elapsed-time
+  // number, not a separate "downtime" vs "hands-on repair" split).
+  async function markResolved(report: JobReport) {
+    if (!confirm('Mark this job report resolved? Repair time will be calculated from when it was reported.')) return
+    setResolvingId(report.id)
+    try {
+      const resolvedAt = new Date().toISOString()
+      const hours = Math.round(hoursBetween(report.reported_at, resolvedAt) * 10) / 10
+      const { error } = await supabase.from('maintenance_job_reports').update({
+        resolved_at: resolvedAt, downtime_hours: hours, repair_time_hours: hours, status: 'completed',
+      }).eq('id', report.id)
+      if (error) throw error
+      showSuccess('✓ Marked resolved')
+      await load()
+    } catch (err: any) {
+      alert('Error: ' + err.message)
+    } finally {
+      setResolvingId(null)
     }
   }
 
@@ -145,16 +173,6 @@ export default function JobsPage() {
             <label className="block text-xs font-medium text-gray-500 mb-1">Issue Description</label>
             <textarea required value={form.issueDescription} onChange={e => setForm({ ...form, issueDescription: e.target.value })} rows={3} className="w-full border rounded-md px-3 py-2 text-sm" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Downtime (hours)</label>
-              <input type="number" step="0.1" value={form.downtimeHours} onChange={e => setForm({ ...form, downtimeHours: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Repair Time (hours)</label>
-              <input type="number" step="0.1" value={form.repairTimeHours} onChange={e => setForm({ ...form, repairTimeHours: e.target.value })} placeholder="Leave blank if still open" className="w-full border rounded-md px-3 py-2 text-sm" />
-            </div>
-          </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Notes</label>
             <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} rows={2} className="w-full border rounded-md px-3 py-2 text-sm" />
@@ -176,6 +194,7 @@ export default function JobsPage() {
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Issue</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Photo</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -186,16 +205,26 @@ export default function JobsPage() {
                     <td className="px-3 py-2 max-w-[240px] truncate">{r.issue_description}</td>
                     <td className="px-3 py-2 whitespace-nowrap">
                       <span className={`text-xs font-bold uppercase rounded-full px-2 py-0.5 ${r.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>{r.status}</span>
+                      {r.status === 'completed' && r.repair_time_hours != null && (
+                        <span className="block text-[11px] text-gray-400 mt-0.5">{r.repair_time_hours}h to resolve</span>
+                      )}
                     </td>
                     <td className="px-3 py-2">
                       {r.photo_drive_id ? (
                         <img src={`/api/maintenance/file/${r.photo_drive_id}`} className="w-10 h-10 rounded object-cover cursor-zoom-in" onClick={() => setZoomSrc(`/api/maintenance/file/${r.photo_drive_id}`)} />
                       ) : '-'}
                     </td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      {r.status !== 'completed' && (
+                        <button onClick={() => markResolved(r)} disabled={resolvingId === r.id} className="text-xs bg-green-600 disabled:opacity-50 text-white px-2.5 py-1 rounded-lg hover:bg-green-700">
+                          {resolvingId === r.id ? 'Saving...' : 'Mark Resolved'}
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
                 {!loading && reports.length === 0 && (
-                  <tr><td colSpan={5} className="px-3 py-8 text-center text-gray-400">No job reports yet.</td></tr>
+                  <tr><td colSpan={6} className="px-3 py-8 text-center text-gray-400">No job reports yet.</td></tr>
                 )}
               </tbody>
             </table>

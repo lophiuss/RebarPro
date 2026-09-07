@@ -116,12 +116,17 @@ export default function SchedulePage() {
 
       <h2 className="text-lg font-bold mb-3">PM Schedule — {year}</h2>
       <p className="text-xs text-gray-500 mb-3">Yellow = planned this week. Click the current week's cell to mark it done. Manage which weeks are planned in Settings.</p>
-      <div className="bg-white border rounded-xl shadow-sm overflow-x-auto mb-10">
+      <div className="bg-white border rounded-xl shadow-sm overflow-x-auto mb-10 max-h-[70vh] overflow-y-auto">
         <table className="min-w-max text-xs">
           <thead>
+            {/* sticky top-0 on every header cell so the week/equipment header
+                stays visible while scrolling down a long equipment list; the
+                corner cell is also sticky left-0 (see below), so it needs a
+                higher z-index to stay above the plain top-sticky cells that
+                scroll underneath it horizontally. */}
             <tr>
-              <th className="sticky left-0 bg-gray-50 px-3 py-2 text-left font-medium text-gray-500 uppercase border-r">Equipment</th>
-              {weeks.map(wk => <th key={wk} className={`px-1 py-2 font-normal border-r ${wk === currentWeek ? 'bg-blue-50 text-blue-700 font-bold' : 'text-gray-400'}`}>{wk}</th>)}
+              <th className="sticky left-0 top-0 z-20 bg-gray-50 px-3 py-2 text-left font-medium text-gray-500 uppercase border-r">Equipment</th>
+              {weeks.map(wk => <th key={wk} className={`sticky top-0 z-10 px-1 py-2 font-normal border-r ${wk === currentWeek ? 'bg-blue-50 text-blue-700 font-bold' : 'bg-gray-50 text-gray-400'}`}>{wk}</th>)}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
