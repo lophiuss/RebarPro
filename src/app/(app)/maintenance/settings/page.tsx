@@ -22,6 +22,7 @@ export default function MaintenanceSettingsPage() {
   const [newEquip, setNewEquip] = useState({ name: '', equip_code: '', category: '', location: '' })
   const [editingId, setEditingId] = useState<number | null>(null)
   const [editData, setEditData] = useState<any>({})
+  const [equipFilter, setEquipFilter] = useState({ q: '', category: '', location: '', condition: '' })
 
   const [managerEmail, setManagerEmail] = useState('')
   const [savingEmail, setSavingEmail] = useState(false)
@@ -119,6 +120,20 @@ export default function MaintenanceSettingsPage() {
     load()
   }
 
+  const equipCategories = [...new Set(equipment.map(e => e.category).filter(Boolean))].sort() as string[]
+  const equipLocations = [...new Set(equipment.map(e => e.location).filter(Boolean))].sort() as string[]
+  const filteredEquipment = equipment.filter(e => {
+    if (equipFilter.category && e.category !== equipFilter.category) return false
+    if (equipFilter.location && e.location !== equipFilter.location) return false
+    if (equipFilter.condition && e.condition !== equipFilter.condition) return false
+    if (equipFilter.q) {
+      const term = equipFilter.q.trim().toLowerCase()
+      const hay = `${e.equip_code || ''} ${e.name}`.toLowerCase()
+      if (term && !hay.includes(term)) return false
+    }
+    return true
+  })
+
   return (
     <div className="p-4 md:p-8 max-w-6xl mx-auto space-y-10">
       <h1 className="text-3xl font-bold flex items-center gap-2"><SettingsIcon className="w-7 h-7 text-orange-600" /> Maintenance Settings</h1>
@@ -144,6 +159,37 @@ export default function MaintenanceSettingsPage() {
           <div><label className="block text-xs font-medium text-gray-500 mb-1">Location</label><input value={newEquip.location} onChange={e => setNewEquip({ ...newEquip, location: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-36" /></div>
           <button type="submit" className="flex items-center gap-1.5 bg-orange-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-orange-700"><Plus className="w-4 h-4" /> Add</button>
         </form>
+        <div className="bg-white border rounded-xl shadow-sm p-4 mb-4 flex flex-wrap items-end gap-3">
+          <div className="flex-1 min-w-[180px]">
+            <label className="block text-xs font-medium text-gray-500 mb-1">Search (code or name)</label>
+            <input value={equipFilter.q} onChange={e => setEquipFilter({ ...equipFilter, q: e.target.value })} placeholder="e.g. E00092 or Crane" className="w-full border rounded-md px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Category</label>
+            <select value={equipFilter.category} onChange={e => setEquipFilter({ ...equipFilter, category: e.target.value })} className="border rounded-md px-3 py-2 text-sm bg-white w-36">
+              <option value="">All</option>
+              {equipCategories.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Location</label>
+            <select value={equipFilter.location} onChange={e => setEquipFilter({ ...equipFilter, location: e.target.value })} className="border rounded-md px-3 py-2 text-sm bg-white w-36">
+              <option value="">All</option>
+              {equipLocations.map(l => <option key={l} value={l}>{l}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Condition</label>
+            <select value={equipFilter.condition} onChange={e => setEquipFilter({ ...equipFilter, condition: e.target.value })} className="border rounded-md px-3 py-2 text-sm bg-white w-32">
+              <option value="">All</option>
+              <option value="good">Good</option><option value="fair">Fair</option><option value="poor">Poor</option><option value="spoil">Spoil</option>
+            </select>
+          </div>
+          {(equipFilter.q || equipFilter.category || equipFilter.location || equipFilter.condition) && (
+            <button onClick={() => setEquipFilter({ q: '', category: '', location: '', condition: '' })} className="text-sm text-gray-500 hover:text-gray-700 px-2 py-2">Clear</button>
+          )}
+          <span className="text-xs text-gray-400 ml-auto">{filteredEquipment.length} of {equipment.length}</span>
+        </div>
         <div className="bg-white border rounded-xl shadow-sm overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200 text-sm">
             <thead className="bg-gray-50">
@@ -163,7 +209,7 @@ export default function MaintenanceSettingsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {equipment.map(eq => (
+              {filteredEquipment.map(eq => (
                 <tr key={eq.id}>
                   {editingId === eq.id ? (
                     <>
@@ -208,7 +254,9 @@ export default function MaintenanceSettingsPage() {
                   )}
                 </tr>
               ))}
-              {equipment.length === 0 && <tr><td colSpan={12} className="px-4 py-6 text-center text-gray-400">No equipment yet.</td></tr>}
+              {filteredEquipment.length === 0 && (
+                <tr><td colSpan={12} className="px-4 py-6 text-center text-gray-400">{equipment.length === 0 ? 'No equipment yet.' : 'No equipment matches these filters.'}</td></tr>
+              )}
             </tbody>
           </table>
         </div>
