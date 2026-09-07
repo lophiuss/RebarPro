@@ -86,6 +86,7 @@ export default function AccessControlPage() {
   const [togglingActive, setTogglingActive] = useState<string | null>(null)
   const [viewAsPerson, setViewAsPerson] = useState<Person | null>(null)
   const [viewAsDept, setViewAsDept] = useState<Department | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const supabase = createClient()
 
@@ -93,21 +94,34 @@ export default function AccessControlPage() {
     load()
   }, [])
 
+  // Previously had no error handling at all — a network blip on any of
+  // these three requests (this session has hit a few) meant the whole
+  // function threw, setLoading(false) never ran, and the page was left
+  // silently stuck on stale data (e.g. a just-created person missing from
+  // every "Grant Access" dropdown) with no indication anything had failed.
   async function load() {
     setLoading(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    setMyId(user?.id ?? null)
+    setLoadError(null)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      setMyId(user?.id ?? null)
 
-    const [people, accessRes, navPermRes] = await Promise.all([
-      listPeople(),
-      supabase.from('user_department_access').select('user_id, department, role'),
-      supabase.from('department_nav_permissions').select('department, role, nav_key'),
-    ])
+      const [people, accessRes, navPermRes] = await Promise.all([
+        listPeople(),
+        supabase.from('user_department_access').select('user_id, department, role'),
+        supabase.from('department_nav_permissions').select('department, role, nav_key'),
+      ])
 
-    setProfiles(people)
-    if (accessRes.data) setAccess(accessRes.data)
-    if (navPermRes.data) setNavPerms(navPermRes.data)
-    setLoading(false)
+      setProfiles(people)
+      if (accessRes.error) throw accessRes.error
+      if (accessRes.data) setAccess(accessRes.data)
+      if (navPermRes.error) throw navPermRes.error
+      if (navPermRes.data) setNavPerms(navPermRes.data)
+    } catch (err: any) {
+      setLoadError(err.message || 'Something went wrong loading this page.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   // Departments I administer — RLS only returns dept rows I'm an admin of (plus my own rows),
@@ -284,6 +298,15 @@ export default function AccessControlPage() {
   }
 
   if (loading) return <div className="p-8 text-gray-500">Loading…</div>
+
+  if (loadError) {
+    return (
+      <div className="p-8 max-w-lg mx-auto text-center">
+        <p className="text-sm text-red-600 mb-3">Couldn't load this page: {loadError}</p>
+        <button onClick={load} className="bg-slate-900 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-slate-800">Retry</button>
+      </div>
+    )
+  }
 
   if (myAdminDepts.length === 0) {
     return (
