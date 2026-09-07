@@ -45,6 +45,15 @@ function hoursBetween(a: string, b: string) {
   return ((new Date(b).getTime() - new Date(a).getTime()) / 3600000).toFixed(1)
 }
 
+// assigned_to can hold several names at once (a manager can pick multiple
+// technicians for one job) — split on common separators so "assigned to
+// me?" and per-person credit both work off any name in the list, not just
+// an exact full-string match.
+function splitNames(assignedTo: string | null): string[] {
+  if (!assignedTo) return []
+  return assignedTo.split(/\s*(?:,|&|;|\band\b)\s*/i).map(n => n.trim()).filter(Boolean)
+}
+
 const STATUS_STYLE: Record<string, string> = {
   pending: 'bg-gray-100 text-gray-600',
   assigned: 'bg-blue-100 text-blue-700',
@@ -63,7 +72,7 @@ export default function WorkRequestsPage() {
   const [canManage, setCanManage] = useState(false)
   const [loading, setLoading] = useState(true)
   const [assignTarget, setAssignTarget] = useState<WorkRequest | null>(null)
-  const [assignee, setAssignee] = useState('')
+  const [selectedAssignees, setSelectedAssignees] = useState<Set<string>>(new Set())
   const [staff, setStaff] = useState<StaffMember[]>([])
   const [completeTarget, setCompleteTarget] = useState<WorkRequest | null>(null)
   const [resolutionPhoto, setResolutionPhoto] = useState<File | null>(null)
@@ -106,7 +115,7 @@ export default function WorkRequestsPage() {
   const pending = requests.filter(r => r.status === 'pending')
   const inProgress = requests.filter(r => r.status === 'assigned' || r.status === 'accepted')
   const awaitingApproval = requests.filter(r => r.status === 'completed')
-  const myTasks = requests.filter(r => r.assigned_to === myIdentifier)
+  const myTasks = requests.filter(r => splitNames(r.assigned_to).includes(myIdentifier))
   const myCompletedCount = myTasks.filter(r => r.status === 'approved').length
 
   function openEdit(r: WorkRequest) {
@@ -134,15 +143,15 @@ export default function WorkRequestsPage() {
   }
 
   async function doAssign() {
-    if (!assignTarget || !assignee.trim()) return
+    if (!assignTarget || selectedAssignees.size === 0) return
     setSaving(true)
     try {
       const { error } = await supabase.from('maintenance_work_requests').update({
-        status: 'assigned', assigned_to: assignee.trim(), assigned_at: new Date().toISOString(),
+        status: 'assigned', assigned_to: [...selectedAssignees].join(', '), assigned_at: new Date().toISOString(),
       }).eq('id', assignTarget.id)
       if (error) throw error
       setAssignTarget(null)
-      setAssignee('')
+      setSelectedAssignees(new Set())
       await load()
     } catch (err: any) {
       alert('Error: ' + err.message)
@@ -297,7 +306,7 @@ export default function WorkRequestsPage() {
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1.5">
                       <button onClick={() => openEdit(r)} className="text-gray-400 hover:text-blue-600 p-1.5" title="Edit before assigning"><Pencil className="w-3.5 h-3.5" /></button>
-                      <button onClick={() => { setAssignTarget(r); setAssignee('') }} className="flex items-center gap-1 text-xs bg-orange-600 text-white font-medium px-3 py-1.5 rounded-lg hover:bg-orange-700"><UserPlus className="w-3.5 h-3.5" /> Assign</button>
+                      <button onClick={() => { setAssignTarget(r); setSelectedAssignees(new Set()) }} className="flex items-center gap-1 text-xs bg-orange-600 text-white font-medium px-3 py-1.5 rounded-lg hover:bg-orange-700"><UserPlus className="w-3.5 h-3.5" /> Assign</button>
                       <button onClick={() => deleteRequest(r)} disabled={busyId === r.id} className="text-red-400 hover:text-red-600 disabled:opacity-50 p-1.5" title="Delete (logged)"><Trash2 className="w-3.5 h-3.5" /></button>
                     </div>
                   </td>
@@ -487,15 +496,29 @@ export default function WorkRequestsPage() {
               <h2 className="text-lg font-bold">Assign — {assignTarget.requester_name}</h2>
               <button onClick={() => setAssignTarget(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Assign To</label>
-            <select value={assignee} onChange={e => setAssignee(e.target.value)} className="w-full border rounded-md px-3 py-2 text-sm bg-white mb-4" autoFocus>
-              <option value="">Select staff…</option>
-              {staff.map(s => <option key={s.name} value={s.name}>{s.name} ({s.role})</option>)}
-            </select>
-            {staff.length === 0 && <p className="text-xs text-gray-400 -mt-3 mb-4">No maintenance staff found — grant access in Access Control first.</p>}
-            <div className="flex justify-end gap-3">
+            <label className="block text-xs font-medium text-gray-500 mb-1">Assign To (pick one or more)</label>
+            <div className="border rounded-md max-h-52 overflow-y-auto mb-1">
+              {staff.map(s => (
+                <label key={s.name} className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 cursor-pointer border-b last:border-b-0">
+                  <input
+                    type="checkbox"
+                    checked={selectedAssignees.has(s.name)}
+                    onChange={e => {
+                      const next = new Set(selectedAssignees)
+                      if (e.target.checked) next.add(s.name); else next.delete(s.name)
+                      setSelectedAssignees(next)
+                    }}
+                    className="w-4 h-4 accent-orange-600"
+                  />
+                  {s.name} <span className="text-gray-400">({s.role})</span>
+                </label>
+              ))}
+            </div>
+            {staff.length === 0 && <p className="text-xs text-gray-400 mb-4">No maintenance staff found — grant access in Access Control first.</p>}
+            {selectedAssignees.size > 1 && <p className="text-xs text-gray-400 mb-4">All {selectedAssignees.size} will see this in My Tasks; any one of them can accept and complete it.</p>}
+            <div className="flex justify-end gap-3 mt-4">
               <button onClick={() => setAssignTarget(null)} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-200">Cancel</button>
-              <button onClick={doAssign} disabled={saving || !assignee.trim()} className="bg-orange-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-orange-700">{saving ? 'Saving...' : 'Assign'}</button>
+              <button onClick={doAssign} disabled={saving || selectedAssignees.size === 0} className="bg-orange-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-orange-700">{saving ? 'Saving...' : 'Assign'}</button>
             </div>
           </div>
         </div>
