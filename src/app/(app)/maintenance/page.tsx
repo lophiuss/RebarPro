@@ -3,6 +3,7 @@ export const revalidate = 0
 
 import { createClient } from '@/lib/supabase/server'
 import ShoutoutBoard from '@/components/ShoutoutBoard'
+import PublicJobRequestLink from './PublicJobRequestLink'
 import { Wrench, AlertTriangle, Bell } from 'lucide-react'
 
 // Small current-vs-previous-period bar pair, rendered as static SVG (no
@@ -104,7 +105,7 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
 
   const [
     { data: equipment }, { data: jobReports }, { data: prevJobReports }, { data: pmRows }, { data: spareParts },
-    { data: critical }, { data: settingsRow }, { count: pendingCount }, { data: { user } }, { data: weekSubs },
+    { data: critical }, { data: settingsRow }, { count: pendingCount }, { data: { user } }, { data: weekSubs }, { count: awaitingApprovalCount },
   ] = await Promise.all([
     supabase.from('maintenance_equipment').select('id, name, category, target_repair_hours, pm_checklist_template_id').eq('is_active', true),
     supabase.from('maintenance_job_reports').select('id, equipment_id, category, report_date, downtime_hours, repair_time_hours, status').gte('report_date', periodStart).lte('report_date', periodEnd),
@@ -116,6 +117,7 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
     supabase.from('maintenance_work_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
     supabase.auth.getUser(),
     supabase.from('maintenance_checklist_submissions').select('equipment_id').gte('submission_date', toStr(weekMonday)).lte('submission_date', toStr(weekSunday)),
+    supabase.from('maintenance_work_requests').select('id', { count: 'exact', head: true }).eq('status', 'completed'),
   ])
 
   let myName = ''
@@ -225,6 +227,12 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
         </a>
       )}
 
+      {!!awaitingApprovalCount && awaitingApprovalCount > 0 && (
+        <a href="/maintenance/work-requests" className="block bg-blue-50 border border-blue-200 rounded-xl px-5 py-3 mb-3 text-sm font-semibold text-blue-800 hover:bg-blue-100">
+          📋 {awaitingApprovalCount} completed Work Request{awaitingApprovalCount === 1 ? '' : 's'} awaiting your approval — click to review
+        </a>
+      )}
+
       {myPendingPm.length > 0 && (
         <a href="/maintenance/schedule" className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-5 py-3 mb-3 text-sm font-semibold text-amber-800 hover:bg-amber-100">
           <Bell className="w-4 h-4 flex-shrink-0" /> You have {myPendingPm.length} PM task{myPendingPm.length === 1 ? '' : 's'} assigned to you this week — click to review
@@ -237,6 +245,8 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
           <span className="block font-normal text-red-600 text-xs mt-0.5">Click to open the checklist for any of these on the Schedule page.</span>
         </a>
       )}
+
+      <PublicJobRequestLink />
 
       <ShoutoutBoard department="maintenance" />
 

@@ -187,6 +187,38 @@ export default function SchedulePage() {
     setPmRows(prev => prev.map(r => r.id === existing.id ? { ...r, completed_at: nowDone ? new Date().toISOString() : null } : r))
   }
 
+  // Ad-hoc single-week scheduling for a manager — creates or flips the
+  // planned flag on one (equipment, week) cell directly, without setting up
+  // a whole recurrence rule. Complements "New Recurring Schedule" for a
+  // one-off PM the recurrence generator wouldn't otherwise produce.
+  async function setPlanned(equipmentId: number, weekNumber: number, planned: boolean) {
+    const existing = pmRows.find(r => r.equipment_id === equipmentId && r.week_number === weekNumber)
+    if (existing) {
+      const { error } = await supabase.from('maintenance_pm_schedule').update({ planned }).eq('id', existing.id)
+      if (error) { alert('Error: ' + error.message); return }
+      setPmRows(prev => prev.map(r => r.id === existing.id ? { ...r, planned } : r))
+    } else {
+      const { data, error } = await supabase.from('maintenance_pm_schedule').insert([{
+        equipment_id: equipmentId, year: viewYear, week_number: weekNumber, planned,
+      }]).select('id, equipment_id, week_number, planned, completed_at, assigned_to').single()
+      if (error) { alert('Error: ' + error.message); return }
+      setPmRows(prev => [...prev, data])
+    }
+  }
+
+  function handleCellClick(equipmentId: number, weekNumber: number) {
+    const row = pmRows.find(r => r.equipment_id === equipmentId && r.week_number === weekNumber)
+    const isCurrent = viewYear === realYear && weekNumber === realWeek
+    if (!canManage) {
+      if (isCurrent && row?.planned) toggleCompleted(equipmentId, weekNumber)
+      return
+    }
+    if (!row?.planned) { setPlanned(equipmentId, weekNumber, true); return }
+    if (row.completed_at) { toggleCompleted(equipmentId, weekNumber); return }
+    if (isCurrent) { toggleCompleted(equipmentId, weekNumber); return }
+    setPlanned(equipmentId, weekNumber, false)
+  }
+
   async function addRecurrence(e: React.FormEvent) {
     e.preventDefault()
     if (!newRec.equipmentId || !newRec.frequencyWeeks || !newRec.startDate) { alert('Please fill in equipment, frequency, and start date'); return }
@@ -324,6 +356,15 @@ export default function SchedulePage() {
   }
 
   const weeks = Array.from({ length: 52 }, (_, i) => i + 1)
+  // Groups consecutive weeks under the month their Monday falls in, for the
+  // header's month row (colSpan per group).
+  const monthGroups: { month: string; span: number }[] = []
+  for (const wk of weeks) {
+    const label = mondayOfIsoWeek(viewYear, wk).toLocaleString('default', { month: 'short', timeZone: 'UTC' })
+    const last = monthGroups[monthGroups.length - 1]
+    if (last && last.month === label) last.span++
+    else monthGroups.push({ month: label, span: 1 })
+  }
   const grouped = items.reduce((acc: Record<string, Item[]>, it) => {
     const key = it.section_label || ''
     acc[key] = acc[key] || []
@@ -555,13 +596,21 @@ export default function SchedulePage() {
                 stays visible while scrolling down a long equipment list; the
                 corner cell is also sticky left-0 (see below), so it needs a
                 higher z-index to stay above the plain top-sticky cells that
-                scroll underneath it horizontally. */}
+                scroll underneath it horizontally. Two stacked sticky rows
+                (month, then date/week) — the second row's `top` has to equal
+                the first row's rendered height or it scrolls out from under it. */}
             <tr>
-              <th className="sticky left-0 top-0 z-20 bg-gray-50 px-3 py-2 text-left font-medium text-gray-500 uppercase border-r">Equipment</th>
+              <th className="sticky left-0 top-0 z-20 bg-gray-100 border-r"></th>
+              {monthGroups.map((g, i) => (
+                <th key={i} colSpan={g.span} className="sticky top-0 z-10 bg-gray-100 text-gray-500 text-[10px] font-semibold uppercase border-r py-1">{g.month}</th>
+              ))}
+            </tr>
+            <tr>
+              <th className="sticky left-0 top-[22px] z-20 bg-gray-50 px-3 py-2 text-left font-medium text-gray-500 uppercase border-r">Equipment</th>
               {weeks.map(wk => {
                 const isCurrent = viewYear === realYear && wk === realWeek
                 return (
-                  <th key={wk} className={`sticky top-0 z-10 px-1 py-1 font-normal border-r leading-tight ${isCurrent ? 'bg-blue-50 text-blue-700 font-bold' : 'bg-gray-50 text-gray-400'}`}>
+                  <th key={wk} className={`sticky top-[22px] z-10 px-1 py-1 font-normal border-r leading-tight ${isCurrent ? 'bg-blue-50 text-blue-700 font-bold' : 'bg-gray-50 text-gray-400'}`}>
                     <div>{fmtShort(mondayOfIsoWeek(viewYear, wk))}</div>
                     <div className="text-[9px]">Wk{wk}</div>
                   </th>
@@ -578,14 +627,15 @@ export default function SchedulePage() {
                   const planned = row?.planned
                   const done = !!row?.completed_at
                   const isCurrent = viewYear === realYear && wk === realWeek
-                  const title = [planned ? `Week ${wk} — planned` : null, row?.assigned_to ? `Assigned: ${row.assigned_to}` : null, done ? 'Completed' : null].filter(Boolean).join(' · ')
+                  const clickable = canManage || (isCurrent && planned)
+                  const title = [planned ? `Week ${wk} — planned` : (canManage ? 'Click to schedule this week' : null), row?.assigned_to ? `Assigned: ${row.assigned_to}` : null, done ? 'Completed' : null].filter(Boolean).join(' · ')
                   return (
                     <td key={wk} className="border-r p-0.5">
                       <button
                         title={title || undefined}
-                        onClick={() => isCurrent && planned && toggleCompleted(eq.id, wk)}
-                        disabled={!planned || !isCurrent}
-                        className={`w-5 h-5 rounded ${done ? 'bg-green-500' : planned ? 'bg-yellow-300' : 'bg-gray-100'} ${isCurrent && planned ? 'cursor-pointer ring-1 ring-blue-400' : ''}`}
+                        onClick={() => clickable && handleCellClick(eq.id, wk)}
+                        disabled={!clickable}
+                        className={`w-5 h-5 rounded ${done ? 'bg-green-500' : planned ? 'bg-yellow-300' : 'bg-gray-100'} ${clickable ? 'cursor-pointer hover:ring-1 hover:ring-blue-400' : ''} ${isCurrent && planned ? 'ring-1 ring-blue-400' : ''}`}
                       />
                     </td>
                   )

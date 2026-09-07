@@ -18,7 +18,39 @@ const CONDITION_STYLE: Record<string, string> = {
   spoil: 'bg-red-100 text-red-700',
 }
 
-export default function EquipmentTable({ equipment, canManage, hasFilters }: { equipment: EquipmentRow[]; canManage: boolean; hasFilters: boolean }) {
+const OTHER = '__other__'
+
+// A <select> of known values with a trailing "Other (type new)" option that
+// swaps in a text input — keeps category/location/purpose consistent
+// (no "Crane" vs "crane" duplicates) while still letting a genuinely new
+// value be entered.
+function DropdownOrOther({ value, options, onChange, placeholder }: { value: string; options: string[]; onChange: (v: string) => void; placeholder?: string }) {
+  const [typingNew, setTypingNew] = useState(value !== '' && !options.includes(value))
+  if (typingNew) {
+    return (
+      <div className="flex gap-1">
+        <input autoFocus value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className="w-full border rounded-md px-3 py-2 text-sm" />
+        <button type="button" onClick={() => { setTypingNew(false); onChange('') }} className="text-xs text-gray-400 hover:text-gray-600 px-1" title="Back to dropdown">✕</button>
+      </div>
+    )
+  }
+  return (
+    <select
+      value={options.includes(value) ? value : ''}
+      onChange={e => { if (e.target.value === OTHER) { setTypingNew(true); onChange('') } else onChange(e.target.value) }}
+      className="w-full border rounded-md px-3 py-2 text-sm bg-white"
+    >
+      <option value="">-</option>
+      {options.map(o => <option key={o} value={o}>{o}</option>)}
+      <option value={OTHER}>+ Other (type new)</option>
+    </select>
+  )
+}
+
+export default function EquipmentTable({ equipment, canManage, hasFilters, categories, locations, purposes }: {
+  equipment: EquipmentRow[]; canManage: boolean; hasFilters: boolean
+  categories: string[]; locations: string[]; purposes: string[]
+}) {
   const supabase = createClient()
   const [rows, setRows] = useState(equipment)
   const [editing, setEditing] = useState<EquipmentRow | null>(null)
@@ -56,36 +88,38 @@ export default function EquipmentTable({ equipment, canManage, hasFilters }: { e
   return (
     <>
       <div className="bg-white border rounded-xl shadow-sm overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
+        <table className="min-w-full divide-y divide-gray-200 text-sm">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Code</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Condition</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ownership</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">PIC (Day / Night)</th>
+              <th className="px-3 py-1.5 text-left text-xs font-medium text-gray-500 uppercase">Code</th>
+              <th className="px-3 py-1.5 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+              <th className="px-3 py-1.5 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
+              <th className="px-3 py-1.5 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
+              <th className="px-3 py-1.5 text-left text-xs font-medium text-gray-500 uppercase">Condition</th>
+              <th className="px-3 py-1.5 text-left text-xs font-medium text-gray-500 uppercase">Ownership Manager</th>
+              <th className="px-3 py-1.5 text-left text-xs font-medium text-gray-500 uppercase">Ownership Supervisor</th>
+              <th className="px-3 py-1.5 text-left text-xs font-medium text-gray-500 uppercase">PIC (Day / Night)</th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
+          <tbody className="bg-white divide-y divide-gray-100">
             {rows.map(e => (
               <tr key={e.id} className={`hover:bg-gray-50 ${canManage ? 'cursor-pointer' : ''}`} onClick={() => openEdit(e)}>
-                <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">{e.equip_code || '-'}</td>
-                <td className="px-4 py-3 text-sm font-medium whitespace-nowrap">
+                <td className="px-3 py-1 text-gray-500 whitespace-nowrap">{e.equip_code || '-'}</td>
+                <td className="px-3 py-1 font-medium whitespace-nowrap">
                   <Link href={`/maintenance/equipment/${e.id}`} onClick={ev => ev.stopPropagation()} className="text-blue-600 hover:text-blue-800 hover:underline">{e.name}</Link>
                 </td>
-                <td className="px-4 py-3 text-sm whitespace-nowrap">{e.category || '-'}</td>
-                <td className="px-4 py-3 text-sm whitespace-nowrap">{e.location || '-'}</td>
-                <td className="px-4 py-3 whitespace-nowrap">
-                  {e.condition ? <span className={`text-xs font-bold uppercase rounded-full px-2 py-0.5 ${CONDITION_STYLE[e.condition] || 'bg-gray-100 text-gray-600'}`}>{e.condition}</span> : '-'}
+                <td className="px-3 py-1 whitespace-nowrap">{e.category || '-'}</td>
+                <td className="px-3 py-1 whitespace-nowrap">{e.location || '-'}</td>
+                <td className="px-3 py-1 whitespace-nowrap">
+                  {e.condition ? <span className={`text-[11px] font-bold uppercase rounded-full px-1.5 py-0.5 ${CONDITION_STYLE[e.condition] || 'bg-gray-100 text-gray-600'}`}>{e.condition}</span> : '-'}
                 </td>
-                <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">{[e.manager, e.supervisor].filter(Boolean).join(' / ') || '-'}</td>
-                <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">{[e.pic_day, e.pic_night].filter(Boolean).join(' / ') || '-'}</td>
+                <td className="px-3 py-1 text-gray-500 whitespace-nowrap">{e.manager || '-'}</td>
+                <td className="px-3 py-1 text-gray-500 whitespace-nowrap">{e.supervisor || '-'}</td>
+                <td className="px-3 py-1 text-gray-500 whitespace-nowrap">{[e.pic_day, e.pic_night].filter(Boolean).join(' / ') || '-'}</td>
               </tr>
             ))}
             {rows.length === 0 && (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">{hasFilters ? 'No equipment matches these filters.' : 'No equipment yet — add some in Settings.'}</td></tr>
+              <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-500">{hasFilters ? 'No equipment matches these filters.' : 'No equipment yet — add some in Settings.'}</td></tr>
             )}
           </tbody>
         </table>
@@ -108,10 +142,19 @@ export default function EquipmentTable({ equipment, canManage, hasFilters }: { e
                   <option value="">-</option><option value="good">Good</option><option value="fair">Fair</option><option value="poor">Poor</option><option value="spoil">Spoil</option>
                 </select>
               </div>
-              <div><label className="block text-xs font-medium text-gray-500 mb-1">Category</label><input value={form.category || ''} onChange={e => setForm({ ...form, category: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" /></div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Category</label>
+                <DropdownOrOther value={form.category || ''} options={categories} onChange={v => setForm({ ...form, category: v })} placeholder="New category" />
+              </div>
               <div><label className="block text-xs font-medium text-gray-500 mb-1">Brand</label><input value={form.brand || ''} onChange={e => setForm({ ...form, brand: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" /></div>
-              <div><label className="block text-xs font-medium text-gray-500 mb-1">Location</label><input value={form.location || ''} onChange={e => setForm({ ...form, location: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" /></div>
-              <div><label className="block text-xs font-medium text-gray-500 mb-1">Purpose</label><input value={form.purpose || ''} onChange={e => setForm({ ...form, purpose: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" /></div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Location</label>
+                <DropdownOrOther value={form.location || ''} options={locations} onChange={v => setForm({ ...form, location: v })} placeholder="New location" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Purpose</label>
+                <DropdownOrOther value={form.purpose || ''} options={purposes} onChange={v => setForm({ ...form, purpose: v })} placeholder="New purpose" />
+              </div>
               <div><label className="block text-xs font-medium text-gray-500 mb-1">Ownership Manager</label><input value={form.manager || ''} onChange={e => setForm({ ...form, manager: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" /></div>
               <div><label className="block text-xs font-medium text-gray-500 mb-1">Ownership Supervisor</label><input value={form.supervisor || ''} onChange={e => setForm({ ...form, supervisor: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" /></div>
               <div><label className="block text-xs font-medium text-gray-500 mb-1">PIC Day</label><input value={form.pic_day || ''} onChange={e => setForm({ ...form, pic_day: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" /></div>
