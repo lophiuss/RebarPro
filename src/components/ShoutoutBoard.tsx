@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Megaphone, Plus, X } from 'lucide-react'
 
-type Department = 'rebar' | 'cement' | 'security'
+type Department = 'rebar' | 'cement' | 'security' | 'maintenance'
 type Shoutout = { id: number; to_name: string; message: string; from_name: string; created_at: string }
 
 function timeAgo(iso: string) {

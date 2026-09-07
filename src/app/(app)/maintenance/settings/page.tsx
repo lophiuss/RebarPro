@@ -1,0 +1,262 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import { Settings as SettingsIcon, Plus, Trash2, Pencil, Check, X } from 'lucide-react'
+
+type Equipment = {
+  id: number; equip_code: string | null; name: string; category: string | null; brand: string | null
+  location: string | null; condition: string | null; manager: string | null; supervisor: string | null
+  pic_day: string | null; pic_night: string | null; target_repair_hours: number | null
+}
+type Template = { id: number; name: string; scope: string; frequency: string | null; form_code: string | null }
+type Item = { id: number; template_id: number; section_label: string | null; item_no: number | null; description: string }
+
+export default function MaintenanceSettingsPage() {
+  const supabase = createClient()
+  const [equipment, setEquipment] = useState<Equipment[]>([])
+  const [templates, setTemplates] = useState<Template[]>([])
+  const [items, setItems] = useState<Item[]>([])
+  const [expandedTemplate, setExpandedTemplate] = useState<number | null>(null)
+
+  const [newEquip, setNewEquip] = useState({ name: '', equip_code: '', category: '', location: '' })
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [editData, setEditData] = useState<any>({})
+
+  const [managerEmail, setManagerEmail] = useState('')
+  const [savingEmail, setSavingEmail] = useState(false)
+
+  const [newTemplate, setNewTemplate] = useState({ name: '', scope: 'single_equipment', frequency: '', form_code: '' })
+  const [newItem, setNewItem] = useState<Record<number, { section_label: string; description: string }>>({})
+
+  useEffect(() => { load() }, [])
+
+  async function load() {
+    const [{ data: eq }, { data: tmpl }, { data: it }, { data: settings }] = await Promise.all([
+      supabase.from('maintenance_equipment').select('*').order('name'),
+      supabase.from('maintenance_checklist_templates').select('*').order('name'),
+      supabase.from('maintenance_checklist_items').select('*').order('item_no'),
+      supabase.from('maintenance_settings').select('manager_email').eq('id', 1).maybeSingle(),
+    ])
+    setEquipment(eq || [])
+    setTemplates(tmpl || [])
+    setItems(it || [])
+    setManagerEmail(settings?.manager_email || '')
+  }
+
+  async function saveManagerEmail() {
+    setSavingEmail(true)
+    try {
+      const { error } = await supabase.from('maintenance_settings').update({ manager_email: managerEmail.trim() || null, updated_at: new Date().toISOString() }).eq('id', 1)
+      if (error) throw error
+    } catch (err: any) {
+      alert('Error: ' + err.message)
+    } finally {
+      setSavingEmail(false)
+    }
+  }
+
+  async function addEquipment(e: React.FormEvent) {
+    e.preventDefault()
+    if (!newEquip.name.trim()) return
+    const { error } = await supabase.from('maintenance_equipment').insert([{ ...newEquip, name: newEquip.name.trim() }])
+    if (error) { alert('Error: ' + error.message); return }
+    setNewEquip({ name: '', equip_code: '', category: '', location: '' })
+    load()
+  }
+
+  function startEdit(eq: Equipment) {
+    setEditingId(eq.id)
+    setEditData({ ...eq })
+  }
+
+  async function saveEdit() {
+    const { id, ...patch } = editData
+    const { error } = await supabase.from('maintenance_equipment').update(patch).eq('id', id)
+    if (error) { alert('Error: ' + error.message); return }
+    setEditingId(null)
+    load()
+  }
+
+  async function deactivate(id: number) {
+    if (!confirm('Deactivate this equipment? It will be hidden from active lists but not deleted.')) return
+    const { error } = await supabase.from('maintenance_equipment').update({ is_active: false }).eq('id', id)
+    if (error) { alert('Error: ' + error.message); return }
+    load()
+  }
+
+  async function addTemplate(e: React.FormEvent) {
+    e.preventDefault()
+    if (!newTemplate.name.trim()) return
+    const { error } = await supabase.from('maintenance_checklist_templates').insert([newTemplate])
+    if (error) { alert('Error: ' + error.message); return }
+    setNewTemplate({ name: '', scope: 'single_equipment', frequency: '', form_code: '' })
+    load()
+  }
+
+  async function deleteTemplate(id: number) {
+    if (!confirm('Delete this checklist template and all its items?')) return
+    const { error } = await supabase.from('maintenance_checklist_templates').delete().eq('id', id)
+    if (error) { alert('Error: ' + error.message); return }
+    load()
+  }
+
+  async function addItem(templateId: number) {
+    const draft = newItem[templateId]
+    if (!draft?.description.trim()) return
+    const existingCount = items.filter(i => i.template_id === templateId).length
+    const { error } = await supabase.from('maintenance_checklist_items').insert([{
+      template_id: templateId, section_label: draft.section_label.trim() || null, item_no: existingCount + 1, description: draft.description.trim(),
+    }])
+    if (error) { alert('Error: ' + error.message); return }
+    setNewItem({ ...newItem, [templateId]: { section_label: '', description: '' } })
+    load()
+  }
+
+  async function deleteItem(id: number) {
+    const { error } = await supabase.from('maintenance_checklist_items').delete().eq('id', id)
+    if (error) { alert('Error: ' + error.message); return }
+    load()
+  }
+
+  return (
+    <div className="p-4 md:p-8 max-w-6xl mx-auto space-y-10">
+      <h1 className="text-3xl font-bold flex items-center gap-2"><SettingsIcon className="w-7 h-7 text-orange-600" /> Maintenance Settings</h1>
+
+      <div>
+        <h2 className="text-lg font-bold mb-3">Work Request Notifications</h2>
+        <div className="bg-white border rounded-xl shadow-sm p-4 flex flex-wrap items-end gap-3">
+          <div className="flex-1 min-w-[240px]">
+            <label className="block text-xs font-medium text-gray-500 mb-1">Manager/Supervisor Email (comma-separate for multiple)</label>
+            <input type="email" multiple value={managerEmail} onChange={e => setManagerEmail(e.target.value)} placeholder="manager@example.com" className="w-full border rounded-md px-3 py-2 text-sm" />
+          </div>
+          <button onClick={saveManagerEmail} disabled={savingEmail} className="bg-orange-600 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-orange-700">{savingEmail ? 'Saving...' : 'Save'}</button>
+        </div>
+        <p className="text-xs text-gray-500 mt-2">An email is sent here immediately every time a new Work Request is filed (in addition to the pending-count badge on the Dashboard).</p>
+      </div>
+
+      <div>
+        <h2 className="text-lg font-bold mb-3">Equipment</h2>
+        <form onSubmit={addEquipment} className="bg-white border rounded-xl shadow-sm p-4 mb-4 flex flex-wrap items-end gap-3">
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">Name</label><input required value={newEquip.name} onChange={e => setNewEquip({ ...newEquip, name: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-44" /></div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">Code</label><input value={newEquip.equip_code} onChange={e => setNewEquip({ ...newEquip, equip_code: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-28" /></div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">Category</label><input value={newEquip.category} onChange={e => setNewEquip({ ...newEquip, category: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-36" /></div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">Location</label><input value={newEquip.location} onChange={e => setNewEquip({ ...newEquip, location: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-36" /></div>
+          <button type="submit" className="flex items-center gap-1.5 bg-orange-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-orange-700"><Plus className="w-4 h-4" /> Add</button>
+        </form>
+        <div className="bg-white border rounded-xl shadow-sm overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200 text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Condition</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Manager</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Supervisor</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">PIC Day</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">PIC Night</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Target Repair (h)</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {equipment.map(eq => (
+                <tr key={eq.id}>
+                  {editingId === eq.id ? (
+                    <>
+                      <td className="px-4 py-2"><input value={editData.name} onChange={e => setEditData({ ...editData, name: e.target.value })} className="border rounded px-2 py-1 w-full" /></td>
+                      <td className="px-4 py-2">
+                        <select value={editData.condition || ''} onChange={e => setEditData({ ...editData, condition: e.target.value || null })} className="border rounded px-2 py-1 bg-white">
+                          <option value="">-</option><option value="good">Good</option><option value="fair">Fair</option><option value="poor">Poor</option><option value="spoil">Spoil</option>
+                        </select>
+                      </td>
+                      <td className="px-4 py-2"><input value={editData.manager || ''} onChange={e => setEditData({ ...editData, manager: e.target.value })} className="border rounded px-2 py-1 w-full" /></td>
+                      <td className="px-4 py-2"><input value={editData.supervisor || ''} onChange={e => setEditData({ ...editData, supervisor: e.target.value })} className="border rounded px-2 py-1 w-full" /></td>
+                      <td className="px-4 py-2"><input value={editData.pic_day || ''} onChange={e => setEditData({ ...editData, pic_day: e.target.value })} className="border rounded px-2 py-1 w-full" /></td>
+                      <td className="px-4 py-2"><input value={editData.pic_night || ''} onChange={e => setEditData({ ...editData, pic_night: e.target.value })} className="border rounded px-2 py-1 w-full" /></td>
+                      <td className="px-4 py-2"><input type="number" value={editData.target_repair_hours || ''} onChange={e => setEditData({ ...editData, target_repair_hours: e.target.value ? Number(e.target.value) : null })} className="border rounded px-2 py-1 w-20" /></td>
+                      <td className="px-4 py-2 flex gap-1">
+                        <button onClick={saveEdit} className="text-green-600 hover:text-green-800 p-1"><Check className="w-4 h-4" /></button>
+                        <button onClick={() => setEditingId(null)} className="text-gray-500 hover:text-gray-700 p-1"><X className="w-4 h-4" /></button>
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="px-4 py-2.5 font-medium">{eq.name}</td>
+                      <td className="px-4 py-2.5">{eq.condition || '-'}</td>
+                      <td className="px-4 py-2.5">{eq.manager || '-'}</td>
+                      <td className="px-4 py-2.5">{eq.supervisor || '-'}</td>
+                      <td className="px-4 py-2.5">{eq.pic_day || '-'}</td>
+                      <td className="px-4 py-2.5">{eq.pic_night || '-'}</td>
+                      <td className="px-4 py-2.5">{eq.target_repair_hours ?? '-'}</td>
+                      <td className="px-4 py-2.5 flex gap-1">
+                        <button onClick={() => startEdit(eq)} className="text-blue-600 hover:text-blue-800 p-1"><Pencil className="w-4 h-4" /></button>
+                        <button onClick={() => deactivate(eq.id)} className="text-red-500 hover:text-red-700 p-1"><Trash2 className="w-4 h-4" /></button>
+                      </td>
+                    </>
+                  )}
+                </tr>
+              ))}
+              {equipment.length === 0 && <tr><td colSpan={8} className="px-4 py-6 text-center text-gray-400">No equipment yet.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div>
+        <h2 className="text-lg font-bold mb-3">Checklist Templates</h2>
+        <form onSubmit={addTemplate} className="bg-white border rounded-xl shadow-sm p-4 mb-4 flex flex-wrap items-end gap-3">
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">Name</label><input required value={newTemplate.name} onChange={e => setNewTemplate({ ...newTemplate, name: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-56" /></div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Scope</label>
+            <select value={newTemplate.scope} onChange={e => setNewTemplate({ ...newTemplate, scope: e.target.value })} className="border rounded-md px-3 py-2 text-sm bg-white">
+              <option value="single_equipment">Single Equipment</option>
+              <option value="section_list">Multi-Section (Daily)</option>
+            </select>
+          </div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">Frequency</label><input value={newTemplate.frequency} onChange={e => setNewTemplate({ ...newTemplate, frequency: e.target.value })} placeholder="e.g. Monthly, Daily" className="border rounded-md px-3 py-2 text-sm w-36" /></div>
+          <div><label className="block text-xs font-medium text-gray-500 mb-1">Form Code</label><input value={newTemplate.form_code} onChange={e => setNewTemplate({ ...newTemplate, form_code: e.target.value })} placeholder="e.g. EM-F07" className="border rounded-md px-3 py-2 text-sm w-32" /></div>
+          <button type="submit" className="flex items-center gap-1.5 bg-orange-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-orange-700"><Plus className="w-4 h-4" /> Add</button>
+        </form>
+
+        <div className="space-y-3">
+          {templates.map(t => {
+            const tItems = items.filter(i => i.template_id === t.id)
+            const isOpen = expandedTemplate === t.id
+            return (
+              <div key={t.id} className="bg-white border rounded-xl shadow-sm">
+                <div className="flex items-center justify-between px-4 py-3 cursor-pointer" onClick={() => setExpandedTemplate(isOpen ? null : t.id)}>
+                  <div>
+                    <span className="font-semibold text-sm">{t.name}</span>
+                    <span className="text-xs text-gray-400 ml-2">{t.scope === 'single_equipment' ? 'Per equipment' : 'Multi-section'} · {tItems.length} items</span>
+                  </div>
+                  <button onClick={e => { e.stopPropagation(); deleteTemplate(t.id) }} className="text-red-500 hover:text-red-700 p-1"><Trash2 className="w-4 h-4" /></button>
+                </div>
+                {isOpen && (
+                  <div className="border-t px-4 py-3">
+                    <table className="min-w-full text-sm mb-3">
+                      <tbody className="divide-y divide-gray-100">
+                        {tItems.map(it => (
+                          <tr key={it.id}>
+                            <td className="py-1.5 text-xs text-gray-400 w-32">{it.section_label || '-'}</td>
+                            <td className="py-1.5">{it.description}</td>
+                            <td className="py-1.5 w-8"><button onClick={() => deleteItem(it.id)} className="text-red-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <div className="flex gap-2">
+                      <input placeholder="Section (optional)" value={newItem[t.id]?.section_label || ''} onChange={e => setNewItem({ ...newItem, [t.id]: { section_label: e.target.value, description: newItem[t.id]?.description || '' } })} className="border rounded px-2 py-1.5 text-sm w-40" />
+                      <input placeholder="Item description" value={newItem[t.id]?.description || ''} onChange={e => setNewItem({ ...newItem, [t.id]: { section_label: newItem[t.id]?.section_label || '', description: e.target.value } })} className="border rounded px-2 py-1.5 text-sm flex-1" />
+                      <button onClick={() => addItem(t.id)} className="text-xs bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-200">Add Item</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+          {templates.length === 0 && <p className="text-sm text-gray-400">No checklist templates yet.</p>}
+        </div>
+      </div>
+    </div>
+  )
+}

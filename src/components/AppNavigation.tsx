@@ -7,10 +7,11 @@ import {
   Home, List, ClipboardCheck, LogOut, Settings, FileBarChart2, Menu, X,
   ShieldCheck, Building2, Boxes, Scale, PackageOpen, ScrollText, BarChart3,
   ArrowLeftRight, ClipboardList, AlertTriangle, Factory, DoorClosed, KeyRound,
-  Radio, Siren, ClipboardEdit, User, Sparkles
+  Radio, Siren, ClipboardEdit, User, Sparkles, Wrench, CalendarClock,
+  PackageSearch, Inbox
 } from 'lucide-react'
 
-export type Department = 'rebar' | 'cement' | 'security'
+export type Department = 'rebar' | 'cement' | 'security' | 'maintenance'
 export type DepartmentAccess = { department: Department; role: string }
 export type NavPermission = { department: Department; role: string; nav_key: string }
 
@@ -36,18 +37,21 @@ const DEPARTMENT_LABEL: Record<Department, string> = {
   rebar: 'Rebar',
   cement: 'BPlant',
   security: 'Security',
+  maintenance: 'Maintenance',
 }
 
 const DEPARTMENT_HOME: Record<Department, string> = {
   rebar: '/rebar/dashboard',
   cement: '/cement',
   security: '/security',
+  maintenance: '/maintenance',
 }
 
 const SETTINGS_HREF: Record<Department, string> = {
   rebar: '/rebar/settings',
   cement: '/cement/settings',
   security: '/security/settings',
+  maintenance: '/maintenance/settings',
 }
 
 // Cement's real pages land here module-by-module (see the merge plan's build order).
@@ -88,6 +92,16 @@ export const NAV_ITEMS: Record<Department, NavItem[]> = {
     { href: '/security/incidents', label: 'Incidents', icon: Siren },
     { href: '/security/audit', label: 'Audit', icon: ClipboardList },
     { href: '/security/settings', label: 'Settings', icon: Settings },
+  ],
+  maintenance: [
+    { href: '/maintenance', label: 'Dashboard', icon: Home },
+    { href: '/maintenance/equipment', label: 'Equipment', icon: Wrench },
+    { href: '/maintenance/jobs', label: 'Jobs', icon: ClipboardEdit },
+    { href: '/maintenance/schedule', label: 'Schedule & Checklists', icon: CalendarClock },
+    { href: '/maintenance/work-requests', label: 'Work Requests', icon: Inbox },
+    { href: '/maintenance/spare-parts', label: 'Spare Parts', icon: PackageSearch },
+    { href: '/maintenance/critical-issues', label: 'Critical Issues', icon: AlertTriangle },
+    { href: '/maintenance/settings', label: 'Settings', icon: Settings },
   ],
 }
 

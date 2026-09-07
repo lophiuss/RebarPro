@@ -39,7 +39,8 @@ export async function proxy(request: NextRequest) {
     !user &&
     !request.nextUrl.pathname.startsWith('/login') &&
     !request.nextUrl.pathname.startsWith('/auth') &&
-    !request.nextUrl.pathname.startsWith('/visitor-checkin')
+    !request.nextUrl.pathname.startsWith('/visitor-checkin') &&
+    !request.nextUrl.pathname.startsWith('/maintenance-request')
   ) {
     // no user, potentially respond by redirecting the user to the login page
     const url = request.nextUrl.clone()
@@ -75,7 +76,7 @@ export async function proxy(request: NextRequest) {
   // nav — this was reported for a security-only account landing on Rebar.
   if (user) {
     const deptSegment = request.nextUrl.pathname.split('/')[1]
-    if (deptSegment === 'rebar' || deptSegment === 'cement' || deptSegment === 'security') {
+    if (deptSegment === 'rebar' || deptSegment === 'cement' || deptSegment === 'security' || deptSegment === 'maintenance') {
       const { data: access } = await supabase
         .from('user_department_access')
         .select('department')

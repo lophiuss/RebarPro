@@ -32,6 +32,15 @@ const ALLOWED_TABLES: Record<string, string> = {
   security_key_logs: 'key_id, issued_to, issued_by, time_issued, time_returned, status',
   shoutouts: 'department, to_name, message, from_name, created_at',
   profiles: 'id, full_name — no emails or credentials are stored here',
+  maintenance_equipment: 'equip_code, name, category, brand, location, condition (good|fair|poor|spoil), manager, supervisor, pic_day, pic_night, target_repair_hours, is_active',
+  maintenance_inspections: 'equipment_id, inspected_by, inspection_date, condition, remarks, preventive_action_recommendation',
+  maintenance_job_reports: 'equipment_id, category, report_date, reported_by, issue_description, downtime_hours, repair_time_hours, status (open|in_progress|completed|cancelled)',
+  maintenance_critical_issues: 'equipment_id, equipment_label, issue, lead_time_note, status, created_at, resolved_at',
+  maintenance_pm_schedule: 'equipment_id, year, week_number, planned, completed_at',
+  maintenance_checklist_templates: 'name, scope (single_equipment|section_list), frequency, form_code',
+  maintenance_checklist_submissions: 'template_id, equipment_id, submission_date, done_by, verified_by',
+  maintenance_spare_parts_requests: 'part_name, equipment_id, quantity_requested, quantity_received, request_date, received_date',
+  maintenance_work_requests: 'requester_name, location, equipment_id, issue_description, status (pending|assigned|completed|cancelled), assigned_to, assigned_at, completed_at, created_at',
 }
 
 const ALLOWED_OPS = new Set(['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike', 'in', 'is'])
