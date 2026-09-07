@@ -3,7 +3,32 @@ export const revalidate = 0
 
 import { createClient } from '@/lib/supabase/server'
 import ShoutoutBoard from '@/components/ShoutoutBoard'
-import { Wrench, AlertTriangle } from 'lucide-react'
+import { Wrench, AlertTriangle, Bell } from 'lucide-react'
+
+// Small current-vs-previous-period bar pair, rendered as static SVG (no
+// charting library — this is the only chart in the app, and a full library
+// is overkill for two bars). higherIsBetter decides which direction is
+// "good" for the delta arrow's color.
+function MiniTrend({ current, previous, higherIsBetter, format }: { current: number; previous: number; higherIsBetter: boolean; format: (n: number) => string }) {
+  const max = Math.max(current, previous, 0.0001)
+  const curH = Math.max(2, Math.round((current / max) * 24))
+  const prevH = Math.max(2, Math.round((previous / max) * 24))
+  const delta = previous !== 0 ? ((current - previous) / previous) * 100 : (current > 0 ? 100 : 0)
+  const favorable = higherIsBetter ? current >= previous : current <= previous
+  const flat = Math.abs(delta) < 0.05
+  return (
+    <div className="flex items-center gap-2 mt-2">
+      <svg width="28" height="28" viewBox="0 0 28 28" className="flex-shrink-0">
+        <rect x="2" y={26 - prevH} width="9" height={prevH} rx="1.5" className="fill-gray-200" />
+        <rect x="15" y={26 - curH} width="9" height={curH} rx="1.5" className={favorable ? 'fill-green-500' : 'fill-red-400'} />
+      </svg>
+      <span className={`text-[11px] font-semibold ${flat ? 'text-gray-400' : favorable ? 'text-green-600' : 'text-red-500'}`}>
+        {flat ? '—' : `${delta > 0 ? '▲' : '▼'} ${Math.abs(delta).toFixed(0)}%`}
+        <span className="text-gray-400 font-normal"> vs {format(previous)} prior</span>
+      </span>
+    </div>
+  )
+}
 
 interface SearchParams {
   period?: string
@@ -65,18 +90,34 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
   const year = today.getFullYear()
   const weekNumber = isoWeek(today)
 
+  // Immediately-preceding period of the same length, for the trend bars —
+  // e.g. "This Week" compares against the 7 days before this week started.
+  const prevPeriodEndDate = new Date(new Date(periodStart).getTime() - 86400000)
+  const prevPeriodStartDate = new Date(prevPeriodEndDate.getTime() - (periodDays - 1) * 86400000)
+  const prevPeriodStart = toStr(prevPeriodStartDate)
+  const prevPeriodEnd = toStr(prevPeriodEndDate)
+
   const [
-    { data: equipment }, { data: jobReports }, { data: pmRows }, { data: spareParts },
-    { data: critical }, { data: settingsRow }, { count: pendingCount },
+    { data: equipment }, { data: jobReports }, { data: prevJobReports }, { data: pmRows }, { data: spareParts },
+    { data: critical }, { data: settingsRow }, { count: pendingCount }, { data: { user } },
   ] = await Promise.all([
     supabase.from('maintenance_equipment').select('id, name, target_repair_hours').eq('is_active', true),
     supabase.from('maintenance_job_reports').select('id, equipment_id, category, report_date, downtime_hours, repair_time_hours, status').gte('report_date', periodStart).lte('report_date', periodEnd),
-    supabase.from('maintenance_pm_schedule').select('id, equipment_id, planned, completed_at').eq('year', year).eq('week_number', weekNumber),
+    supabase.from('maintenance_job_reports').select('id, equipment_id, downtime_hours, repair_time_hours').gte('report_date', prevPeriodStart).lte('report_date', prevPeriodEnd),
+    supabase.from('maintenance_pm_schedule').select('id, equipment_id, planned, completed_at, assigned_to').eq('year', year).eq('week_number', weekNumber),
     supabase.from('maintenance_spare_parts_requests').select('quantity_requested, quantity_received').gte('request_date', periodStart).lte('request_date', periodEnd),
     supabase.from('maintenance_critical_issues').select('id, equipment_label, issue, lead_time_note, status, created_at, maintenance_equipment(name)').neq('status', 'completed').neq('status', 'cancelled').order('created_at', { ascending: false }),
     supabase.from('maintenance_settings').select('default_target_repair_hours').eq('id', 1).single(),
     supabase.from('maintenance_work_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+    supabase.auth.getUser(),
   ])
+
+  let myName = ''
+  if (user) {
+    const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle()
+    myName = profile?.full_name || user.email || ''
+  }
+  const myPendingPm = (pmRows || []).filter(r => r.planned && !r.completed_at && r.assigned_to === myName)
 
   const equipmentCount = (equipment || []).length
   const targetById = new Map((equipment || []).map(e => [e.id, Number(e.target_repair_hours) || Number(settingsRow?.default_target_repair_hours) || 4]))
@@ -114,13 +155,31 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
   const partsRequested = (spareParts || []).reduce((s, r) => s + (Number(r.quantity_requested) || 0), 0)
   const partsReceived = (spareParts || []).reduce((s, r) => s + (Number(r.quantity_received) || 0), 0)
 
+  // Same formulas as above, over the immediately-preceding period, purely
+  // for the trend bars — not shown as their own KPI cards.
+  const prevTotalDowntime = (prevJobReports || []).reduce((s, r) => s + (Number(r.downtime_hours) || 0), 0)
+  const prevUptimePct = totalPossibleHours > 0 ? ((totalPossibleHours - prevTotalDowntime) / totalPossibleHours) * 100 : 100
+  const prevBreakdowns = (prevJobReports || []).filter(r => r.repair_time_hours !== null)
+  const prevNoOfBreakdown = prevBreakdowns.length
+  const prevWithinTarget = prevBreakdowns.filter(r => Number(r.repair_time_hours) <= (targetById.get(r.equipment_id) ?? defaultTarget)).length
+  const prevBrePct = prevNoOfBreakdown > 0 ? (prevWithinTarget / prevNoOfBreakdown) * 100 : 100
+  const prevAvgRepairTime = prevNoOfBreakdown > 0 ? prevBreakdowns.reduce((s, r) => s + Number(r.repair_time_hours), 0) / prevNoOfBreakdown : 0
+  const prevTotalRepairHours = prevBreakdowns.reduce((s, r) => s + Number(r.repair_time_hours || 0), 0)
+  const prevUptimeHours = Math.max(0, totalPossibleHours - prevTotalDowntime)
+  const prevMtbf = prevNoOfBreakdown > 0 ? prevUptimeHours / prevNoOfBreakdown : prevUptimeHours
+  const prevMttr = prevNoOfBreakdown > 0 ? prevTotalRepairHours / prevNoOfBreakdown : 0
+  const prevAvailabilityPct = (prevMtbf + prevMttr) > 0 ? (prevMtbf / (prevMtbf + prevMttr)) * 100 : 100
+
+  const pctFmt = (n: number) => `${n.toFixed(1)}%`
+  const hFmt = (n: number) => `${n.toFixed(1)}h`
+
   const cards = [
-    { label: 'Machine Uptime', value: `${uptimePct.toFixed(1)}%`, sub: 'This period', warn: uptimePct < 90 },
-    { label: 'No. of Breakdown', value: String(noOfBreakdown), sub: `${withinTarget} within target repair time`, warn: noOfBreakdown > 5 },
-    { label: 'BRE % (Breakdown Response)', value: `${brePct.toFixed(1)}%`, sub: 'Resolved within target', warn: brePct < 80 },
-    { label: 'Avg Repair Time', value: `${avgRepairTime.toFixed(1)} h`, sub: 'Per breakdown', warn: false },
-    { label: 'Schedule (Plan vs Actual)', value: `${schedulePct.toFixed(1)}%`, sub: `Week ${weekNumber}, ${year}`, warn: schedulePct < 70 },
-    { label: 'Asset Availability', value: `${availabilityPct.toFixed(1)}%`, sub: 'MTBF / (MTBF + MTTR), fleet-wide', warn: availabilityPct < 90 },
+    { label: 'Machine Uptime', value: `${uptimePct.toFixed(1)}%`, sub: 'This period', warn: uptimePct < 90, trend: { current: uptimePct, previous: prevUptimePct, higherIsBetter: true, format: pctFmt } },
+    { label: 'No. of Breakdown', value: String(noOfBreakdown), sub: `${withinTarget} within target repair time`, warn: noOfBreakdown > 5, trend: { current: noOfBreakdown, previous: prevNoOfBreakdown, higherIsBetter: false, format: (n: number) => String(n) } },
+    { label: 'BRE % (Breakdown Response)', value: `${brePct.toFixed(1)}%`, sub: 'Resolved within target', warn: brePct < 80, trend: { current: brePct, previous: prevBrePct, higherIsBetter: true, format: pctFmt } },
+    { label: 'Avg Repair Time', value: `${avgRepairTime.toFixed(1)} h`, sub: 'Per breakdown', warn: false, trend: { current: avgRepairTime, previous: prevAvgRepairTime, higherIsBetter: false, format: hFmt } },
+    { label: 'Schedule (Plan vs Actual)', value: `${schedulePct.toFixed(1)}%`, sub: `Week ${weekNumber}, ${year}`, warn: schedulePct < 70, trend: null },
+    { label: 'Asset Availability', value: `${availabilityPct.toFixed(1)}%`, sub: 'MTBF / (MTBF + MTTR), fleet-wide', warn: availabilityPct < 90, trend: { current: availabilityPct, previous: prevAvailabilityPct, higherIsBetter: true, format: pctFmt } },
   ]
 
   return (
@@ -148,8 +207,14 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
       <p className="text-xs text-gray-400 mb-6">KPIs reflect <strong>{periodLabel}</strong> ({periodStart} → {periodEnd}), across {equipmentCount} active equipment.</p>
 
       {!!pendingCount && pendingCount > 0 && (
-        <a href="/maintenance/work-requests" className="block bg-amber-50 border border-amber-200 rounded-xl px-5 py-3 mb-6 text-sm font-semibold text-amber-800 hover:bg-amber-100">
+        <a href="/maintenance/work-requests" className="block bg-amber-50 border border-amber-200 rounded-xl px-5 py-3 mb-3 text-sm font-semibold text-amber-800 hover:bg-amber-100">
           🔔 {pendingCount} pending Work Request{pendingCount === 1 ? '' : 's'} awaiting assignment — click to review
+        </a>
+      )}
+
+      {myPendingPm.length > 0 && (
+        <a href="/maintenance/schedule" className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-5 py-3 mb-6 text-sm font-semibold text-amber-800 hover:bg-amber-100">
+          <Bell className="w-4 h-4 flex-shrink-0" /> You have {myPendingPm.length} PM task{myPendingPm.length === 1 ? '' : 's'} assigned to you this week — click to review
         </a>
       )}
 
@@ -161,6 +226,7 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
             <h3 className={`font-semibold text-xs uppercase truncate ${c.warn ? 'text-red-700' : 'text-gray-500'}`}>{c.label}</h3>
             <p className={`text-xl sm:text-2xl font-bold mt-1 truncate ${c.warn ? 'text-red-800' : 'text-slate-800'}`}>{c.value}</p>
             <p className={`text-xs mt-1 truncate ${c.warn ? 'text-red-600' : 'text-gray-400'}`}>{c.sub}</p>
+            {c.trend && <MiniTrend current={c.trend.current} previous={c.trend.previous} higherIsBetter={c.trend.higherIsBetter} format={c.trend.format} />}
           </div>
         ))}
         <div className="border rounded-xl p-4 bg-white shadow-sm overflow-hidden col-span-2">

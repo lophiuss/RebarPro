@@ -190,22 +190,22 @@ export default function MaintenanceSettingsPage() {
           )}
           <span className="text-xs text-gray-400 ml-auto">{filteredEquipment.length} of {equipment.length}</span>
         </div>
-        <div className="bg-white border rounded-xl shadow-sm overflow-x-auto">
+        <div className="bg-white border rounded-xl shadow-sm overflow-auto max-h-[70vh]">
           <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
+            <thead className="bg-gray-50 sticky top-0 z-10">
               <tr>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Code</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Category</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Brand</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Condition</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Manager</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Supervisor</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">PIC Day</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">PIC Night</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Target Repair (h)</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">Code</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">Name</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">Category</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">Brand</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">Location</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">Condition</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">Ownership Manager</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">Ownership Supervisor</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">PIC Day</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">PIC Night</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">Target Repair (h)</th>
+                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
