@@ -56,7 +56,7 @@ const STATUS_STYLE: Record<string, string> = {
 
 export default function WorkRequestsPage() {
   const supabase = createClient()
-  const [tab, setTab] = useState<'pending' | 'approval' | 'my_tasks'>('pending')
+  const [tab, setTab] = useState<'pending' | 'in_progress' | 'approval' | 'my_tasks'>('pending')
   const [requests, setRequests] = useState<WorkRequest[]>([])
   const [myEmail, setMyEmail] = useState<string | null>(null)
   const [myName, setMyName] = useState<string | null>(null)
@@ -103,6 +103,7 @@ export default function WorkRequestsPage() {
 
   const myIdentifier = myName || myEmail || ''
   const pending = requests.filter(r => r.status === 'pending')
+  const inProgress = requests.filter(r => r.status === 'assigned' || r.status === 'accepted')
   const awaitingApproval = requests.filter(r => r.status === 'completed')
   const myTasks = requests.filter(r => r.assigned_to === myIdentifier)
   const myCompletedCount = myTasks.filter(r => r.status === 'approved').length
@@ -233,6 +234,9 @@ export default function WorkRequestsPage() {
           <button onClick={() => setTab('pending')} className={`px-4 py-2 rounded-md text-sm font-semibold transition ${tab === 'pending' ? 'bg-white shadow-sm text-slate-900' : 'text-gray-500 hover:text-gray-700'}`}>
             Pending Queue ({pending.length})
           </button>
+          <button onClick={() => setTab('in_progress')} className={`px-4 py-2 rounded-md text-sm font-semibold transition ${tab === 'in_progress' ? 'bg-white shadow-sm text-slate-900' : 'text-gray-500 hover:text-gray-700'}`}>
+            In Progress ({inProgress.length})
+          </button>
           <button onClick={() => setTab('approval')} className={`px-4 py-2 rounded-md text-sm font-semibold transition ${tab === 'approval' ? 'bg-white shadow-sm text-slate-900' : 'text-gray-500 hover:text-gray-700'}`}>
             Awaiting Approval ({awaitingApproval.length})
           </button>
@@ -275,6 +279,46 @@ export default function WorkRequestsPage() {
               ))}
               {!loading && pending.length === 0 && (
                 <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-500">No pending requests.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {tab === 'in_progress' && canManage && (
+        <div className="bg-white border rounded-xl shadow-sm overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Assigned</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Assigned To</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Accepted?</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Issue</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {inProgress.map(r => (
+                <tr key={r.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">{r.assigned_at ? new Date(r.assigned_at).toLocaleString() : '-'}</td>
+                  <td className="px-4 py-3 text-sm font-medium whitespace-nowrap">{r.assigned_to || '-'}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    {r.accepted_at ? (
+                      <span className="text-xs font-bold text-green-700 bg-green-100 rounded-full px-2 py-0.5">✓ Accepted {new Date(r.accepted_at).toLocaleDateString()}</span>
+                    ) : (
+                      <span className="text-xs font-bold text-amber-700 bg-amber-100 rounded-full px-2 py-0.5">Not yet accepted</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-sm max-w-[240px] truncate">{r.issue_description}</td>
+                  <td className="px-4 py-3 text-sm">{r.location || '-'}</td>
+                  <td className="px-4 py-3">
+                    <span className={`text-xs font-bold uppercase rounded-full px-2 py-0.5 ${STATUS_STYLE[r.status] || 'bg-gray-100 text-gray-600'}`}>{r.status}</span>
+                  </td>
+                </tr>
+              ))}
+              {!loading && inProgress.length === 0 && (
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-500">Nothing assigned right now.</td></tr>
               )}
             </tbody>
           </table>
