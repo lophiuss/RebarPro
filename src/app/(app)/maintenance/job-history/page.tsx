@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { History, ChevronLeft, ChevronRight, Image as ImageIcon, X } from 'lucide-react'
+import { History, ChevronLeft, ChevronRight, Image as ImageIcon, X, Pencil, Trash2 } from 'lucide-react'
 import PhotoLightbox from '@/components/PhotoLightbox'
 
 type DoneRequest = {
@@ -38,6 +38,12 @@ export default function JobHistoryPage() {
   const [zoomSrc, setZoomSrc] = useState<string | null>(null)
   const [bigThumbs, setBigThumbs] = useState(false)
   const [detailRow, setDetailRow] = useState<DoneRequest | null>(null)
+  const [canManage, setCanManage] = useState(false)
+  const [myIdentifier, setMyIdentifier] = useState('')
+  const [editingDetail, setEditingDetail] = useState(false)
+  const [editData, setEditData] = useState<Partial<DoneRequest>>({})
+  const [savingDetail, setSavingDetail] = useState(false)
+  const [exporting, setExporting] = useState<'csv' | 'pdf' | null>(null)
 
   // Lightweight, department-wide data (not just the current page) for the
   // technician/category picklists and the per-technician summary cards —
@@ -51,7 +57,8 @@ export default function JobHistoryPage() {
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
 
-  useEffect(() => { loadSummary() }, [])
+  useEffect(() => { loadSummary(); loadMe() }, [])
+  useEffect(() => { setEditingDetail(false) }, [detailRow?.id])
   useEffect(() => { setPage(0) }, [technicianFilter, categoryFilter, statusFilter, fromDate, toDate])
   useEffect(() => { setPageInput(String(page + 1)) }, [page])
   useEffect(() => { loadPage() }, [page, technicianFilter, categoryFilter, statusFilter, fromDate, toDate])
@@ -63,6 +70,68 @@ export default function JobHistoryPage() {
       .in('status', ['completed', 'approved'])
       .limit(20000)
     setSummaryRows((data || []).map((r: any) => ({ assigned_to: r.assigned_to, status: r.status, category: r.maintenance_equipment?.category ?? null })))
+  }
+
+  // Only admin/manager can edit or delete a historical job — same role
+  // gate used everywhere else in Maintenance (Work Requests delete,
+  // Schedule's manage-only controls).
+  async function loadMe() {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    const [{ data: profile }, { data: access }] = await Promise.all([
+      supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle(),
+      supabase.from('user_department_access').select('role').eq('user_id', user.id).eq('department', 'maintenance').maybeSingle(),
+    ])
+    setMyIdentifier(profile?.full_name || user.email || '')
+    setCanManage(access?.role === 'admin' || access?.role === 'manager')
+  }
+
+  function startEditDetail(r: DoneRequest) {
+    setEditData({
+      requester_name: r.requester_name, location: r.location, issue_description: r.issue_description,
+      assigned_to: r.assigned_to, status: r.status, completed_at: r.completed_at, approved_by: r.approved_by,
+    })
+    setEditingDetail(true)
+  }
+
+  async function saveEditDetail() {
+    if (!detailRow) return
+    setSavingDetail(true)
+    try {
+      const { error } = await supabase.from('maintenance_work_requests').update({
+        requester_name: editData.requester_name, location: editData.location, issue_description: editData.issue_description,
+        assigned_to: editData.assigned_to, status: editData.status, completed_at: editData.completed_at, approved_by: editData.approved_by,
+      }).eq('id', detailRow.id)
+      if (error) throw error
+      setEditingDetail(false)
+      setDetailRow(null)
+      await Promise.all([loadPage(), loadSummary()])
+    } catch (err: any) {
+      alert('Error: ' + err.message)
+    } finally {
+      setSavingDetail(false)
+    }
+  }
+
+  // Deletes must be logged — same maintenance_deletion_log convention as
+  // the Work Requests page's delete action.
+  async function deleteDetailRow(r: DoneRequest) {
+    if (!confirm(`Delete this job history record — "${r.issue_description.slice(0, 60)}"? This is logged and cannot be undone.`)) return
+    setSavingDetail(true)
+    try {
+      const { error: logErr } = await supabase.from('maintenance_deletion_log').insert([{
+        table_name: 'maintenance_work_requests', record_id: r.id, record_snapshot: r, deleted_by: myIdentifier || null,
+      }])
+      if (logErr) throw logErr
+      const { error } = await supabase.from('maintenance_work_requests').delete().eq('id', r.id)
+      if (error) throw error
+      setDetailRow(null)
+      await Promise.all([loadPage(), loadSummary()])
+    } catch (err: any) {
+      alert('Error: ' + err.message)
+    } finally {
+      setSavingDetail(false)
+    }
   }
 
   async function loadPage() {
@@ -91,6 +160,90 @@ export default function JobHistoryPage() {
     setRequests((data as any) || [])
     setTotalCount(count || 0)
     setLoading(false)
+  }
+
+  // Full filtered set (not just the current page) for exports — same
+  // filters as loadPage() but no range(), capped generously since even
+  // "no filters" on ~7,000+ historical rows stays well under this.
+  async function fetchAllFiltered() {
+    let query = supabase
+      .from('maintenance_work_requests')
+      .select('requester_name, location, issue_description, status, assigned_to, accepted_at, completed_at, approved_at, approved_by, maintenance_equipment(name, category)')
+      .in('status', ['completed', 'approved'])
+    if (technicianFilter) query = query.ilike('assigned_to', `%${technicianFilter}%`)
+    if (categoryFilter) query = query.eq('maintenance_equipment.category', categoryFilter)
+    if (statusFilter) query = query.eq('status', statusFilter)
+    if (fromDate) query = query.gte('completed_at', fromDate)
+    if (toDate) query = query.lte('completed_at', toDate + 'T23:59:59')
+    const { data, error } = await query.order('completed_at', { ascending: false }).limit(20000)
+    if (error) throw error
+    return (data as any[]) || []
+  }
+
+  function exportRow(r: any) {
+    return {
+      completed: r.completed_at ? new Date(r.completed_at).toLocaleString() : '',
+      doneBy: r.assigned_to || '', equipment: r.maintenance_equipment?.name || '', category: r.maintenance_equipment?.category || '',
+      location: r.location || '', requestedBy: r.requester_name || '', issue: r.issue_description || '',
+      timeTaken: r.completed_at && r.accepted_at ? `${hoursBetween(r.accepted_at, r.completed_at)} h` : '',
+      status: r.status, approvedBy: r.approved_by || '',
+    }
+  }
+
+  async function exportCsv() {
+    setExporting('csv')
+    try {
+      const rows = (await fetchAllFiltered()).map(exportRow)
+      const header = ['Completed', 'Done By', 'Equipment', 'Category', 'Location', 'Requested By', 'Issue', 'Time Taken', 'Status', 'Approved By']
+      const lines = [header.map(h => `"${h}"`).join(',')]
+      for (const r of rows) {
+        lines.push([r.completed, r.doneBy, r.equipment, r.category, r.location, r.requestedBy, r.issue, r.timeTaken, r.status, r.approvedBy]
+          .map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
+      }
+      const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `Job_History_${new Date().toISOString().split('T')[0]}.csv`)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    } catch (err: any) {
+      alert('Error: ' + err.message)
+    } finally {
+      setExporting(null)
+    }
+  }
+
+  // No PDF library — opens a print-friendly table in a new tab and
+  // triggers the browser's print dialog, where "Save as PDF" is a built-in
+  // destination on every major browser. Same approach as the PM Schedule
+  // page's Export to PDF.
+  async function exportPdf() {
+    setExporting('pdf')
+    try {
+      const rows = (await fetchAllFiltered()).map(exportRow)
+      const w = window.open('', '_blank', 'width=1100,height=800')
+      if (!w) { alert('Please allow pop-ups for this site to export a PDF.'); return }
+      const tableRows = rows.map(r => `<tr><td>${r.completed}</td><td>${r.doneBy}</td><td>${r.equipment}</td><td>${r.category}</td><td>${r.location}</td><td>${r.requestedBy}</td><td>${r.issue}</td><td>${r.timeTaken}</td><td>${r.status}</td><td>${r.approvedBy}</td></tr>`).join('')
+      w.document.write(`<!doctype html><html><head><title>Job History</title><style>
+        body{font-family:Arial,sans-serif;padding:16px;color:#111;}
+        h1{font-size:16px;margin:0 0 12px;}
+        table{border-collapse:collapse;width:100%;font-size:9px;}
+        th,td{border:1px solid #ddd;padding:3px 5px;text-align:left;}
+        th{background:#f3f4f6;}
+      </style></head><body><h1>Job History (${rows.length} record${rows.length === 1 ? '' : 's'})</h1>
+      <table><thead><tr><th>Completed</th><th>Done By</th><th>Equipment</th><th>Category</th><th>Location</th><th>Requested By</th><th>Issue</th><th>Time Taken</th><th>Status</th><th>Approved By</th></tr></thead>
+      <tbody>${tableRows}</tbody></table></body></html>`)
+      w.document.close()
+      w.focus()
+      setTimeout(() => w.print(), 400)
+    } catch (err: any) {
+      alert('Error: ' + err.message)
+    } finally {
+      setExporting(null)
+    }
   }
 
   const technicians = [...new Set(summaryRows.flatMap(r => splitNames(r.assigned_to)))].sort()
@@ -168,6 +321,8 @@ export default function JobHistoryPage() {
         <button onClick={() => setBigThumbs(v => !v)} className={`flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border ${bigThumbs ? 'bg-orange-50 border-orange-300 text-orange-700' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
           <ImageIcon className="w-4 h-4" /> {bigThumbs ? 'Large thumbnails' : 'Small thumbnails'}
         </button>
+        <button onClick={exportCsv} disabled={exporting !== null} className="text-sm bg-gray-100 disabled:opacity-50 text-gray-700 font-medium px-3 py-2 rounded-lg hover:bg-gray-200">{exporting === 'csv' ? 'Exporting...' : 'Export to Excel'}</button>
+        <button onClick={exportPdf} disabled={exporting !== null} className="text-sm bg-gray-100 disabled:opacity-50 text-gray-700 font-medium px-3 py-2 rounded-lg hover:bg-gray-200">{exporting === 'pdf' ? 'Exporting...' : 'Export to PDF'}</button>
         <span className="text-xs text-gray-400 ml-auto">{totalCount === 0 ? 0 : page * PAGE_SIZE + 1}-{Math.min(totalCount, page * PAGE_SIZE + requests.length)} of {totalCount}</span>
       </div>
 
@@ -238,9 +393,59 @@ export default function JobHistoryPage() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setDetailRow(null)}>
           <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold">Job Detail</h2>
-              <button onClick={() => setDetailRow(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+              <h2 className="text-lg font-bold">{editingDetail ? 'Edit Job' : 'Job Detail'}</h2>
+              <div className="flex items-center gap-1">
+                {canManage && !editingDetail && (
+                  <>
+                    <button onClick={() => startEditDetail(detailRow)} className="text-gray-400 hover:text-blue-600 p-1.5" title="Edit"><Pencil className="w-4 h-4" /></button>
+                    <button onClick={() => deleteDetailRow(detailRow)} disabled={savingDetail} className="text-gray-400 hover:text-red-600 p-1.5 disabled:opacity-40" title="Delete"><Trash2 className="w-4 h-4" /></button>
+                  </>
+                )}
+                <button onClick={() => setDetailRow(null)} className="text-gray-400 hover:text-gray-600 p-1.5"><X className="w-4 h-4" /></button>
+              </div>
             </div>
+
+            {editingDetail ? (
+              <div className="space-y-3 text-sm">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Issue</label>
+                  <textarea value={editData.issue_description || ''} onChange={e => setEditData({ ...editData, issue_description: e.target.value })} rows={3} className="w-full border rounded-md px-3 py-2 text-sm" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Requested By</label>
+                    <input value={editData.requester_name || ''} onChange={e => setEditData({ ...editData, requester_name: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Location</label>
+                    <input value={editData.location || ''} onChange={e => setEditData({ ...editData, location: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Done By</label>
+                    <input value={editData.assigned_to || ''} onChange={e => setEditData({ ...editData, assigned_to: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Status</label>
+                    <select value={editData.status || ''} onChange={e => setEditData({ ...editData, status: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm bg-white">
+                      <option value="completed">Completed (awaiting approval)</option>
+                      <option value="approved">Approved</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Completed At</label>
+                    <input type="datetime-local" value={editData.completed_at ? editData.completed_at.slice(0, 16) : ''} onChange={e => setEditData({ ...editData, completed_at: e.target.value ? new Date(e.target.value).toISOString() : null })} className="w-full border rounded-md px-3 py-2 text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Approved By</label>
+                    <input value={editData.approved_by || ''} onChange={e => setEditData({ ...editData, approved_by: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
+                  </div>
+                </div>
+                <div className="flex justify-end gap-3 pt-2">
+                  <button onClick={() => setEditingDetail(false)} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-200">Cancel</button>
+                  <button onClick={saveEditDetail} disabled={savingDetail} className="bg-orange-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-orange-700">{savingDetail ? 'Saving...' : 'Save'}</button>
+                </div>
+              </div>
+            ) : (
             <div className="space-y-3 text-sm">
               <div>
                 <span className={`text-xs font-bold uppercase rounded-full px-2 py-0.5 ${detailRow.status === 'approved' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>{detailRow.status}</span>
@@ -298,6 +503,7 @@ export default function JobHistoryPage() {
                 </div>
               )}
             </div>
+            )}
           </div>
         </div>
       )}

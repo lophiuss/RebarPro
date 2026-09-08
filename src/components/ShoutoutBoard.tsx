@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Megaphone, Plus, X } from 'lucide-react'
+import { Megaphone, Plus, X, ChevronDown, ChevronUp } from 'lucide-react'
 
 type Department = 'rebar' | 'cement' | 'security' | 'maintenance'
 type Shoutout = { id: number; to_name: string; message: string; from_name: string; created_at: string }
@@ -31,6 +31,9 @@ export default function ShoutoutBoard({ department }: { department: Department }
   const [toName, setToName] = useState('')
   const [message, setMessage] = useState('')
   const [posting, setPosting] = useState(false)
+  // null = no manual override yet, so it auto-collapses once loaded with
+  // nothing to show; true/false once the user has clicked the chevron.
+  const [manualExpanded, setManualExpanded] = useState<boolean | null>(null)
 
   useEffect(() => { load() }, [department])
 
@@ -69,16 +72,26 @@ export default function ShoutoutBoard({ department }: { department: Department }
     }
   }
 
+  // Auto-collapse once loaded with nothing to show — an empty board just
+  // took up a fixed block of space for no reason. Still expandable
+  // manually (e.g. to post the first one), and any manual choice sticks.
+  const collapsed = manualExpanded !== null ? !manualExpanded : (!loading && items.length === 0)
+
   return (
     <div className="bg-white border rounded-xl shadow-sm overflow-hidden mb-8">
       <div className="px-5 py-3.5 border-b flex items-center justify-between bg-gradient-to-r from-amber-50 to-white">
-        <h2 className="text-sm font-bold text-slate-700 flex items-center gap-2"><Megaphone className="w-4 h-4 text-amber-500" /> Shoutouts</h2>
+        <button onClick={() => setManualExpanded(!collapsed ? false : true)} className="flex items-center gap-2 text-sm font-bold text-slate-700">
+          <Megaphone className="w-4 h-4 text-amber-500" /> Shoutouts
+          {!loading && items.length === 0 && <span className="text-xs font-normal text-gray-400">(none yet)</span>}
+          {collapsed ? <ChevronDown className="w-3.5 h-3.5 text-gray-400" /> : <ChevronUp className="w-3.5 h-3.5 text-gray-400" />}
+        </button>
         {canPost && (
           <button onClick={() => setComposing(true)} className="flex items-center gap-1 text-xs font-semibold bg-amber-500 text-white px-2.5 py-1.5 rounded-lg hover:bg-amber-600">
             <Plus className="w-3.5 h-3.5" /> Give a Shoutout
           </button>
         )}
       </div>
+      {!collapsed && (
       <div className="divide-y divide-gray-50 max-h-64 overflow-y-auto">
         {items.map(s => (
           <div key={s.id} className="px-5 py-3 text-sm">
@@ -90,6 +103,7 @@ export default function ShoutoutBoard({ department }: { department: Department }
           <p className="px-5 py-6 text-center text-sm text-gray-400">No shoutouts yet{canPost ? ' — be the first to recognize someone!' : '.'}</p>
         )}
       </div>
+      )}
 
       {composing && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">

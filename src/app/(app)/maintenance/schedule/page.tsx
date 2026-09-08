@@ -17,7 +17,7 @@ const PM_FREQUENCY_OPTIONS = ['Daily', 'Weekly', 'Monthly', 'Quarterly', 'Half-Y
 // the closest representable meaning within this grid.
 const PM_FREQUENCY_WEEKS: Record<string, number> = { Daily: 1, Weekly: 1, Monthly: 4, Quarterly: 13, 'Half-Yearly': 26, Yearly: 52 }
 type Template = { id: number; name: string; scope: 'single_equipment' | 'section_list'; frequency: string | null }
-type Item = { id: number; template_id: number; section_label: string | null; item_no: number | null; description: string }
+type Item = { id: number; template_id: number; section_label: string | null; item_no: number | null; description: string; item_type: string }
 type PmRow = { id: number; equipment_id: number; week_number: number; planned: boolean; completed_at: string | null; assigned_to: string | null }
 type Recurrence = {
   id: number; equipment_id: number; frequency_weeks: number; start_date: string
@@ -356,6 +356,13 @@ export default function SchedulePage() {
     await load()
   }
 
+  // Merges a partial result patch for one checklist item, defaulting the
+  // other fields to whatever's already there — used by all four item-type
+  // input variants (ok_fault, yes_no, numeric, text) in the Fill In form.
+  function setResultField(itemId: number, patch: Partial<{ result: string; qty: string; remark: string }>) {
+    setResults(prev => ({ ...prev, [itemId]: { result: prev[itemId]?.result || '', qty: prev[itemId]?.qty || '', remark: prev[itemId]?.remark || '', ...patch } }))
+  }
+
   async function openFill(template: Template, presetEquipmentId?: number) {
     setFillTemplate(template)
     setFillEquipmentId(presetEquipmentId ? String(presetEquipmentId) : '')
@@ -411,10 +418,19 @@ export default function SchedulePage() {
       }]).select('id').single()
       if (error) throw error
 
-      const rows = items.filter(it => results[it.id]?.result).map(it => ({
+      // "Result" only means something for ok_fault/yes_no items — numeric
+      // and text items are included once they have a qty/remark to save,
+      // with result stored as 'n/a' since there's no pass/fail concept.
+      const rows = items.filter(it => {
+        const r = results[it.id]
+        if (!r) return false
+        if (it.item_type === 'numeric') return !!r.qty
+        if (it.item_type === 'text') return !!r.remark
+        return !!r.result
+      }).map(it => ({
         submission_id: sub.id,
         checklist_item_id: it.id,
-        result: results[it.id].result,
+        result: (it.item_type === 'numeric' || it.item_type === 'text') ? 'n/a' : results[it.id].result,
         qty: results[it.id].qty ? Number(results[it.id].qty) : null,
         remark: results[it.id].remark || null,
       }))
@@ -988,15 +1004,20 @@ export default function SchedulePage() {
                         <tr key={it.id}>
                           <td className="py-1.5 pr-2">{it.description}</td>
                           <td className="py-1.5">
-                            <div className="flex items-center gap-1">
-                              <button type="button" onClick={() => setResults({ ...results, [it.id]: { ...results[it.id], result: 'ok', qty: results[it.id]?.qty || '', remark: results[it.id]?.remark || '' } })}
-                                className={`text-xs px-2 py-1 rounded ${results[it.id]?.result === 'ok' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-500'}`}>OK</button>
-                              <button type="button" onClick={() => setResults({ ...results, [it.id]: { ...results[it.id], result: 'fault', qty: results[it.id]?.qty || '', remark: results[it.id]?.remark || '' } })}
-                                className={`text-xs px-2 py-1 rounded ${results[it.id]?.result === 'fault' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-500'}`}>Fault</button>
-                            </div>
+                            {(it.item_type === 'ok_fault' || it.item_type === 'yes_no') && (
+                              <div className="flex items-center gap-1">
+                                <button type="button" onClick={() => setResultField(it.id, { result: it.item_type === 'yes_no' ? 'yes' : 'ok' })}
+                                  className={`text-xs px-2 py-1 rounded ${['ok', 'yes'].includes(results[it.id]?.result || '') ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-500'}`}>{it.item_type === 'yes_no' ? 'Yes' : 'OK'}</button>
+                                <button type="button" onClick={() => setResultField(it.id, { result: it.item_type === 'yes_no' ? 'no' : 'fault' })}
+                                  className={`text-xs px-2 py-1 rounded ${['fault', 'no'].includes(results[it.id]?.result || '') ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-500'}`}>{it.item_type === 'yes_no' ? 'No' : 'Fault'}</button>
+                              </div>
+                            )}
+                            {it.item_type === 'numeric' && (
+                              <input type="number" step="any" placeholder="Reading" value={results[it.id]?.qty || ''} onChange={e => setResultField(it.id, { qty: e.target.value })} className="border rounded px-2 py-1 text-xs w-24" />
+                            )}
                           </td>
                           <td className="py-1.5 pl-2">
-                            <input placeholder="Remark" value={results[it.id]?.remark || ''} onChange={e => setResults({ ...results, [it.id]: { ...results[it.id], result: results[it.id]?.result || '', qty: results[it.id]?.qty || '', remark: e.target.value } })} className="border rounded px-2 py-1 text-xs w-full" />
+                            <input placeholder={it.item_type === 'text' ? 'Notes' : 'Remark'} value={results[it.id]?.remark || ''} onChange={e => setResultField(it.id, { remark: e.target.value })} className="border rounded px-2 py-1 text-xs w-full" />
                           </td>
                         </tr>
                       ))}
@@ -1233,7 +1254,7 @@ export default function SchedulePage() {
                                       <td className="py-1 pr-2 text-gray-400 w-28">{it.maintenance_checklist_items?.section_label || '-'}</td>
                                       <td className="py-1 pr-2">{it.maintenance_checklist_items?.description || '-'}</td>
                                       <td className="py-1 pr-2 w-16">
-                                        <span className={`font-bold uppercase ${it.result === 'ok' ? 'text-green-600' : 'text-red-600'}`}>{it.result}</span>
+                                        <span className={`font-bold uppercase ${['ok', 'yes'].includes(it.result) ? 'text-green-600' : it.result === 'n/a' ? 'text-gray-400' : 'text-red-600'}`}>{it.result}</span>
                                       </td>
                                       <td className="py-1 pr-2 w-16">{it.qty ?? ''}</td>
                                       <td className="py-1 text-gray-500">{it.remark || ''}</td>

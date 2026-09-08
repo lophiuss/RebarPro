@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Settings as SettingsIcon, Plus, Trash2, Pencil, Check, X, Download, Upload } from 'lucide-react'
+import { Settings as SettingsIcon, Plus, Trash2, Pencil, Check, X, Download, Upload, Copy } from 'lucide-react'
 import PublicJobRequestLink from '../PublicJobRequestLink'
 
 type Equipment = {
@@ -12,7 +12,11 @@ type Equipment = {
   pm_checklist_template_id: number | null
 }
 type Template = { id: number; name: string; scope: string; frequency: string | null; form_code: string | null }
-type Item = { id: number; template_id: number; section_label: string | null; item_no: number | null; description: string }
+type Item = { id: number; template_id: number; section_label: string | null; item_no: number | null; description: string; item_type: string }
+
+const ITEM_TYPE_LABELS: Record<string, string> = {
+  ok_fault: 'OK / Fault', yes_no: 'Yes / No', numeric: 'Numeric reading', text: 'Text / remark only',
+}
 
 export default function MaintenanceSettingsPage() {
   const supabase = createClient()
@@ -33,7 +37,8 @@ export default function MaintenanceSettingsPage() {
   const [savingEmail, setSavingEmail] = useState(false)
 
   const [newTemplate, setNewTemplate] = useState({ name: '', scope: 'single_equipment', frequency: '', form_code: '' })
-  const [newItem, setNewItem] = useState<Record<number, { section_label: string; description: string }>>({})
+  const [newItem, setNewItem] = useState<Record<number, { section_label: string; description: string; item_type: string }>>({})
+  const [duplicating, setDuplicating] = useState<number | null>(null)
 
   useEffect(() => { load() }, [])
 
@@ -133,7 +138,7 @@ export default function MaintenanceSettingsPage() {
     const tItems = items.filter(i => i.template_id === t.id).sort((a, b) => (a.item_no ?? 0) - (b.item_no ?? 0))
     const payload = {
       name: t.name, scope: t.scope, frequency: t.frequency, form_code: t.form_code,
-      items: tItems.map(i => ({ section_label: i.section_label, item_no: i.item_no, description: i.description })),
+      items: tItems.map(i => ({ section_label: i.section_label, item_no: i.item_no, description: i.description, item_type: i.item_type })),
     }
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
@@ -167,6 +172,7 @@ export default function MaintenanceSettingsPage() {
         template_id: tmpl.id, section_label: it.section_label || null,
         item_no: Number.isFinite(it.item_no) ? it.item_no : idx + 1,
         description: String(it.description || ''),
+        item_type: ['ok_fault', 'yes_no', 'numeric', 'text'].includes(it.item_type) ? it.item_type : 'ok_fault',
       })).filter((r: any) => r.description.trim())
       if (rows.length > 0) {
         const { error: iErr } = await supabase.from('maintenance_checklist_items').insert(rows)
@@ -181,15 +187,46 @@ export default function MaintenanceSettingsPage() {
     }
   }
 
+  // "May refer existing checklist" — clone a template (and all its items)
+  // as a starting point for a new one, rather than authoring from scratch
+  // or having to export/re-import JSON just to reuse a similar checklist.
+  async function duplicateTemplate(t: Template) {
+    setDuplicating(t.id)
+    try {
+      let name = `${t.name} (Copy)`
+      let n = 2
+      while (templates.some(existing => existing.name === name)) { name = `${t.name} (Copy ${n})`; n++ }
+      const { data: tmpl, error: tErr } = await supabase.from('maintenance_checklist_templates').insert([{
+        name, scope: t.scope, frequency: t.frequency, form_code: t.form_code,
+      }]).select('id').single()
+      if (tErr) throw tErr
+      const tItems = items.filter(i => i.template_id === t.id)
+      if (tItems.length > 0) {
+        const rows = tItems.map(i => ({
+          template_id: tmpl.id, section_label: i.section_label, item_no: i.item_no, description: i.description, item_type: i.item_type,
+        }))
+        const { error: iErr } = await supabase.from('maintenance_checklist_items').insert(rows)
+        if (iErr) throw iErr
+      }
+      await load()
+      setExpandedTemplate(tmpl.id)
+    } catch (err: any) {
+      alert('Error: ' + err.message)
+    } finally {
+      setDuplicating(null)
+    }
+  }
+
   async function addItem(templateId: number) {
     const draft = newItem[templateId]
     if (!draft?.description.trim()) return
     const existingCount = items.filter(i => i.template_id === templateId).length
     const { error } = await supabase.from('maintenance_checklist_items').insert([{
-      template_id: templateId, section_label: draft.section_label.trim() || null, item_no: existingCount + 1, description: draft.description.trim(),
+      template_id: templateId, section_label: draft.section_label.trim() || null, item_no: existingCount + 1,
+      description: draft.description.trim(), item_type: draft.item_type || 'ok_fault',
     }])
     if (error) { alert('Error: ' + error.message); return }
-    setNewItem({ ...newItem, [templateId]: { section_label: '', description: '' } })
+    setNewItem({ ...newItem, [templateId]: { section_label: '', description: '', item_type: 'ok_fault' } })
     load()
   }
 
@@ -405,6 +442,7 @@ export default function MaintenanceSettingsPage() {
                     <span className="text-xs text-gray-400 ml-2">{t.scope === 'single_equipment' ? 'Per equipment' : 'Multi-section'} · {tItems.length} items</span>
                   </div>
                   <div className="flex items-center gap-1">
+                    <button onClick={e => { e.stopPropagation(); duplicateTemplate(t) }} disabled={duplicating === t.id} className="text-gray-400 hover:text-orange-600 p-1 disabled:opacity-40" title="Duplicate — use this as a starting point for a new template"><Copy className="w-4 h-4" /></button>
                     <button onClick={e => { e.stopPropagation(); exportTemplate(t) }} className="text-gray-400 hover:text-blue-600 p-1" title="Export as JSON"><Download className="w-4 h-4" /></button>
                     <button onClick={e => { e.stopPropagation(); deleteTemplate(t.id) }} className="text-red-500 hover:text-red-700 p-1" title="Delete"><Trash2 className="w-4 h-4" /></button>
                   </div>
@@ -417,14 +455,18 @@ export default function MaintenanceSettingsPage() {
                           <tr key={it.id}>
                             <td className="py-1.5 text-xs text-gray-400 w-32">{it.section_label || '-'}</td>
                             <td className="py-1.5">{it.description}</td>
+                            <td className="py-1.5 text-xs text-gray-400 w-36">{ITEM_TYPE_LABELS[it.item_type] || it.item_type}</td>
                             <td className="py-1.5 w-8"><button onClick={() => deleteItem(it.id)} className="text-red-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button></td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                     <div className="flex gap-2">
-                      <input placeholder="Section (optional)" value={newItem[t.id]?.section_label || ''} onChange={e => setNewItem({ ...newItem, [t.id]: { section_label: e.target.value, description: newItem[t.id]?.description || '' } })} className="border rounded px-2 py-1.5 text-sm w-40" />
-                      <input placeholder="Item description" value={newItem[t.id]?.description || ''} onChange={e => setNewItem({ ...newItem, [t.id]: { section_label: newItem[t.id]?.section_label || '', description: e.target.value } })} className="border rounded px-2 py-1.5 text-sm flex-1" />
+                      <input placeholder="Section (optional)" value={newItem[t.id]?.section_label || ''} onChange={e => setNewItem({ ...newItem, [t.id]: { section_label: e.target.value, description: newItem[t.id]?.description || '', item_type: newItem[t.id]?.item_type || 'ok_fault' } })} className="border rounded px-2 py-1.5 text-sm w-36" />
+                      <input placeholder="Item description" value={newItem[t.id]?.description || ''} onChange={e => setNewItem({ ...newItem, [t.id]: { section_label: newItem[t.id]?.section_label || '', description: e.target.value, item_type: newItem[t.id]?.item_type || 'ok_fault' } })} className="border rounded px-2 py-1.5 text-sm flex-1" />
+                      <select value={newItem[t.id]?.item_type || 'ok_fault'} onChange={e => setNewItem({ ...newItem, [t.id]: { section_label: newItem[t.id]?.section_label || '', description: newItem[t.id]?.description || '', item_type: e.target.value } })} className="border rounded px-2 py-1.5 text-sm bg-white w-40">
+                        {Object.entries(ITEM_TYPE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                      </select>
                       <button onClick={() => addItem(t.id)} className="text-xs bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-200">Add Item</button>
                     </div>
                   </div>

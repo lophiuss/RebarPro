@@ -3,7 +3,7 @@ export const revalidate = 0
 
 import { createClient } from '@/lib/supabase/server'
 import ShoutoutBoard from '@/components/ShoutoutBoard'
-import { Wrench, AlertTriangle, Bell } from 'lucide-react'
+import { Wrench, AlertTriangle, Bell, ClipboardCheck, CalendarClock, CheckCircle2 } from 'lucide-react'
 
 // KPI formula explanations, shown as a hover tooltip on each card.
 const KPI_TOOLTIPS: Record<string, string> = {
@@ -11,7 +11,7 @@ const KPI_TOOLTIPS: Record<string, string> = {
   'No. of Breakdown': 'Count of equipment-linked Work Requests that reached Completed/Approved status within the selected period.',
   'BRE % (Breakdown Response)': 'BRE % = (No. of breakdowns resolved within target repair time / Total no. of breakdowns) × 100. Target time defaults to the equipment’s configured target (or the department default) in Settings.',
   'Avg Repair Time': 'Average of (completion time − pickup time) across all breakdowns in the period. Pickup time = accepted time, or assigned/filed time if never explicitly accepted.',
-  'Schedule (Plan vs Actual)': 'Schedule % = (No. of planned PM tasks completed this week / No. of planned PM tasks this week) × 100.',
+  'Schedule (Plan vs Actual)': 'Schedule % = (No. of planned PM tasks completed within the selected period / No. of planned PM tasks within the selected period) × 100.',
   'Asset Availability': 'Availability % = MTBF / (MTBF + MTTR) × 100. MTBF (mean time between failures) = uptime hours / no. of breakdowns. MTTR (mean time to repair) = total repair hours / no. of breakdowns.',
 }
 
@@ -226,10 +226,23 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
     return Math.max(0, (new Date(r.completed_at).getTime() - new Date(start).getTime()) / 3600000)
   }
 
+  // Years the selected KPI period's weeks could fall in (for a custom range
+  // spanning a year boundary) — Schedule % needs to look at every PM week
+  // whose Monday lands inside the period, not just today's single week.
+  function yearsSpanning(startStr: string, endStr: string) {
+    const sy = new Date(startStr).getFullYear()
+    const ey = new Date(endStr).getFullYear()
+    const ys: number[] = []
+    for (let y = sy; y <= ey; y++) ys.push(y)
+    return ys
+  }
+  const periodYears = yearsSpanning(periodStart, periodEnd)
+  const prevPeriodYears = yearsSpanning(prevPeriodStart, prevPeriodEnd)
+
   const [
     { data: equipment }, { data: workRequests }, { data: prevWorkRequests }, { data: pmRows }, { data: spareParts },
     { data: critical }, { data: settingsRow }, { count: pendingCount }, { data: { user } }, { data: weekSubs }, { count: awaitingApprovalCount },
-    { data: chartWorkRequests }, { data: chartPmRows },
+    { data: chartWorkRequests }, { data: chartPmRows }, { data: periodPmRowsRaw }, { data: prevPeriodPmRowsRaw },
   ] = await Promise.all([
     supabase.from('maintenance_equipment').select('id, name, category, target_repair_hours, pm_checklist_template_id').eq('is_active', true),
     supabase.from('maintenance_work_requests').select('id, equipment_id, assigned_at, accepted_at, completed_at, status, created_at').not('equipment_id', 'is', null).in('status', ['completed', 'approved']).gte('created_at', periodStart).lte('created_at', periodEnd + 'T23:59:59'),
@@ -244,6 +257,8 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
     supabase.from('maintenance_work_requests').select('id', { count: 'exact', head: true }).eq('status', 'completed'),
     supabase.from('maintenance_work_requests').select('id, equipment_id, assigned_at, accepted_at, completed_at, status, created_at').not('equipment_id', 'is', null).in('status', ['completed', 'approved']).gte('created_at', toStr(chartRangeStart)).lte('created_at', toStr(chartRangeEnd) + 'T23:59:59'),
     supabase.from('maintenance_pm_schedule').select('equipment_id, year, week_number, planned, completed_at').in('year', chartYears),
+    supabase.from('maintenance_pm_schedule').select('equipment_id, year, week_number, planned, completed_at').in('year', periodYears),
+    supabase.from('maintenance_pm_schedule').select('equipment_id, year, week_number, planned, completed_at').in('year', prevPeriodYears),
   ])
 
   let myName = ''
@@ -284,9 +299,33 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
   const brePct = noOfBreakdown > 0 ? (withinTarget / noOfBreakdown) * 100 : 100
   const avgRepairTime = noOfBreakdown > 0 ? breakdowns.reduce((s, r) => s + r.repair_time_hours, 0) / noOfBreakdown : 0
 
-  const plannedCount = (pmRows || []).filter(r => r.planned).length
-  const completedCount = (pmRows || []).filter(r => r.planned && r.completed_at).length
+  // Schedule % must reflect the SAME selected period as every other KPI
+  // card ("This Week"/"This Month"/custom range) — previously this always
+  // used only today's single ISO week (pmRows, fetched by year+weekNumber)
+  // regardless of the period picker, so switching to "This Month" still
+  // silently showed just the current week's PM completion, mislabeled
+  // "Week N, Year" while every other card said "This period". Fixed by
+  // scoping to every PM week whose Monday falls inside periodStart..End —
+  // same technique already used for the per-month history chart below.
+  const periodStartDate = new Date(periodStart)
+  const periodEndDate = new Date(periodEnd)
+  const periodPmRows = (periodPmRowsRaw || []).filter(r => {
+    const monday = mondayOfIsoWeek(r.year, r.week_number)
+    return monday >= periodStartDate && monday <= periodEndDate
+  })
+  const plannedCount = periodPmRows.filter(r => r.planned).length
+  const completedCount = periodPmRows.filter(r => r.planned && r.completed_at).length
   const schedulePct = plannedCount > 0 ? (completedCount / plannedCount) * 100 : 100
+
+  const prevPeriodPmStartDate = new Date(prevPeriodStart)
+  const prevPeriodPmEndDate = new Date(prevPeriodEnd)
+  const prevPeriodPmRows = (prevPeriodPmRowsRaw || []).filter(r => {
+    const monday = mondayOfIsoWeek(r.year, r.week_number)
+    return monday >= prevPeriodPmStartDate && monday <= prevPeriodPmEndDate
+  })
+  const prevPlannedCount = prevPeriodPmRows.filter(r => r.planned).length
+  const prevCompletedCount = prevPeriodPmRows.filter(r => r.planned && r.completed_at).length
+  const prevSchedulePct = prevPlannedCount > 0 ? (prevCompletedCount / prevPlannedCount) * 100 : 100
 
   // Availability % = MTBF / (MTBF + MTTR) x 100. Confirmed formula.
   // MTBF (mean time between failures) = uptime hours / no. of breakdowns
@@ -329,7 +368,7 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
     { label: 'No. of Breakdown', value: String(noOfBreakdown), sub: `${withinTarget} within target repair time`, warn: noOfBreakdown > 5, trend: { current: noOfBreakdown, previous: prevNoOfBreakdown, higherIsBetter: false, format: (n: number) => String(n) } },
     { label: 'BRE % (Breakdown Response)', value: `${brePct.toFixed(1)}%`, sub: 'Resolved within target', warn: brePct < 80, trend: { current: brePct, previous: prevBrePct, higherIsBetter: true, format: pctFmt } },
     { label: 'Avg Repair Time', value: `${avgRepairTime.toFixed(1)} h`, sub: 'Per breakdown', warn: false, trend: { current: avgRepairTime, previous: prevAvgRepairTime, higherIsBetter: false, format: hFmt } },
-    { label: 'Schedule (Plan vs Actual)', value: `${schedulePct.toFixed(1)}%`, sub: `Week ${weekNumber}, ${year}`, warn: schedulePct < 70, trend: null },
+    { label: 'Schedule (Plan vs Actual)', value: `${schedulePct.toFixed(1)}%`, sub: 'This period', warn: schedulePct < 70, trend: { current: schedulePct, previous: prevSchedulePct, higherIsBetter: true, format: pctFmt } },
     { label: 'Asset Availability', value: `${availabilityPct.toFixed(1)}%`, sub: 'MTBF / (MTBF + MTTR), fleet-wide', warn: availabilityPct < 90, trend: { current: availabilityPct, previous: prevAvailabilityPct, higherIsBetter: true, format: pctFmt } },
   ]
 
@@ -405,61 +444,85 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
       </div>
       <p className="text-xs text-gray-400 mb-6">KPIs reflect <strong>{periodLabel}</strong> ({periodStart} → {periodEnd}), across {equipmentCount} active equipment.</p>
 
-      {!!pendingCount && pendingCount > 0 && (
-        <a href="/maintenance/work-requests" className="block bg-amber-50 border border-amber-200 rounded-xl px-5 py-3 mb-3 text-sm font-semibold text-amber-800 hover:bg-amber-100">
-          🔔 {pendingCount} pending Work Request{pendingCount === 1 ? '' : 's'} awaiting assignment — click to review
-        </a>
-      )}
+      {(!!pendingCount || !!awaitingApprovalCount || myPendingPm.length > 0 || outstandingChecklists.length > 0) && (
+        <div className="space-y-2 mb-6">
+          {!!pendingCount && pendingCount > 0 && (
+            <a href="/maintenance/work-requests" className="flex items-center gap-2.5 bg-amber-50 border border-amber-200 rounded-xl px-5 py-3 text-sm font-semibold text-amber-800 hover:bg-amber-100">
+              <Bell className="w-4 h-4 flex-shrink-0" />
+              <span>{pendingCount} pending Work Request{pendingCount === 1 ? '' : 's'} awaiting assignment</span>
+              <span className="ml-auto text-xs font-normal text-amber-600 flex-shrink-0">Review →</span>
+            </a>
+          )}
 
-      {!!awaitingApprovalCount && awaitingApprovalCount > 0 && (
-        <a href="/maintenance/work-requests" className="block bg-blue-50 border border-blue-200 rounded-xl px-5 py-3 mb-3 text-sm font-semibold text-blue-800 hover:bg-blue-100">
-          📋 {awaitingApprovalCount} completed Work Request{awaitingApprovalCount === 1 ? '' : 's'} awaiting your approval — click to review
-        </a>
-      )}
+          {!!awaitingApprovalCount && awaitingApprovalCount > 0 && (
+            <a href="/maintenance/work-requests" className="flex items-center gap-2.5 bg-blue-50 border border-blue-200 rounded-xl px-5 py-3 text-sm font-semibold text-blue-800 hover:bg-blue-100">
+              <ClipboardCheck className="w-4 h-4 flex-shrink-0" />
+              <span>{awaitingApprovalCount} completed Work Request{awaitingApprovalCount === 1 ? '' : 's'} awaiting your approval</span>
+              <span className="ml-auto text-xs font-normal text-blue-600 flex-shrink-0">Review →</span>
+            </a>
+          )}
 
-      {myPendingPm.length > 0 && (
-        <a href="/maintenance/schedule" className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-5 py-3 mb-3 text-sm font-semibold text-amber-800 hover:bg-amber-100">
-          <Bell className="w-4 h-4 flex-shrink-0" /> You have {myPendingPm.length} PM task{myPendingPm.length === 1 ? '' : 's'} assigned to you this week — click to review
-        </a>
-      )}
+          {myPendingPm.length > 0 && (
+            <a href="/maintenance/schedule" className="flex items-center gap-2.5 bg-indigo-50 border border-indigo-200 rounded-xl px-5 py-3 text-sm font-semibold text-indigo-800 hover:bg-indigo-100">
+              <CalendarClock className="w-4 h-4 flex-shrink-0" />
+              <span>{myPendingPm.length} PM task{myPendingPm.length === 1 ? '' : 's'} assigned to you this week</span>
+              <span className="ml-auto text-xs font-normal text-indigo-600 flex-shrink-0">Review →</span>
+            </a>
+          )}
 
-      {outstandingChecklists.length > 0 && (
-        <a href="/maintenance/schedule" className="block bg-red-50 border border-red-200 rounded-xl px-5 py-3 mb-6 text-sm font-semibold text-red-800 hover:bg-red-100">
-          ⚠️ {outstandingChecklists.length} PM task{outstandingChecklists.length === 1 ? '' : 's'} due this week, not yet marked done — {outstandingChecklists.map(e => e.name).join(', ')}
-          <span className="block font-normal text-red-600 text-xs mt-0.5">Click to review on the Schedule page.</span>
-        </a>
+          {outstandingChecklists.length > 0 && (
+            <a href="/maintenance/schedule" className="flex items-start gap-2.5 bg-red-50 border border-red-200 rounded-xl px-5 py-3 text-sm text-red-800 hover:bg-red-100">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+              <span className="min-w-0">
+                <span className="font-semibold">{outstandingChecklists.length} PM task{outstandingChecklists.length === 1 ? '' : 's'} due this week, not yet marked done</span>
+                <span className="block font-normal text-red-600 text-xs mt-0.5 truncate">
+                  {outstandingChecklists.slice(0, 6).map(e => e.name).join(', ')}
+                  {outstandingChecklists.length > 6 ? `, +${outstandingChecklists.length - 6} more` : ''}
+                </span>
+              </span>
+            </a>
+          )}
+        </div>
       )}
 
       <ShoutoutBoard department="maintenance" />
 
-      <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" /> Critical Issues</h2>
-      <div className="bg-white border rounded-xl shadow-sm overflow-x-auto mb-10">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Equipment</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Issue</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Lead Time</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {(critical || []).map((c: any) => (
-              <tr key={c.id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 text-sm font-medium">{c.maintenance_equipment?.name || c.equipment_label || '-'}</td>
-                <td className="px-4 py-3 text-sm">{c.issue}</td>
-                <td className="px-4 py-3 text-sm text-gray-500">{c.lead_time_note || '-'}</td>
-                <td className="px-4 py-3">
-                  <span className={`text-xs font-bold uppercase rounded-full px-2 py-0.5 ${c.status === 'in_progress' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>{c.status}</span>
-                </td>
-              </tr>
-            ))}
-            {(!critical || critical.length === 0) && (
-              <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-500">No open critical issues.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      {critical && critical.length > 0 ? (
+        <>
+          <h2 className="text-xl font-bold mb-4 flex items-center gap-2"><AlertTriangle className="w-5 h-5 text-red-500" /> Critical Issues</h2>
+          <div className="bg-white border rounded-xl shadow-sm overflow-x-auto mb-10">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Equipment</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Issue</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Lead Time</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {critical.map((c: any) => (
+                  <tr key={c.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 text-sm font-medium">{c.maintenance_equipment?.name || c.equipment_label || '-'}</td>
+                    <td className="px-4 py-3 text-sm">{c.issue}</td>
+                    <td className="px-4 py-3 text-sm text-gray-500">{c.lead_time_note || '-'}</td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs font-bold uppercase rounded-full px-2 py-0.5 ${c.status === 'in_progress' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>{c.status}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      ) : (
+        // Auto-collapsed: with nothing open, a full header + empty table
+        // just took up space for no reason — a single confirming line does
+        // the job instead.
+        <div className="flex items-center gap-2 text-sm text-green-700 bg-green-50 border border-green-200 rounded-xl px-5 py-2.5 mb-10">
+          <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> No open critical issues.
+        </div>
+      )}
 
       <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 mb-10">
         {cards.map(c => (
