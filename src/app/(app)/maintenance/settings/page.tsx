@@ -39,6 +39,10 @@ export default function MaintenanceSettingsPage() {
   const [newTemplate, setNewTemplate] = useState({ name: '', scope: 'single_equipment', frequency: '', form_code: '' })
   const [newItem, setNewItem] = useState<Record<number, { section_label: string; description: string; item_type: string }>>({})
   const [duplicating, setDuplicating] = useState<number | null>(null)
+  const [editingTemplateId, setEditingTemplateId] = useState<number | null>(null)
+  const [templateEditName, setTemplateEditName] = useState('')
+  const [editingItemId, setEditingItemId] = useState<number | null>(null)
+  const [itemEditData, setItemEditData] = useState({ section_label: '', description: '', item_type: 'ok_fault' })
 
   useEffect(() => { load() }, [])
 
@@ -233,6 +237,35 @@ export default function MaintenanceSettingsPage() {
   async function deleteItem(id: number) {
     const { error } = await supabase.from('maintenance_checklist_items').delete().eq('id', id)
     if (error) { alert('Error: ' + error.message); return }
+    load()
+  }
+
+  function startEditTemplate(t: Template) {
+    setEditingTemplateId(t.id)
+    setTemplateEditName(t.name)
+  }
+
+  async function saveTemplateName(t: Template) {
+    const name = templateEditName.trim()
+    if (!name) return
+    const { error } = await supabase.from('maintenance_checklist_templates').update({ name }).eq('id', t.id)
+    if (error) { alert('Error: ' + error.message); return }
+    setEditingTemplateId(null)
+    load()
+  }
+
+  function startEditItem(it: Item) {
+    setEditingItemId(it.id)
+    setItemEditData({ section_label: it.section_label || '', description: it.description, item_type: it.item_type })
+  }
+
+  async function saveItemEdit(id: number) {
+    if (!itemEditData.description.trim()) return
+    const { error } = await supabase.from('maintenance_checklist_items').update({
+      section_label: itemEditData.section_label.trim() || null, description: itemEditData.description.trim(), item_type: itemEditData.item_type,
+    }).eq('id', id)
+    if (error) { alert('Error: ' + error.message); return }
+    setEditingItemId(null)
     load()
   }
 
@@ -436,12 +469,25 @@ export default function MaintenanceSettingsPage() {
             const isOpen = expandedTemplate === t.id
             return (
               <div key={t.id} className="bg-white border rounded-xl shadow-sm">
-                <div className="flex items-center justify-between px-4 py-3 cursor-pointer" onClick={() => setExpandedTemplate(isOpen ? null : t.id)}>
-                  <div>
-                    <span className="font-semibold text-sm">{t.name}</span>
-                    <span className="text-xs text-gray-400 ml-2">{t.scope === 'single_equipment' ? 'Per equipment' : 'Multi-section'} · {tItems.length} items</span>
+                <div className="flex items-center justify-between px-4 py-3 cursor-pointer" onClick={() => editingTemplateId !== t.id && setExpandedTemplate(isOpen ? null : t.id)}>
+                  <div className="flex items-center gap-2 min-w-0">
+                    {editingTemplateId === t.id ? (
+                      <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                        <input autoFocus value={templateEditName} onChange={e => setTemplateEditName(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') saveTemplateName(t); if (e.key === 'Escape') setEditingTemplateId(null) }}
+                          className="border rounded px-2 py-1 text-sm font-semibold w-56" />
+                        <button onClick={() => saveTemplateName(t)} className="text-green-600 hover:text-green-800 p-1"><Check className="w-4 h-4" /></button>
+                        <button onClick={() => setEditingTemplateId(null)} className="text-gray-500 hover:text-gray-700 p-1"><X className="w-4 h-4" /></button>
+                      </div>
+                    ) : (
+                      <>
+                        <span className="font-semibold text-sm truncate">{t.name}</span>
+                        <button onClick={e => { e.stopPropagation(); startEditTemplate(t) }} className="text-gray-300 hover:text-blue-600 p-0.5 flex-shrink-0" title="Rename"><Pencil className="w-3.5 h-3.5" /></button>
+                      </>
+                    )}
+                    <span className="text-xs text-gray-400 ml-1 flex-shrink-0">{t.scope === 'single_equipment' ? 'Per equipment' : 'Multi-section'} · {tItems.length} items</span>
                   </div>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 flex-shrink-0">
                     <button onClick={e => { e.stopPropagation(); duplicateTemplate(t) }} disabled={duplicating === t.id} className="text-gray-400 hover:text-orange-600 p-1 disabled:opacity-40" title="Duplicate — use this as a starting point for a new template"><Copy className="w-4 h-4" /></button>
                     <button onClick={e => { e.stopPropagation(); exportTemplate(t) }} className="text-gray-400 hover:text-blue-600 p-1" title="Export as JSON"><Download className="w-4 h-4" /></button>
                     <button onClick={e => { e.stopPropagation(); deleteTemplate(t.id) }} className="text-red-500 hover:text-red-700 p-1" title="Delete"><Trash2 className="w-4 h-4" /></button>
@@ -453,10 +499,31 @@ export default function MaintenanceSettingsPage() {
                       <tbody className="divide-y divide-gray-100">
                         {tItems.map(it => (
                           <tr key={it.id}>
-                            <td className="py-1.5 text-xs text-gray-400 w-32">{it.section_label || '-'}</td>
-                            <td className="py-1.5">{it.description}</td>
-                            <td className="py-1.5 text-xs text-gray-400 w-36">{ITEM_TYPE_LABELS[it.item_type] || it.item_type}</td>
-                            <td className="py-1.5 w-8"><button onClick={() => deleteItem(it.id)} className="text-red-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button></td>
+                            {editingItemId === it.id ? (
+                              <>
+                                <td className="py-1.5 pr-1 w-32"><input value={itemEditData.section_label} onChange={e => setItemEditData({ ...itemEditData, section_label: e.target.value })} placeholder="Section" className="border rounded px-2 py-1 text-xs w-full" /></td>
+                                <td className="py-1.5 pr-1"><input value={itemEditData.description} onChange={e => setItemEditData({ ...itemEditData, description: e.target.value })} onKeyDown={e => e.key === 'Enter' && saveItemEdit(it.id)} className="border rounded px-2 py-1 text-sm w-full" /></td>
+                                <td className="py-1.5 pr-1 w-36">
+                                  <select value={itemEditData.item_type} onChange={e => setItemEditData({ ...itemEditData, item_type: e.target.value })} className="border rounded px-2 py-1 text-xs bg-white w-full">
+                                    {Object.entries(ITEM_TYPE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                                  </select>
+                                </td>
+                                <td className="py-1.5 w-16 flex gap-1">
+                                  <button onClick={() => saveItemEdit(it.id)} className="text-green-600 hover:text-green-800 p-1"><Check className="w-3.5 h-3.5" /></button>
+                                  <button onClick={() => setEditingItemId(null)} className="text-gray-500 hover:text-gray-700 p-1"><X className="w-3.5 h-3.5" /></button>
+                                </td>
+                              </>
+                            ) : (
+                              <>
+                                <td className="py-1.5 text-xs text-gray-400 w-32">{it.section_label || '-'}</td>
+                                <td className="py-1.5">{it.description}</td>
+                                <td className="py-1.5 text-xs text-gray-400 w-36">{ITEM_TYPE_LABELS[it.item_type] || it.item_type}</td>
+                                <td className="py-1.5 w-16 flex gap-1">
+                                  <button onClick={() => startEditItem(it)} className="text-gray-400 hover:text-blue-600 p-1"><Pencil className="w-3.5 h-3.5" /></button>
+                                  <button onClick={() => deleteItem(it.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 className="w-3.5 h-3.5" /></button>
+                                </td>
+                              </>
+                            )}
                           </tr>
                         ))}
                       </tbody>
