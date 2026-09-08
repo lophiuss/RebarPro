@@ -8,7 +8,7 @@ import {
   ShieldCheck, Building2, Boxes, Scale, PackageOpen, ScrollText, BarChart3,
   ArrowLeftRight, ClipboardList, AlertTriangle, Factory, DoorClosed, KeyRound,
   Radio, Siren, ClipboardEdit, User, Sparkles, Wrench, CalendarClock,
-  PackageSearch, Inbox, History
+  PackageSearch, Inbox, History, HelpCircle
 } from 'lucide-react'
 
 export type Department = 'rebar' | 'cement' | 'security' | 'maintenance'
@@ -245,6 +245,25 @@ export default function AppNavigation({ userEmail, fullName, departments, navPer
             <Settings className={`w-5 h-5 ${pathname === settingsHref ? 'text-white' : 'text-slate-400'}`} />
             <span>Settings</span>
           </Link>
+          )}
+
+          {activeDept === 'maintenance' && (
+            // Deliberately NOT gated by isAllowed/department_nav_permissions
+            // — this is documentation, every technician/manager/admin in
+            // Maintenance should always be able to reach it regardless of
+            // how nav permissions are configured for their role.
+            <Link
+              href="/maintenance/help"
+              onClick={closeSidebar}
+              className={`flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition ${
+                pathname === '/maintenance/help'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-300 hover:bg-slate-800/90 hover:text-white'
+              }`}
+            >
+              <HelpCircle className={`w-5 h-5 ${pathname === '/maintenance/help' ? 'text-white' : 'text-slate-400'}`} />
+              <span>User Manual</span>
+            </Link>
           )}
 
           {isAdminAnywhere && (
