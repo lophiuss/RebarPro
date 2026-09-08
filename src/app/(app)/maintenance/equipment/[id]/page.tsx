@@ -57,7 +57,6 @@ export default async function EquipmentDetailPage({ params }: { params: Promise<
           <div><span className="text-gray-400 block text-xs uppercase">PIC (Day)</span>{equipment.pic_day || '-'}</div>
           <div><span className="text-gray-400 block text-xs uppercase">PIC (Night)</span>{equipment.pic_night || '-'}</div>
           <div><span className="text-gray-400 block text-xs uppercase">Purpose</span>{equipment.purpose || '-'}</div>
-          <div><span className="text-gray-400 block text-xs uppercase">Target Repair Time</span>{equipment.target_repair_hours ? `${equipment.target_repair_hours} h` : 'Default'}</div>
         </div>
         <ManualUpload equipmentId={equipment.id} manualDriveId={equipment.manual_drive_id} />
       </div>

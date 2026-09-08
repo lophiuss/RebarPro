@@ -328,6 +328,7 @@ export default function WorkRequestsPage() {
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Assigned</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Assigned To</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Accepted?</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Requester</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Issue</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
@@ -346,6 +347,7 @@ export default function WorkRequestsPage() {
                       <span className="text-xs font-bold text-amber-700 bg-amber-100 rounded-full px-2 py-0.5">Not yet accepted</span>
                     )}
                   </td>
+                  <td className="px-4 py-3 text-sm whitespace-nowrap">{r.requester_name}</td>
                   <td className="px-4 py-3 text-sm max-w-[240px] truncate">{r.issue_description}</td>
                   <td className="px-4 py-3 text-sm">{r.location || '-'}</td>
                   <td className="px-4 py-3">
@@ -357,7 +359,7 @@ export default function WorkRequestsPage() {
                 </tr>
               ))}
               {!loading && inProgress.length === 0 && (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">Nothing assigned right now.</td></tr>
+                <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-500">Nothing assigned right now.</td></tr>
               )}
             </tbody>
           </table>
@@ -371,6 +373,7 @@ export default function WorkRequestsPage() {
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Completed</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Technician</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Requester</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Issue</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Evidence</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
@@ -381,6 +384,7 @@ export default function WorkRequestsPage() {
                 <tr key={r.id} className="hover:bg-gray-50">
                   <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">{r.completed_at ? new Date(r.completed_at).toLocaleString() : '-'}</td>
                   <td className="px-4 py-3 text-sm font-medium whitespace-nowrap">{r.assigned_to || '-'}</td>
+                  <td className="px-4 py-3 text-sm whitespace-nowrap">{r.requester_name}</td>
                   <td className="px-4 py-3 text-sm max-w-[240px]">
                     <div className="truncate">{r.issue_description}</div>
                     {r.completion_remark && <div className="text-xs text-gray-500 mt-0.5 truncate">Remark: {r.completion_remark}</div>}
@@ -397,7 +401,7 @@ export default function WorkRequestsPage() {
                 </tr>
               ))}
               {!loading && awaitingApproval.length === 0 && (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-500">Nothing awaiting approval.</td></tr>
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-500">Nothing awaiting approval.</td></tr>
               )}
             </tbody>
           </table>
@@ -414,6 +418,7 @@ export default function WorkRequestsPage() {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Assigned</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Requester</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Location</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Issue</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
@@ -425,6 +430,7 @@ export default function WorkRequestsPage() {
                 {myTasks.map(r => (
                   <tr key={r.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">{r.assigned_at ? new Date(r.assigned_at).toLocaleString() : '-'}</td>
+                    <td className="px-4 py-3 text-sm whitespace-nowrap">{r.requester_name}</td>
                     <td className="px-4 py-3 text-sm">{r.location || '-'}</td>
                     <td className="px-4 py-3 text-sm max-w-[240px]">
                       <div className="truncate">{r.issue_description}</div>
@@ -448,7 +454,7 @@ export default function WorkRequestsPage() {
                   </tr>
                 ))}
                 {!loading && myTasks.length === 0 && (
-                  <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-500">Nothing assigned to you yet.</td></tr>
+                  <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">Nothing assigned to you yet.</td></tr>
                 )}
               </tbody>
             </table>

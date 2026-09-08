@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Settings as SettingsIcon, Plus, Trash2, Pencil, Check, X, Download, Upload, Copy } from 'lucide-react'
 import PublicJobRequestLink from '../PublicJobRequestLink'
+import DropdownOrOther from '@/components/DropdownOrOther'
 
 type Equipment = {
   id: number; equip_code: string | null; name: string; category: string | null; brand: string | null
@@ -91,7 +92,6 @@ export default function MaintenanceSettingsPage() {
       category: newEquip.category || null, location: newEquip.location || null, brand: newEquip.brand || null,
       condition: newEquip.condition || null, manager: newEquip.manager || null, supervisor: newEquip.supervisor || null,
       pic_day: newEquip.pic_day || null, pic_night: newEquip.pic_night || null,
-      target_repair_hours: newEquip.target_repair_hours ? Number(newEquip.target_repair_hours) : null,
       pm_checklist_template_id: newEquip.pm_checklist_template_id ? Number(newEquip.pm_checklist_template_id) : null,
     }])
     if (error) { alert('Error: ' + error.message); return }
@@ -271,6 +271,8 @@ export default function MaintenanceSettingsPage() {
 
   const equipCategories = [...new Set(equipment.map(e => e.category).filter(Boolean))].sort() as string[]
   const equipLocations = [...new Set(equipment.map(e => e.location).filter(Boolean))].sort() as string[]
+  const equipManagers = [...new Set(equipment.map(e => e.manager).filter(Boolean))].sort() as string[]
+  const equipSupervisors = [...new Set(equipment.map(e => e.supervisor).filter(Boolean))].sort() as string[]
   const filteredEquipment = equipment.filter(e => {
     if (equipFilter.category && e.category !== equipFilter.category) return false
     if (equipFilter.location && e.location !== equipFilter.location) return false
@@ -315,11 +317,16 @@ export default function MaintenanceSettingsPage() {
               <option value="">-</option><option value="good">Good</option><option value="fair">Fair</option><option value="poor">Poor</option><option value="spoil">Spoil</option>
             </select>
           </div>
-          <div><label className="block text-xs font-medium text-gray-500 mb-1">Ownership Manager</label><input value={newEquip.manager} onChange={e => setNewEquip({ ...newEquip, manager: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-32" /></div>
-          <div><label className="block text-xs font-medium text-gray-500 mb-1">Ownership Supervisor</label><input value={newEquip.supervisor} onChange={e => setNewEquip({ ...newEquip, supervisor: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-32" /></div>
+          <div className="w-36">
+            <label className="block text-xs font-medium text-gray-500 mb-1">Ownership Manager</label>
+            <DropdownOrOther value={newEquip.manager} options={equipManagers} onChange={v => setNewEquip({ ...newEquip, manager: v })} placeholder="New manager name" className="border rounded-md px-3 py-2 text-sm bg-white w-36" />
+          </div>
+          <div className="w-36">
+            <label className="block text-xs font-medium text-gray-500 mb-1">Ownership Supervisor</label>
+            <DropdownOrOther value={newEquip.supervisor} options={equipSupervisors} onChange={v => setNewEquip({ ...newEquip, supervisor: v })} placeholder="New supervisor name" className="border rounded-md px-3 py-2 text-sm bg-white w-36" />
+          </div>
           <div><label className="block text-xs font-medium text-gray-500 mb-1">PIC Day</label><input value={newEquip.pic_day} onChange={e => setNewEquip({ ...newEquip, pic_day: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-28" /></div>
           <div><label className="block text-xs font-medium text-gray-500 mb-1">PIC Night</label><input value={newEquip.pic_night} onChange={e => setNewEquip({ ...newEquip, pic_night: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-28" /></div>
-          <div><label className="block text-xs font-medium text-gray-500 mb-1">Target Repair (h)</label><input type="number" step="0.1" value={newEquip.target_repair_hours} onChange={e => setNewEquip({ ...newEquip, target_repair_hours: e.target.value })} className="border rounded-md px-3 py-2 text-sm w-24" /></div>
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Checklist</label>
             <select value={newEquip.pm_checklist_template_id} onChange={e => setNewEquip({ ...newEquip, pm_checklist_template_id: e.target.value })} className="border rounded-md px-3 py-2 text-sm bg-white w-36">
@@ -374,7 +381,6 @@ export default function MaintenanceSettingsPage() {
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">Ownership Supervisor</th>
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">PIC Day</th>
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">PIC Night</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">Target Repair (h)</th>
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">Checklist</th>
                 <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase bg-gray-50">Actions</th>
               </tr>
@@ -394,11 +400,10 @@ export default function MaintenanceSettingsPage() {
                           <option value="">-</option><option value="good">Good</option><option value="fair">Fair</option><option value="poor">Poor</option><option value="spoil">Spoil</option>
                         </select>
                       </td>
-                      <td className="px-4 py-2"><input value={editData.manager || ''} onChange={e => setEditData({ ...editData, manager: e.target.value })} className="border rounded px-2 py-1 w-full" /></td>
-                      <td className="px-4 py-2"><input value={editData.supervisor || ''} onChange={e => setEditData({ ...editData, supervisor: e.target.value })} className="border rounded px-2 py-1 w-full" /></td>
+                      <td className="px-4 py-2 w-36"><DropdownOrOther value={editData.manager || ''} options={equipManagers} onChange={v => setEditData({ ...editData, manager: v })} placeholder="New manager name" className="border rounded px-2 py-1 bg-white w-full" /></td>
+                      <td className="px-4 py-2 w-36"><DropdownOrOther value={editData.supervisor || ''} options={equipSupervisors} onChange={v => setEditData({ ...editData, supervisor: v })} placeholder="New supervisor name" className="border rounded px-2 py-1 bg-white w-full" /></td>
                       <td className="px-4 py-2"><input value={editData.pic_day || ''} onChange={e => setEditData({ ...editData, pic_day: e.target.value })} className="border rounded px-2 py-1 w-full" /></td>
                       <td className="px-4 py-2"><input value={editData.pic_night || ''} onChange={e => setEditData({ ...editData, pic_night: e.target.value })} className="border rounded px-2 py-1 w-full" /></td>
-                      <td className="px-4 py-2"><input type="number" value={editData.target_repair_hours || ''} onChange={e => setEditData({ ...editData, target_repair_hours: e.target.value ? Number(e.target.value) : null })} className="border rounded px-2 py-1 w-20" /></td>
                       <td className="px-4 py-2">
                         <select value={editData.pm_checklist_template_id || ''} onChange={e => setEditData({ ...editData, pm_checklist_template_id: e.target.value ? Number(e.target.value) : null })} className="border rounded px-2 py-1 bg-white w-36">
                           <option value="">None</option>
@@ -422,7 +427,6 @@ export default function MaintenanceSettingsPage() {
                       <td className="px-4 py-2.5">{eq.supervisor || '-'}</td>
                       <td className="px-4 py-2.5">{eq.pic_day || '-'}</td>
                       <td className="px-4 py-2.5">{eq.pic_night || '-'}</td>
-                      <td className="px-4 py-2.5">{eq.target_repair_hours ?? '-'}</td>
                       <td className="px-4 py-2.5">{templates.find(t => t.id === eq.pm_checklist_template_id)?.name || <span className="text-gray-400">-</span>}</td>
                       <td className="px-4 py-2.5 flex gap-1">
                         <button onClick={() => startEdit(eq)} className="text-blue-600 hover:text-blue-800 p-1"><Pencil className="w-4 h-4" /></button>
@@ -433,7 +437,7 @@ export default function MaintenanceSettingsPage() {
                 </tr>
               ))}
               {filteredEquipment.length === 0 && (
-                <tr><td colSpan={13} className="px-4 py-6 text-center text-gray-400">{equipment.length === 0 ? 'No equipment yet.' : 'No equipment matches these filters.'}</td></tr>
+                <tr><td colSpan={12} className="px-4 py-6 text-center text-gray-400">{equipment.length === 0 ? 'No equipment yet.' : 'No equipment matches these filters.'}</td></tr>
               )}
             </tbody>
           </table>

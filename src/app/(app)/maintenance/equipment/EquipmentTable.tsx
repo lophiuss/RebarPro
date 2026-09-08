@@ -4,11 +4,12 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { X, Check } from 'lucide-react'
+import DropdownOrOther from '@/components/DropdownOrOther'
 
 export type EquipmentRow = {
   id: number; equip_code: string | null; name: string; category: string | null; brand: string | null
   location: string | null; condition: string | null; manager: string | null; supervisor: string | null
-  pic_day: string | null; pic_night: string | null; target_repair_hours: number | null; purpose: string | null
+  pic_day: string | null; pic_night: string | null; purpose: string | null
 }
 
 const CONDITION_STYLE: Record<string, string> = {
@@ -18,38 +19,9 @@ const CONDITION_STYLE: Record<string, string> = {
   spoil: 'bg-red-100 text-red-700',
 }
 
-const OTHER = '__other__'
-
-// A <select> of known values with a trailing "Other (type new)" option that
-// swaps in a text input — keeps category/location/purpose consistent
-// (no "Crane" vs "crane" duplicates) while still letting a genuinely new
-// value be entered.
-function DropdownOrOther({ value, options, onChange, placeholder }: { value: string; options: string[]; onChange: (v: string) => void; placeholder?: string }) {
-  const [typingNew, setTypingNew] = useState(value !== '' && !options.includes(value))
-  if (typingNew) {
-    return (
-      <div className="flex gap-1">
-        <input autoFocus value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className="w-full border rounded-md px-3 py-2 text-sm" />
-        <button type="button" onClick={() => { setTypingNew(false); onChange('') }} className="text-xs text-gray-400 hover:text-gray-600 px-1" title="Back to dropdown">✕</button>
-      </div>
-    )
-  }
-  return (
-    <select
-      value={options.includes(value) ? value : ''}
-      onChange={e => { if (e.target.value === OTHER) { setTypingNew(true); onChange('') } else onChange(e.target.value) }}
-      className="w-full border rounded-md px-3 py-2 text-sm bg-white"
-    >
-      <option value="">-</option>
-      {options.map(o => <option key={o} value={o}>{o}</option>)}
-      <option value={OTHER}>+ Other (type new)</option>
-    </select>
-  )
-}
-
-export default function EquipmentTable({ equipment, canManage, hasFilters, categories, locations, purposes }: {
+export default function EquipmentTable({ equipment, canManage, hasFilters, categories, locations, purposes, managers, supervisors }: {
   equipment: EquipmentRow[]; canManage: boolean; hasFilters: boolean
-  categories: string[]; locations: string[]; purposes: string[]
+  categories: string[]; locations: string[]; purposes: string[]; managers: string[]; supervisors: string[]
 }) {
   const supabase = createClient()
   const [rows, setRows] = useState(equipment)
@@ -72,7 +44,6 @@ export default function EquipmentTable({ equipment, canManage, hasFilters, categ
         brand: form.brand || null, location: form.location || null, purpose: form.purpose || null,
         condition: form.condition || null, manager: form.manager || null, supervisor: form.supervisor || null,
         pic_day: form.pic_day || null, pic_night: form.pic_night || null,
-        target_repair_hours: form.target_repair_hours === '' || form.target_repair_hours == null ? null : Number(form.target_repair_hours),
       }
       const { error } = await supabase.from('maintenance_equipment').update(patch).eq('id', editing.id)
       if (error) throw error
@@ -155,11 +126,16 @@ export default function EquipmentTable({ equipment, canManage, hasFilters, categ
                 <label className="block text-xs font-medium text-gray-500 mb-1">Purpose</label>
                 <DropdownOrOther value={form.purpose || ''} options={purposes} onChange={v => setForm({ ...form, purpose: v })} placeholder="New purpose" />
               </div>
-              <div><label className="block text-xs font-medium text-gray-500 mb-1">Ownership Manager</label><input value={form.manager || ''} onChange={e => setForm({ ...form, manager: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" /></div>
-              <div><label className="block text-xs font-medium text-gray-500 mb-1">Ownership Supervisor</label><input value={form.supervisor || ''} onChange={e => setForm({ ...form, supervisor: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" /></div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Ownership Manager</label>
+                <DropdownOrOther value={form.manager || ''} options={managers} onChange={v => setForm({ ...form, manager: v })} placeholder="New manager name" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Ownership Supervisor</label>
+                <DropdownOrOther value={form.supervisor || ''} options={supervisors} onChange={v => setForm({ ...form, supervisor: v })} placeholder="New supervisor name" />
+              </div>
               <div><label className="block text-xs font-medium text-gray-500 mb-1">PIC Day</label><input value={form.pic_day || ''} onChange={e => setForm({ ...form, pic_day: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" /></div>
               <div><label className="block text-xs font-medium text-gray-500 mb-1">PIC Night</label><input value={form.pic_night || ''} onChange={e => setForm({ ...form, pic_night: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" /></div>
-              <div><label className="block text-xs font-medium text-gray-500 mb-1">Target Repair (h)</label><input type="number" step="0.1" value={form.target_repair_hours ?? ''} onChange={e => setForm({ ...form, target_repair_hours: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" /></div>
             </div>
             <div className="flex justify-end gap-3 mt-5">
               <button onClick={() => setEditing(null)} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-200">Cancel</button>

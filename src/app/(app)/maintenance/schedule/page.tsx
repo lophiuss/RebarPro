@@ -124,6 +124,9 @@ export default function SchedulePage() {
   const [loading, setLoading] = useState(true)
 
   const [weekSubmittedEquipIds, setWeekSubmittedEquipIds] = useState<Set<number>>(new Set())
+  // "equipmentId-weekNumber" -> latest submission for that cell, within the
+  // currently-viewed year — drives the small "C" badge on grid cells.
+  const [yearSubmissionsMap, setYearSubmissionsMap] = useState<Record<string, { id: number; status: string }>>({})
   const [currentWeekPlannedIds, setCurrentWeekPlannedIds] = useState<Set<number>>(new Set())
   const [currentWeekDoneIds, setCurrentWeekDoneIds] = useState<Set<number>>(new Set())
   const [pendingSubmissions, setPendingSubmissions] = useState<Submission[]>([])
@@ -184,7 +187,13 @@ export default function SchedulePage() {
     const weekStartStr = weekStart.toISOString().split('T')[0]
     const weekEndStr = weekEnd.toISOString().split('T')[0]
 
-    const [{ data: eq }, { data: pm }, { data: tmpl }, { data: rec }, { data: { user } }, { data: weekSubs }, { data: pendingSubs }] = await Promise.all([
+    // Widened calendar range (±1 week either side of the ISO year) so ISO
+    // weeks that spill across the Dec/Jan boundary aren't missed, then
+    // filtered client-side by actual ISO week-year below.
+    const yearRangeStart = `${viewYear - 1}-12-25`
+    const yearRangeEnd = `${viewYear + 1}-01-07`
+
+    const [{ data: eq }, { data: pm }, { data: tmpl }, { data: rec }, { data: { user } }, { data: weekSubs }, { data: pendingSubs }, { data: yearSubs }] = await Promise.all([
       supabase.from('maintenance_equipment').select('id, name, equip_code, category, location, condition, pm_checklist_template_id, pm_frequency, pm_pic').eq('is_active', true).order('name'),
       supabase.from('maintenance_pm_schedule').select('id, equipment_id, week_number, planned, completed_at, assigned_to').eq('year', viewYear),
       supabase.from('maintenance_checklist_templates').select('id, name, scope, frequency').order('name'),
@@ -192,12 +201,25 @@ export default function SchedulePage() {
       supabase.auth.getUser(),
       supabase.from('maintenance_checklist_submissions').select('equipment_id').gte('submission_date', weekStartStr).lte('submission_date', weekEndStr),
       supabase.from('maintenance_checklist_submissions').select('*, maintenance_checklist_templates(name), maintenance_equipment(name)').eq('status', 'pending').order('submission_date', { ascending: false }),
+      supabase.from('maintenance_checklist_submissions').select('id, equipment_id, submission_date, status').not('equipment_id', 'is', null).gte('submission_date', yearRangeStart).lte('submission_date', yearRangeEnd).order('submission_date', { ascending: true }),
     ])
     setEquipment(eq || [])
     setPmRows(pm || [])
     setTemplates(tmpl || [])
     setRecurrences((rec as any) || [])
     setWeekSubmittedEquipIds(new Set((weekSubs || []).map(s => s.equipment_id).filter((id): id is number => id != null)))
+
+    // Ascending order above means a later submission for the same cell
+    // (e.g. redone after rejection) overwrites the earlier one here, so the
+    // badge always reflects the most recent submission for that week.
+    const cellMap: Record<string, { id: number; status: string }> = {}
+    for (const s of yearSubs || []) {
+      if (s.equipment_id == null) continue
+      const { isoYear, week } = isoWeekInfo(new Date(s.submission_date + 'T00:00:00'))
+      if (isoYear !== viewYear) continue
+      cellMap[`${s.equipment_id}-${week}`] = { id: s.id, status: s.status }
+    }
+    setYearSubmissionsMap(cellMap)
     setPendingSubmissions((pendingSubs as any) || [])
 
     // "Outstanding" needs THIS week's planned equipment regardless of which
@@ -295,10 +317,15 @@ export default function SchedulePage() {
   }
 
   // "Undo" — stops the recurrence(s) generating further weeks for this
-  // equipment and clears its Frequency/PIC columns. Already-generated weeks
-  // stay on the calendar (same as deleting a recurrence from the list).
+  // equipment and clears its Frequency/PIC columns. Past and already-
+  // completed weeks stay on the calendar as history, but savePlan()
+  // pre-generates up to ~2 years of FUTURE weeks up front (buildRecurrenceRows'
+  // horizon) — leaving those un-cleared made "unplan" look like it silently
+  // did nothing, since the grid kept showing nearly two years of yellow
+  // "planned" cells. So this also un-plans every not-yet-completed week
+  // from the current ISO week onward.
   async function undoPlan(eq: Equipment) {
-    if (!confirm(`Stop ${eq.name}'s PM plan? Already-scheduled weeks stay on the calendar — this only stops it from planning further weeks and clears Frequency/PIC.`)) return
+    if (!confirm(`Stop ${eq.name}'s PM plan? This clears Frequency/PIC and un-plans any upcoming week that isn't completed yet. Past/completed weeks stay on the calendar as history.`)) return
     try {
       const toStop = recurrences.filter(r => r.equipment_id === eq.id)
       for (const r of toStop) {
@@ -307,6 +334,12 @@ export default function SchedulePage() {
       }
       const { error: eqErr } = await supabase.from('maintenance_equipment').update({ pm_frequency: null, pm_pic: null }).eq('id', eq.id)
       if (eqErr) throw eqErr
+      const { error: futErr1 } = await supabase.from('maintenance_pm_schedule')
+        .update({ planned: false }).eq('equipment_id', eq.id).is('completed_at', null).gt('year', realYear)
+      if (futErr1) throw futErr1
+      const { error: futErr2 } = await supabase.from('maintenance_pm_schedule')
+        .update({ planned: false }).eq('equipment_id', eq.id).is('completed_at', null).eq('year', realYear).gte('week_number', realWeek)
+      if (futErr2) throw futErr2
       await load()
     } catch (err: any) {
       alert('Error: ' + err.message)
@@ -493,19 +526,29 @@ export default function SchedulePage() {
     }
   }
 
-  async function openChecklistHistory() {
+  // overrideFilter/autoExpandId let the PM grid's "C" badge (checklist
+  // submitted for this equipment/week) jump straight into that submission's
+  // detail, reusing this same modal instead of building a second one.
+  async function openChecklistHistory(overrideFilter?: { status?: string; equipmentId?: string }, autoExpandId?: number) {
+    const filter = { ...historyFilter, ...overrideFilter }
+    setHistoryFilter(filter)
     setShowChecklistHistory(true)
     setExpandedHistoryId(null)
     setHistoryLoading(true)
     let q = supabase.from('maintenance_checklist_submissions')
       .select('*, maintenance_checklist_templates(name), maintenance_equipment(name)')
       .order('submission_date', { ascending: false }).order('id', { ascending: false }).limit(300)
-    if (historyFilter.status) q = q.eq('status', historyFilter.status)
-    if (historyFilter.equipmentId) q = q.eq('equipment_id', Number(historyFilter.equipmentId))
+    if (filter.status) q = q.eq('status', filter.status)
+    if (filter.equipmentId) q = q.eq('equipment_id', Number(filter.equipmentId))
     const { data, error } = await q
     if (error) alert('Error: ' + error.message)
-    setHistorySubmissions((data as any) || [])
+    const rows = (data as any) || []
+    setHistorySubmissions(rows)
     setHistoryLoading(false)
+    if (autoExpandId) {
+      const sub = rows.find((s: Submission) => s.id === autoExpandId)
+      if (sub) toggleHistoryExpand(sub)
+    }
   }
 
   async function toggleHistoryExpand(sub: Submission) {
@@ -832,6 +875,11 @@ export default function SchedulePage() {
                       {!planned ? <span className="text-gray-300">Not scheduled</span> :
                         done ? <span className="text-green-600 font-semibold flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" /> Done</span> :
                         <span className="text-yellow-600 font-semibold">Planned{row?.assigned_to ? ` — ${row.assigned_to}` : ''}</span>}
+                      {yearSubmissionsMap[`${eq.id}-${dayWeek}`] && (
+                        <button onClick={() => openChecklistHistory({ equipmentId: String(eq.id) }, yearSubmissionsMap[`${eq.id}-${dayWeek}`].id)}
+                          title="Checklist submitted — click for detail"
+                          className="ml-1.5 inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-blue-600 text-white text-[8px] font-bold hover:bg-blue-700 align-middle">C</button>
+                      )}
                     </td>
                     <td className="px-2 py-1">
                       {clickable && (
@@ -896,15 +944,25 @@ export default function SchedulePage() {
                   const done = !!row?.completed_at
                   const isCurrent = viewYear === realYear && wk === realWeek
                   const clickable = canManage || (isCurrent && planned)
-                  const title = [planned ? `Week ${wk} — planned` : (canManage ? 'Click to schedule this week' : null), row?.assigned_to ? `Assigned: ${row.assigned_to}` : null, done ? 'Completed' : null].filter(Boolean).join(' · ')
+                  const sub = yearSubmissionsMap[`${eq.id}-${wk}`]
+                  const title = [planned ? `Week ${wk} — planned` : (canManage ? 'Click to schedule this week' : null), row?.assigned_to ? `Assigned: ${row.assigned_to}` : null, done ? 'Completed' : null, sub ? `Checklist ${sub.status}` : null].filter(Boolean).join(' · ')
                   return (
                     <td key={wk} className="border-r p-0.5">
-                      <button
-                        title={title || undefined}
-                        onClick={() => clickable && handleCellClick(eq.id, wk)}
-                        disabled={!clickable}
-                        className={`w-5 h-5 rounded ${done ? 'bg-green-500' : planned ? 'bg-yellow-300' : 'bg-gray-100'} ${clickable ? 'cursor-pointer hover:ring-1 hover:ring-blue-400' : ''} ${isCurrent && planned ? 'ring-1 ring-blue-400' : ''}`}
-                      />
+                      <div className="relative w-5 h-5">
+                        <button
+                          title={title || undefined}
+                          onClick={() => clickable && handleCellClick(eq.id, wk)}
+                          disabled={!clickable}
+                          className={`w-5 h-5 rounded ${done ? 'bg-green-500' : planned ? 'bg-yellow-300' : 'bg-gray-100'} ${clickable ? 'cursor-pointer hover:ring-1 hover:ring-blue-400' : ''} ${isCurrent && planned ? 'ring-1 ring-blue-400' : ''}`}
+                        />
+                        {sub && (
+                          <button
+                            onClick={e => { e.stopPropagation(); openChecklistHistory({ equipmentId: String(eq.id) }, sub.id) }}
+                            title={`Checklist submitted (${sub.status}) — click for detail`}
+                            className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 rounded-full bg-blue-600 text-white text-[8px] font-bold flex items-center justify-center leading-none hover:bg-blue-700 shadow"
+                          >C</button>
+                        )}
+                      </div>
                     </td>
                   )
                 })}
@@ -963,7 +1021,7 @@ export default function SchedulePage() {
 
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-lg font-bold flex items-center gap-2"><ClipboardList className="w-5 h-5" /> Checklist Templates</h2>
-        <button onClick={openChecklistHistory} className="text-sm text-gray-500 hover:text-gray-700 px-3 py-2">Checklist History</button>
+        <button onClick={() => openChecklistHistory()} className="text-sm text-gray-500 hover:text-gray-700 px-3 py-2">Checklist History</button>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {templates.map(t => (
@@ -1208,7 +1266,7 @@ export default function SchedulePage() {
                   {equipment.map(eq => <option key={eq.id} value={eq.id}>{eq.name}</option>)}
                 </select>
               </div>
-              <button onClick={openChecklistHistory} className="bg-orange-600 text-white text-sm font-medium px-3 py-2 rounded-lg hover:bg-orange-700">Apply</button>
+              <button onClick={() => openChecklistHistory()} className="bg-orange-600 text-white text-sm font-medium px-3 py-2 rounded-lg hover:bg-orange-700">Apply</button>
             </div>
             <div className="max-h-[28rem] overflow-y-auto border rounded-lg">
               <table className="min-w-full text-sm">

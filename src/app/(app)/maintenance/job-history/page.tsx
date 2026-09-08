@@ -44,6 +44,7 @@ export default function JobHistoryPage() {
   const [editData, setEditData] = useState<Partial<DoneRequest>>({})
   const [savingDetail, setSavingDetail] = useState(false)
   const [exporting, setExporting] = useState<'csv' | 'pdf' | null>(null)
+  const [showTechSummary, setShowTechSummary] = useState(false)
 
   // Lightweight, department-wide data (not just the current page) for the
   // technician/category picklists and the per-technician summary cards —
@@ -269,18 +270,31 @@ export default function JobHistoryPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto">
-      <h1 className="text-3xl font-bold mb-6 flex items-center gap-2"><History className="w-7 h-7 text-orange-600" /> Job History</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <h1 className="text-3xl font-bold flex items-center gap-2"><History className="w-7 h-7 text-orange-600" /> Job History</h1>
+        <div className="text-sm text-gray-500">
+          <span className="text-2xl font-bold text-slate-800">{summaryRows.length.toLocaleString()}</span> completed/approved jobs on record
+        </div>
+      </div>
 
       {perTechnician.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-          {perTechnician.map(t => (
-            <button key={t.name} onClick={() => setTechnicianFilter(technicianFilter === t.name ? '' : t.name)}
-              className={`border rounded-xl p-3 text-left shadow-sm transition ${technicianFilter === t.name ? 'bg-orange-50 border-orange-300' : 'bg-white hover:bg-gray-50'}`}>
-              <div className="text-xs font-semibold text-gray-500 truncate">{t.name}</div>
-              <div className="text-xl font-bold text-slate-800">{t.approved}</div>
-              <div className="text-[11px] text-gray-400">approved · {t.total} total</div>
-            </button>
-          ))}
+        <div className="mb-6">
+          <button onClick={() => setShowTechSummary(v => !v)} className="text-sm font-semibold text-gray-600 hover:text-gray-800 mb-2 flex items-center gap-1">
+            {showTechSummary ? '▾' : '▸'} Per-Technician Breakdown ({perTechnician.length} people — click a name below to filter)
+          </button>
+          {showTechSummary && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              {perTechnician.map(t => (
+                <button key={t.name} onClick={() => setTechnicianFilter(technicianFilter === t.name ? '' : t.name)}
+                  className={`border rounded-xl p-3 text-left shadow-sm transition ${technicianFilter === t.name ? 'bg-orange-50 border-orange-300' : 'bg-white hover:bg-gray-50'}`}>
+                  <div className="text-xs font-semibold text-gray-500 truncate">{t.name}</div>
+                  <div className="text-xl font-bold text-slate-800">{t.approved}</div>
+                  <div className="text-[11px] text-gray-400">approved · {t.total} total</div>
+                </button>
+              ))}
+            </div>
+          )}
+          <p className="text-[11px] text-gray-400 mt-1.5">A job shared by multiple people is credited to each of them, so these numbers can add up to more than the total above — that's expected, not a miscount.</p>
         </div>
       )}
 

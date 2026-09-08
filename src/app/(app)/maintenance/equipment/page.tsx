@@ -36,15 +36,17 @@ export default async function EquipmentListPage({ searchParams }: { searchParams
   // filter doesn't shrink the others' choices.
   const { data: allActive } = await supabase
     .from('maintenance_equipment')
-    .select('category, location, purpose')
+    .select('category, location, purpose, manager, supervisor')
     .eq('is_active', true)
   const categories = [...new Set((allActive || []).map(e => e.category).filter(Boolean))].sort() as string[]
   const locations = [...new Set((allActive || []).map(e => e.location).filter(Boolean))].sort() as string[]
   const purposes = [...new Set((allActive || []).map(e => e.purpose).filter(Boolean))].sort() as string[]
+  const managers = [...new Set((allActive || []).map(e => e.manager).filter(Boolean))].sort() as string[]
+  const supervisors = [...new Set((allActive || []).map(e => e.supervisor).filter(Boolean))].sort() as string[]
 
   let query = supabase
     .from('maintenance_equipment')
-    .select('id, equip_code, name, category, brand, location, purpose, condition, manager, supervisor, pic_day, pic_night, target_repair_hours')
+    .select('id, equip_code, name, category, brand, location, purpose, condition, manager, supervisor, pic_day, pic_night')
     .eq('is_active', true)
 
   // Spoiled equipment is retired/unusable — hidden from the working list by
@@ -106,7 +108,7 @@ export default async function EquipmentListPage({ searchParams }: { searchParams
         {hasFilters && <Link href="/maintenance/equipment" className="text-sm text-gray-500 hover:text-gray-700 px-2 py-2">Clear</Link>}
       </form>
 
-      <EquipmentTable equipment={equipment || []} canManage={canManage} hasFilters={hasFilters} categories={categories} locations={locations} purposes={purposes} />
+      <EquipmentTable equipment={equipment || []} canManage={canManage} hasFilters={hasFilters} categories={categories} locations={locations} purposes={purposes} managers={managers} supervisors={supervisors} />
     </div>
   )
 }
