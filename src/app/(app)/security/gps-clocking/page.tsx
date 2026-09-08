@@ -6,6 +6,7 @@ import { uploadSecurityPhoto } from '../actions'
 import { Navigation, MapPin, CheckCircle2, Loader2 } from 'lucide-react'
 import PhotoPicker from '@/components/PhotoPicker'
 import PhotoLightbox from '@/components/PhotoLightbox'
+import CheckpointMap from '@/components/CheckpointMap'
 
 type Checkpoint = { id: number; name: string; latitude: number; longitude: number; radius_meters: number; sequence_order: number; is_active: boolean }
 type ClockRecord = {
@@ -68,9 +69,36 @@ export default function GpsClockingPage() {
   const [photo, setPhoto] = useState<File | null>(null)
   const [locating, setLocating] = useState(false)
   const [zoomSrc, setZoomSrc] = useState<string | null>(null)
+  const [myLocation, setMyLocation] = useState<{ lat: number; lng: number; accuracyMeters?: number } | null>(null)
+  const [locationError, setLocationError] = useState<string | null>(null)
+  // Centers the map once, on the first GPS fix (or the first checkpoint if
+  // GPS never resolves) — myLocation itself updates continuously via
+  // watchPosition, and re-centering the whole view on every single tick
+  // would fight anyone trying to pan/zoom the map themselves.
+  const [initialCenter, setInitialCenter] = useState<{ lat: number; lng: number } | null>(null)
 
   useEffect(() => { load() }, [])
   useEffect(() => { loadHistory() }, [date])
+
+  // Keeps the "you are here" dot on the map live as the guard walks around
+  // — separate from the fresh, one-off getCurrentPosition() clockIn() does
+  // at the actual moment of clocking in (that one has to be exact right
+  // then; this one is just for orientation on the map).
+  useEffect(() => {
+    if (!navigator.geolocation) { setLocationError('This device/browser does not support GPS location'); return }
+    const watchId = navigator.geolocation.watchPosition(
+      pos => { setLocationError(null); setMyLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracyMeters: pos.coords.accuracy || undefined }) },
+      err => setLocationError('Could not get your location: ' + err.message),
+      { enableHighAccuracy: true, maximumAge: 5000 }
+    )
+    return () => navigator.geolocation.clearWatch(watchId)
+  }, [])
+
+  useEffect(() => {
+    if (initialCenter) return
+    if (myLocation) setInitialCenter({ lat: myLocation.lat, lng: myLocation.lng })
+    else if (checkpoints[0]) setInitialCenter({ lat: checkpoints[0].latitude, lng: checkpoints[0].longitude })
+  }, [myLocation, checkpoints, initialCenter])
 
   async function load() {
     setLoading(true)
@@ -172,6 +200,20 @@ export default function GpsClockingPage() {
           Next suggested checkpoint: {nextSuggested.name} <span className="font-normal opacity-80">(#{nextSuggested.sequence_order} — you can still pick any other one below)</span>
         </div>
       )}
+
+      <div className="bg-white border rounded-xl shadow-sm p-4 mb-6">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-sm font-bold text-slate-700 flex items-center gap-1.5"><MapPin className="w-4 h-4 text-blue-600" /> Map — checkpoints &amp; your current location</h2>
+          {myLocation?.accuracyMeters != null && <span className="text-xs text-gray-400">±{Math.round(myLocation.accuracyMeters)}m accuracy</span>}
+        </div>
+        {locationError && <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2">{locationError} — make sure location access is allowed for this site.</p>}
+        <CheckpointMap
+          markers={checkpoints.map(c => ({ id: c.id, name: c.name, lat: c.latitude, lng: c.longitude, radiusMeters: c.radius_meters, active: c.is_active }))}
+          userLocation={myLocation}
+          center={initialCenter || undefined}
+          height={300}
+        />
+      </div>
 
       <div className="bg-white border rounded-xl shadow-sm p-6 mb-8 space-y-4">
         <div>
