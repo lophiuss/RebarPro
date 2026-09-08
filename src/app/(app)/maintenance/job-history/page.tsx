@@ -44,6 +44,35 @@ function splitNames(assignedTo: string | null): string[] {
   return assignedTo.split(/\s*(?:,|\/|&|;|\band\b)\s*/i).map(n => n.trim()).filter(Boolean)
 }
 
+// Supabase/PostgREST caps every response at its project "Max Rows" setting
+// (1,000 by default) REGARDLESS of a larger .limit() in the client — a
+// query for "up to 20000 rows" silently comes back with only the first
+// 1,000 Postgres happens to return. Worse, without an explicit .order()
+// that "first 1,000" isn't even a meaningful slice (e.g. oldest-inserted),
+// so aggregates built from it can be badly skewed rather than just
+// incomplete. This fetches everything by paging in Max-Rows-sized batches
+// with a stable order, for anything on this page that needs the FULL
+// history rather than one on-screen page of it (summary counts, the
+// heatmap, CSV/PDF export).
+async function fetchAllRows<T>(
+  supabase: ReturnType<typeof createClient>,
+  build: (query: ReturnType<ReturnType<typeof createClient>['from']>) => any,
+  batchSize = 1000,
+): Promise<T[]> {
+  const all: T[] = []
+  let from = 0
+  for (;;) {
+    const query = build(supabase.from('maintenance_work_requests') as any).order('id', { ascending: true }).range(from, from + batchSize - 1)
+    const { data, error } = await query
+    if (error) throw error
+    const rows = (data as T[]) || []
+    all.push(...rows)
+    if (rows.length < batchSize) break
+    from += batchSize
+  }
+  return all
+}
+
 export default function JobHistoryPage() {
   const supabase = createClient()
   const [requests, setRequests] = useState<DoneRequest[]>([])
@@ -92,11 +121,9 @@ export default function JobHistoryPage() {
   useEffect(() => { loadPage() }, [page, technicianFilter, categoryFilter, statusFilter, fromDate, toDate])
 
   async function loadSummary() {
-    const { data } = await supabase
-      .from('maintenance_work_requests')
-      .select('assigned_to, status, maintenance_equipment(category)')
-      .in('status', ['completed', 'approved'])
-      .limit(20000)
+    const data = await fetchAllRows<any>(supabase, q =>
+      q.select('assigned_to, status, maintenance_equipment(category)').in('status', ['completed', 'approved'])
+    ).catch(err => { alert('Error loading summary: ' + err.message); return [] })
     setSummaryRows((data || []).map((r: any) => ({ assigned_to: r.assigned_to, status: r.status, category: r.maintenance_equipment?.category ?? null })))
   }
 
@@ -104,13 +131,10 @@ export default function JobHistoryPage() {
     if (heatmapLoaded || heatmapLoading) return
     setHeatmapLoading(true)
     try {
-      const { data, error } = await supabase
-        .from('maintenance_work_requests')
-        .select('equipment_id, assigned_at, accepted_at, completed_at, created_at, maintenance_equipment(name, category)')
-        .in('status', ['completed', 'approved'])
-        .not('completed_at', 'is', null)
-        .limit(20000)
-      if (error) throw error
+      const data = await fetchAllRows<any>(supabase, q =>
+        q.select('equipment_id, assigned_at, accepted_at, completed_at, created_at, maintenance_equipment(name, category)')
+          .in('status', ['completed', 'approved']).not('completed_at', 'is', null)
+      )
       setHeatRows((data as any) || [])
       // Defaults to "All Years" — defaulting to just the current year was
       // confusing when most of the history is older (this dataset's ~7,400
@@ -217,21 +241,20 @@ export default function JobHistoryPage() {
   }
 
   // Full filtered set (not just the current page) for exports — same
-  // filters as loadPage() but no range(), capped generously since even
-  // "no filters" on ~7,000+ historical rows stays well under this.
+  // filters as loadPage(), paginated via fetchAllRows() since a plain
+  // .limit() above 1,000 gets silently truncated by PostgREST's Max Rows.
   async function fetchAllFiltered() {
-    let query = supabase
-      .from('maintenance_work_requests')
-      .select('requester_name, location, issue_description, status, assigned_to, accepted_at, completed_at, approved_at, approved_by, maintenance_equipment(name, category)')
-      .in('status', ['completed', 'approved'])
-    if (technicianFilter) query = query.ilike('assigned_to', `%${technicianFilter}%`)
-    if (categoryFilter) query = query.eq('maintenance_equipment.category', categoryFilter)
-    if (statusFilter) query = query.eq('status', statusFilter)
-    if (fromDate) query = query.gte('completed_at', fromDate)
-    if (toDate) query = query.lte('completed_at', toDate + 'T23:59:59')
-    const { data, error } = await query.order('completed_at', { ascending: false }).limit(20000)
-    if (error) throw error
-    return (data as any[]) || []
+    return fetchAllRows<any>(supabase, q => {
+      let query = q
+        .select('requester_name, location, issue_description, status, assigned_to, accepted_at, completed_at, approved_at, approved_by, maintenance_equipment(name, category)')
+        .in('status', ['completed', 'approved'])
+      if (technicianFilter) query = query.ilike('assigned_to', `%${technicianFilter}%`)
+      if (categoryFilter) query = query.eq('maintenance_equipment.category', categoryFilter)
+      if (statusFilter) query = query.eq('status', statusFilter)
+      if (fromDate) query = query.gte('completed_at', fromDate)
+      if (toDate) query = query.lte('completed_at', toDate + 'T23:59:59')
+      return query
+    })
   }
 
   function exportRow(r: any) {
@@ -247,7 +270,7 @@ export default function JobHistoryPage() {
   async function exportCsv() {
     setExporting('csv')
     try {
-      const rows = (await fetchAllFiltered()).map(exportRow)
+      const rows = (await fetchAllFiltered()).sort((a, b) => (b.completed_at || '').localeCompare(a.completed_at || '')).map(exportRow)
       const header = ['Completed', 'Done By', 'Equipment', 'Category', 'Location', 'Requested By', 'Issue', 'Time Taken', 'Status', 'Approved By']
       const lines = [header.map(h => `"${h}"`).join(',')]
       for (const r of rows) {
@@ -277,7 +300,7 @@ export default function JobHistoryPage() {
   async function exportPdf() {
     setExporting('pdf')
     try {
-      const rows = (await fetchAllFiltered()).map(exportRow)
+      const rows = (await fetchAllFiltered()).sort((a, b) => (b.completed_at || '').localeCompare(a.completed_at || '')).map(exportRow)
       const w = window.open('', '_blank', 'width=1100,height=800')
       if (!w) { alert('Please allow pop-ups for this site to export a PDF.'); return }
       const tableRows = rows.map(r => `<tr><td>${r.completed}</td><td>${r.doneBy}</td><td>${r.equipment}</td><td>${r.category}</td><td>${r.location}</td><td>${r.requestedBy}</td><td>${r.issue}</td><td>${r.timeTaken}</td><td>${r.status}</td><td>${r.approvedBy}</td></tr>`).join('')
