@@ -53,7 +53,7 @@ async function getOrCreateSubfolder(name: string): Promise<string> {
   return folderId
 }
 
-export type DriveSubfolder = 'entries' | 'incidents' | 'layout' | 'avatars' | 'maintenance'
+export type DriveSubfolder = 'entries' | 'incidents' | 'layout' | 'avatars' | 'maintenance' | 'clocking'
 
 // Uploads a file into the given subfolder of the security photos root and
 // returns its Drive file id. The file is left at Drive's default sharing

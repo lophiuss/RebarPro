@@ -21,7 +21,7 @@ export async function uploadSecurityPhoto(formData: FormData): Promise<string> {
   const file = formData.get('photo') as File | null
   const subfolder = formData.get('subfolder') as DriveSubfolder | null
   if (!file) throw new Error('No photo provided')
-  if (!subfolder || !['entries', 'incidents', 'layout', 'avatars'].includes(subfolder)) {
+  if (!subfolder || !['entries', 'incidents', 'layout', 'avatars', 'clocking'].includes(subfolder)) {
     throw new Error('Invalid subfolder')
   }
 

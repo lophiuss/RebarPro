@@ -20,6 +20,7 @@ type PostLogRow = { id: number; guard_name: string; post_name: string; time_in: 
 type GateEventRow = { id: number; gate_name: string; action: string; username: string | null; created_at: string }
 type PanicLogRow = { id: number; triggered_by: string; remark: string | null; created_at: string }
 type IncidentRow = { id: number; type: string; description: string; severity: string; reported_by: string; created_at: string }
+type ClockingRow = { id: number; checkpoint_name: string; guard_name: string; clocked_at: string; distance_meters: number; remark: string | null }
 
 const CATEGORY_LABEL: Record<EntryRow['category'], string> = { visitor: 'Visitor', delivery: 'Delivery', inhouse: 'In-House' }
 const CATEGORY_ICON: Record<EntryRow['category'], string> = { visitor: '🧑', delivery: '🚚', inhouse: '🏭' }
@@ -30,6 +31,7 @@ export function buildActivityLog(data: {
   gateEvents?: GateEventRow[]
   panicLogs?: PanicLogRow[]
   incidents?: IncidentRow[]
+  clockingRecords?: ClockingRow[]
 }): ActivityEvent[] {
   const events: ActivityEvent[] = []
 
@@ -71,6 +73,15 @@ export function buildActivityLog(data: {
       label: `Incident (${i.type}): ${i.description}`,
       detail: `Reported by ${i.reported_by}`,
       tone: i.severity === 'high' ? 'danger' : i.severity === 'medium' ? 'warn' : 'default',
+    })
+  })
+
+  ;(data.clockingRecords || []).forEach(c => {
+    events.push({
+      id: `clock-${c.id}`, time: c.clocked_at, icon: '📍',
+      label: `Checkpoint Clocked: ${c.guard_name} @ ${c.checkpoint_name}`,
+      detail: `${c.distance_meters}m from point${c.remark ? ` · ${c.remark}` : ''}`,
+      tone: 'good',
     })
   })
 

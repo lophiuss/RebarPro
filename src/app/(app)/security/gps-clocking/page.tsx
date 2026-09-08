@@ -1,0 +1,250 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import { uploadSecurityPhoto } from '../actions'
+import { Navigation, MapPin, CheckCircle2, Loader2 } from 'lucide-react'
+import PhotoPicker from '@/components/PhotoPicker'
+import PhotoLightbox from '@/components/PhotoLightbox'
+
+type Checkpoint = { id: number; name: string; latitude: number; longitude: number; radius_meters: number; sequence_order: number; is_active: boolean }
+type ClockRecord = {
+  id: number; checkpoint_id: number | null; checkpoint_name: string; guard_name: string
+  clocked_at: string; distance_meters: number; photo_drive_id: string; remark: string | null
+}
+
+function isoToday() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+async function compressImage(file: File): Promise<Blob> {
+  if (!file.type.startsWith('image/')) return file
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const i = new Image()
+    i.onload = () => resolve(i)
+    i.onerror = reject
+    i.src = dataUrl
+  })
+  const MAX = 900
+  let { width, height } = img
+  if (width > height) { if (width > MAX) { height *= MAX / width; width = MAX } }
+  else if (height > MAX) { width *= MAX / height; height = MAX }
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  canvas.getContext('2d')!.drawImage(img, 0, 0, width, height)
+  return new Promise<Blob>(resolve => canvas.toBlob(blob => resolve(blob || file), 'image/jpeg', 0.75))
+}
+
+// Haversine — great-circle distance between two lat/lng points, in meters.
+function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
+  const R = 6371000
+  const toRad = (d: number) => (d * Math.PI) / 180
+  const dLat = toRad(lat2 - lat1)
+  const dLon = toRad(lon2 - lon1)
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+}
+
+export default function GpsClockingPage() {
+  const supabase = createClient()
+  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([])
+  const [myName, setMyName] = useState('')
+  const [myEmail, setMyEmail] = useState('')
+  const [todayRecords, setTodayRecords] = useState<ClockRecord[]>([])
+  const [date, setDate] = useState(isoToday())
+  const [history, setHistory] = useState<ClockRecord[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const [selectedCheckpointId, setSelectedCheckpointId] = useState('')
+  const [remark, setRemark] = useState('')
+  const [photo, setPhoto] = useState<File | null>(null)
+  const [locating, setLocating] = useState(false)
+  const [zoomSrc, setZoomSrc] = useState<string | null>(null)
+
+  useEffect(() => { load() }, [])
+  useEffect(() => { loadHistory() }, [date])
+
+  async function load() {
+    setLoading(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    setMyEmail(user?.email ?? '')
+    const [{ data: profile }, { data: cps }, { data: todayRows }] = await Promise.all([
+      user ? supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle() : Promise.resolve({ data: null }),
+      supabase.from('security_checkpoints').select('*').eq('is_active', true).order('sequence_order'),
+      supabase.from('security_clocking_records').select('*').gte('clocked_at', new Date(isoToday() + 'T00:00:00').toISOString()).order('clocked_at', { ascending: false }),
+    ])
+    setMyName(profile?.full_name || user?.email || '')
+    setCheckpoints(cps || [])
+    setTodayRecords(todayRows || [])
+    setLoading(false)
+    loadHistory()
+  }
+
+  async function loadHistory() {
+    const start = new Date(date + 'T00:00:00').toISOString()
+    const end = new Date(date + 'T23:59:59.999').toISOString()
+    const { data } = await supabase.from('security_clocking_records').select('*').gte('clocked_at', start).lte('clocked_at', end).order('clocked_at', { ascending: false })
+    setHistory(data || [])
+  }
+
+  const myIdentifier = myName || myEmail
+  // "Guided only" sequence — suggests what's next based on the highest
+  // sequence number this guard has already clocked today, but never blocks
+  // clocking any other checkpoint (see the free-choice dropdown below).
+  const myClockedToday = todayRecords.filter(r => r.guard_name === myIdentifier)
+  const myClockedCheckpointIds = new Set(myClockedToday.map(r => r.checkpoint_id))
+  const nextSuggested = checkpoints.find(c => !myClockedCheckpointIds.has(c.id))
+    || checkpoints[0]
+
+  useEffect(() => {
+    if (!selectedCheckpointId && nextSuggested) setSelectedCheckpointId(String(nextSuggested.id))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checkpoints.length])
+
+  async function clockIn() {
+    const checkpoint = checkpoints.find(c => c.id === Number(selectedCheckpointId))
+    if (!checkpoint) { alert('Please select a checkpoint'); return }
+    if (!photo) { alert('A photo is required'); return }
+    if (!navigator.geolocation) { alert('This device/browser does not support GPS location'); return }
+
+    setLocating(true)
+    navigator.geolocation.getCurrentPosition(
+      async pos => {
+        try {
+          const { latitude, longitude } = pos.coords
+          const dist = distanceMeters(latitude, longitude, checkpoint.latitude, checkpoint.longitude)
+          if (dist > checkpoint.radius_meters) {
+            alert(`You're ${Math.round(dist)}m from "${checkpoint.name}" — outside its ${checkpoint.radius_meters}m geofence. Move closer and try again.`)
+            setLocating(false)
+            return
+          }
+          const blob = await compressImage(photo)
+          const fd = new FormData()
+          fd.set('photo', blob, 'clocking.jpg')
+          fd.set('subfolder', 'clocking')
+          const photo_drive_id = await uploadSecurityPhoto(fd)
+
+          const { error } = await supabase.from('security_clocking_records').insert([{
+            checkpoint_id: checkpoint.id, checkpoint_name: checkpoint.name, guard_name: myIdentifier,
+            latitude, longitude, distance_meters: Math.round(dist), photo_drive_id, remark: remark.trim() || null,
+            created_by: myEmail || null,
+          }])
+          if (error) throw error
+          setPhoto(null)
+          setRemark('')
+          await load()
+        } catch (err: any) {
+          alert('Error: ' + err.message)
+        } finally {
+          setLocating(false)
+        }
+      },
+      err => {
+        setLocating(false)
+        alert('Could not get your location: ' + err.message + '. Make sure location access is allowed for this site.')
+      },
+      { enableHighAccuracy: true, timeout: 15000 }
+    )
+  }
+
+  return (
+    <div className="p-4 md:p-8 max-w-4xl mx-auto">
+      <h1 className="text-3xl font-bold mb-2 flex items-center gap-2"><Navigation className="w-7 h-7 text-blue-600" /> GPS Clocking</h1>
+      <p className="text-sm text-gray-500 mb-6">Clock in at a checkpoint — you must be physically within its marked radius. A photo is required.</p>
+
+      {checkpoints.length === 0 && !loading && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 text-sm text-amber-800 mb-6">
+          No active checkpoints are configured yet. Ask a Security admin/manager to add some in Settings.
+        </div>
+      )}
+
+      {nextSuggested && (
+        <div className="flex items-center gap-2.5 bg-blue-600 rounded-xl px-5 py-3 mb-6 text-sm font-semibold text-white">
+          <MapPin className="w-4 h-4 flex-shrink-0" />
+          Next suggested checkpoint: {nextSuggested.name} <span className="font-normal opacity-80">(#{nextSuggested.sequence_order} — you can still pick any other one below)</span>
+        </div>
+      )}
+
+      <div className="bg-white border rounded-xl shadow-sm p-6 mb-8 space-y-4">
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">Checkpoint</label>
+          <select value={selectedCheckpointId} onChange={e => setSelectedCheckpointId(e.target.value)} className="w-full border rounded-md px-3 py-2 text-sm bg-white">
+            <option value="">Select a checkpoint…</option>
+            {checkpoints.map(c => (
+              <option key={c.id} value={c.id}>#{c.sequence_order} {c.name}{myClockedCheckpointIds.has(c.id) ? ' — already clocked today' : ''}</option>
+            ))}
+          </select>
+        </div>
+        <PhotoPicker label="Evidence Photo (required)" file={photo} onChange={setPhoto} />
+        <div>
+          <label className="block text-xs font-medium text-gray-500 mb-1">Remark (optional)</label>
+          <input value={remark} onChange={e => setRemark(e.target.value)} placeholder="e.g. All clear, gate secured" className="w-full border rounded-md px-3 py-2 text-sm" />
+        </div>
+        <button onClick={clockIn} disabled={locating || !selectedCheckpointId || !photo} className="w-full flex items-center justify-center gap-2 bg-blue-600 disabled:opacity-50 text-white text-sm font-semibold px-4 py-3 rounded-lg hover:bg-blue-700">
+          {locating ? <><Loader2 className="w-4 h-4 animate-spin" /> Getting your location…</> : <><Navigation className="w-4 h-4" /> Clock In Here</>}
+        </button>
+      </div>
+
+      <div className="bg-white border rounded-xl shadow-sm overflow-hidden mb-8">
+        <div className="px-4 py-3 border-b bg-gray-50"><h2 className="text-sm font-bold text-slate-700">My Clocking Today ({myClockedToday.length})</h2></div>
+        <div className="divide-y divide-gray-100">
+          {myClockedToday.map(r => (
+            <div key={r.id} className="px-4 py-3 flex items-center gap-3 text-sm">
+              <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="font-medium truncate">{r.checkpoint_name}</div>
+                <div className="text-xs text-gray-400">{new Date(r.clocked_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} · {r.distance_meters}m from point{r.remark ? ` · ${r.remark}` : ''}</div>
+              </div>
+              <img src={`/api/security/photo/${r.photo_drive_id}`} className="w-10 h-10 rounded object-cover cursor-zoom-in flex-shrink-0" onClick={() => setZoomSrc(`/api/security/photo/${r.photo_drive_id}`)} />
+            </div>
+          ))}
+          {myClockedToday.length === 0 && <p className="px-4 py-6 text-center text-sm text-gray-400">Nothing clocked yet today.</p>}
+        </div>
+      </div>
+
+      <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between flex-wrap gap-2">
+          <h2 className="text-sm font-bold text-slate-700">History — All Guards</h2>
+          <input type="date" value={date} onChange={e => setDate(e.target.value)} className="border rounded-md px-2 py-1.5 text-sm" />
+        </div>
+        <table className="min-w-full divide-y divide-gray-200 text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Time</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Guard</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Checkpoint</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Distance</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Remark</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Photo</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {history.map(h => (
+              <tr key={h.id}>
+                <td className="px-4 py-2 text-gray-500 whitespace-nowrap">{new Date(h.clocked_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</td>
+                <td className="px-4 py-2 font-medium whitespace-nowrap">{h.guard_name}</td>
+                <td className="px-4 py-2 whitespace-nowrap">{h.checkpoint_name}</td>
+                <td className="px-4 py-2 text-gray-500">{h.distance_meters}m</td>
+                <td className="px-4 py-2 text-gray-500">{h.remark || '-'}</td>
+                <td className="px-4 py-2">
+                  <img src={`/api/security/photo/${h.photo_drive_id}`} className="w-8 h-8 rounded object-cover cursor-zoom-in" onClick={() => setZoomSrc(`/api/security/photo/${h.photo_drive_id}`)} />
+                </td>
+              </tr>
+            ))}
+            {history.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">No clocking recorded for this date.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+
+      <PhotoLightbox src={zoomSrc} onClose={() => setZoomSrc(null)} />
+    </div>
+  )
+}

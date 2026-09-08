@@ -3,10 +3,12 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import QRCode from 'qrcode'
-import { Settings as SettingsIcon, Plus, Trash2, Pencil, Image as ImageIcon, QrCode, Copy, Check } from 'lucide-react'
+import { Settings as SettingsIcon, Plus, Trash2, Pencil, Image as ImageIcon, QrCode, Copy, Check, MapPin, X } from 'lucide-react'
+import CheckpointMap from '@/components/CheckpointMap'
 
 type Post = { id: number; name: string }
 type LayoutRow = { photo_url: string | null; photo_drive_id: string | null } | null
+type Checkpoint = { id: number; name: string; latitude: number; longitude: number; radius_meters: number; sequence_order: number; is_active: boolean }
 
 export default function SecuritySettingsPage() {
   const supabase = createClient()
@@ -18,6 +20,13 @@ export default function SecuritySettingsPage() {
   const [kioskUrl, setKioskUrl] = useState('')
   const [qrDataUrl, setQrDataUrl] = useState('')
   const [copied, setCopied] = useState(false)
+  const [canManage, setCanManage] = useState(false)
+
+  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([])
+  const [editingCp, setEditingCp] = useState<Checkpoint | null>(null)
+  const [cpForm, setCpForm] = useState({ name: '', radiusMeters: '50', sequenceOrder: '' })
+  const [pendingPoint, setPendingPoint] = useState<{ lat: number; lng: number } | null>(null)
+  const [savingCp, setSavingCp] = useState(false)
 
   useEffect(() => {
     load()
@@ -27,12 +36,73 @@ export default function SecuritySettingsPage() {
   }, [])
 
   async function load() {
-    const [{ data: postRows }, { data: layoutRow }] = await Promise.all([
+    const { data: { user } } = await supabase.auth.getUser()
+    const [{ data: postRows }, { data: layoutRow }, { data: cpRows }, { data: access }] = await Promise.all([
       supabase.from('security_guard_posts').select('*').order('name'),
       supabase.from('security_layout').select('photo_url, photo_drive_id').order('id', { ascending: false }).limit(1).maybeSingle(),
+      supabase.from('security_checkpoints').select('*').order('sequence_order'),
+      user ? supabase.from('user_department_access').select('role').eq('user_id', user.id).eq('department', 'security').maybeSingle() : Promise.resolve({ data: null }),
     ])
     setPosts(postRows || [])
     setLayout(layoutRow)
+    setCheckpoints(cpRows || [])
+    setCanManage(access?.role === 'admin' || access?.role === 'manager')
+  }
+
+  function startAddCheckpoint(lat: number, lng: number) {
+    if (!canManage) return
+    setEditingCp(null)
+    setPendingPoint({ lat, lng })
+    setCpForm({ name: '', radiusMeters: '50', sequenceOrder: String(checkpoints.length + 1) })
+  }
+
+  function startEditCheckpoint(cp: Checkpoint) {
+    if (!canManage) return
+    setEditingCp(cp)
+    setPendingPoint({ lat: cp.latitude, lng: cp.longitude })
+    setCpForm({ name: cp.name, radiusMeters: String(cp.radius_meters), sequenceOrder: String(cp.sequence_order) })
+  }
+
+  function cancelCheckpointEdit() {
+    setEditingCp(null)
+    setPendingPoint(null)
+    setCpForm({ name: '', radiusMeters: '50', sequenceOrder: '' })
+  }
+
+  async function saveCheckpoint() {
+    if (!pendingPoint || !cpForm.name.trim()) { alert('Click a point on the map and enter a name first.'); return }
+    setSavingCp(true)
+    try {
+      const patch = {
+        name: cpForm.name.trim(), latitude: pendingPoint.lat, longitude: pendingPoint.lng,
+        radius_meters: Math.max(5, Number(cpForm.radiusMeters) || 50),
+        sequence_order: Number(cpForm.sequenceOrder) || checkpoints.length + 1,
+      }
+      const { error } = editingCp
+        ? await supabase.from('security_checkpoints').update(patch).eq('id', editingCp.id)
+        : await supabase.from('security_checkpoints').insert([{ ...patch, is_active: true }])
+      if (error) throw error
+      cancelCheckpointEdit()
+      await load()
+    } catch (err: any) {
+      alert('Error: ' + err.message)
+    } finally {
+      setSavingCp(false)
+    }
+  }
+
+  async function toggleCheckpointActive(cp: Checkpoint) {
+    const { error } = await supabase.from('security_checkpoints').update({ is_active: !cp.is_active }).eq('id', cp.id)
+    if (error) { alert('Error: ' + error.message); return }
+    load()
+  }
+
+  async function deleteCheckpoint(id: number) {
+    if (!confirm('Delete this checkpoint? Past clocking records against it are kept (they store their own snapshot of the name), but it will no longer be clockable.')) return
+    const { error } = await supabase.from('security_checkpoints').delete().eq('id', id)
+    if (error) { alert('Error: ' + error.message); return }
+    if (editingCp?.id === id) cancelCheckpointEdit()
+    load()
   }
 
   async function addPost(e: React.FormEvent) {
@@ -148,6 +218,71 @@ export default function SecuritySettingsPage() {
             </div>
           ))}
           {posts.length === 0 && <p className="text-sm text-gray-400 py-2">No guard posts configured yet.</p>}
+        </div>
+      </div>
+
+      <div className="bg-white border rounded-xl shadow-sm p-6 mt-6">
+        <h2 className="text-sm font-bold text-slate-700 mb-1 flex items-center gap-2"><MapPin className="w-4 h-4" /> GPS Checkpoints</h2>
+        <p className="text-xs text-gray-500 mb-4">
+          Click the map to place a new checkpoint (or click an existing marker below to reposition it). The shaded
+          circle is the geofence — a guard must be physically inside it to clock in. Sequence number is the suggested
+          patrol order shown on the GPS Clocking page; a guard can still clock any checkpoint out of order if needed.
+        </p>
+        {!canManage && <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">Only a Security admin/manager can add, move, or delete checkpoints.</p>}
+
+        <CheckpointMap
+          markers={checkpoints.map(c => ({ id: c.id, name: c.name, lat: c.latitude, lng: c.longitude, radiusMeters: c.radius_meters, active: c.is_active }))}
+          pendingPoint={pendingPoint ? { lat: pendingPoint.lat, lng: pendingPoint.lng, radiusMeters: Math.max(5, Number(cpForm.radiusMeters) || 50) } : null}
+          onPick={canManage ? startAddCheckpoint : undefined}
+          center={pendingPoint || (checkpoints[0] ? { lat: checkpoints[0].latitude, lng: checkpoints[0].longitude } : undefined)}
+        />
+
+        {canManage && pendingPoint && (
+          <div className="mt-4 bg-blue-50 border border-blue-100 rounded-lg p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-blue-900">{editingCp ? `Editing — ${editingCp.name}` : 'New Checkpoint'}</h3>
+              <button onClick={cancelCheckpointEdit} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Name</label>
+                <input value={cpForm.name} onChange={e => setCpForm({ ...cpForm, name: e.target.value })} placeholder="e.g. Main Gate" className="w-full border rounded-md px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Radius (meters)</label>
+                <input type="number" min={5} value={cpForm.radiusMeters} onChange={e => setCpForm({ ...cpForm, radiusMeters: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Sequence #</label>
+                <input type="number" min={1} value={cpForm.sequenceOrder} onChange={e => setCpForm({ ...cpForm, sequenceOrder: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
+              </div>
+            </div>
+            <p className="text-[11px] text-gray-400 mb-3">Point: {pendingPoint.lat.toFixed(6)}, {pendingPoint.lng.toFixed(6)} — click elsewhere on the map to move it.</p>
+            <div className="flex justify-end gap-2">
+              <button onClick={cancelCheckpointEdit} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-200">Cancel</button>
+              <button onClick={saveCheckpoint} disabled={savingCp} className="bg-blue-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-blue-700">{savingCp ? 'Saving...' : editingCp ? 'Save Changes' : 'Add Checkpoint'}</button>
+            </div>
+          </div>
+        )}
+
+        <div className="divide-y divide-gray-100 mt-4">
+          {checkpoints.map(cp => (
+            <div key={cp.id} className="py-2.5 flex items-center justify-between text-sm gap-2">
+              <div className="min-w-0">
+                <span className="font-medium">#{cp.sequence_order} {cp.name}</span>
+                <span className="text-xs text-gray-400 ml-2">{cp.radius_meters}m radius</span>
+                {!cp.is_active && <span className="text-xs text-gray-400 ml-2">(inactive)</span>}
+              </div>
+              {canManage && (
+                <div className="flex gap-1 flex-shrink-0">
+                  <button onClick={() => toggleCheckpointActive(cp)} className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1">{cp.is_active ? 'Deactivate' : 'Activate'}</button>
+                  <button onClick={() => startEditCheckpoint(cp)} className="text-gray-400 hover:text-blue-600 p-1"><Pencil className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => deleteCheckpoint(cp.id)} className="text-red-500 hover:text-red-700 p-1"><Trash2 className="w-3.5 h-3.5" /></button>
+                </div>
+              )}
+            </div>
+          ))}
+          {checkpoints.length === 0 && <p className="text-sm text-gray-400 py-2">No checkpoints configured yet — click the map above to add one.</p>}
         </div>
       </div>
     </div>

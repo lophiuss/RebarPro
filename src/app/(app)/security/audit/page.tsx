@@ -81,7 +81,7 @@ export default function AuditPage() {
     const [
       { data: abandonedKeys }, { data: shifts }, { data: dayEntries }, { data: overstayed },
       { data: todayIncidents }, { data: todayPanics }, { data: postLogs }, { data: keyLogs },
-      { data: dayGateEvents },
+      { data: dayGateEvents }, { data: dayClocking },
     ] = await Promise.all([
       supabase.from('security_key_logs').select('*').eq('status', 'out').lt('time_issued', cutoff24h).order('time_issued'),
       supabase.from('security_post_logs').select('*').gte('time_in', dayStart.toISOString()).lte('time_in', dayEnd.toISOString()),
@@ -92,6 +92,7 @@ export default function AuditPage() {
       supabase.from('security_post_logs').select('*').gte('time_in', dayStart.toISOString()).lte('time_in', dayEnd.toISOString()).order('time_in', { ascending: false }),
       supabase.from('security_key_logs').select('*').gte('time_issued', dayStart.toISOString()).lte('time_issued', dayEnd.toISOString()).order('time_issued', { ascending: false }),
       supabase.from('security_gate_events').select('*').gte('created_at', dayStart.toISOString()).lte('created_at', dayEnd.toISOString()).order('created_at', { ascending: false }),
+      supabase.from('security_clocking_records').select('*').gte('clocked_at', dayStart.toISOString()).lte('clocked_at', dayEnd.toISOString()).order('clocked_at', { ascending: false }),
     ])
 
     const suspiciousShifts = (shifts || []).filter(s => {
@@ -119,6 +120,7 @@ export default function AuditPage() {
       { title: `Visitor/Delivery Entries (${(dayEntries || []).length})`, rows: dayEntries || [], columns: [{ key: 'category', label: 'Type' }, { key: 'person_name', label: 'Name' }, { key: 'company', label: 'Company' }, { key: 'time_in', label: 'In', fmt: v => new Date(v).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) }, { key: 'time_out', label: 'Out', fmt: v => v ? new Date(v).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '-' }] },
       { title: `Guard Post Logs (${(postLogs || []).length})`, rows: postLogs || [], columns: [{ key: 'post_name', label: 'Post' }, { key: 'guard_name', label: 'Guard' }, { key: 'time_in', label: 'In', fmt: v => new Date(v).toLocaleString() }, { key: 'time_out', label: 'Out', fmt: v => v ? new Date(v).toLocaleString() : '-' }] },
       { title: `Key Logs (${(keyLogs || []).length})`, rows: keyLogs || [], columns: [{ key: 'key_name', label: 'Key' }, { key: 'issued_to', label: 'Issued To' }, { key: 'time_issued', label: 'Out', fmt: v => new Date(v).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) }, { key: 'time_returned', label: 'In', fmt: v => v ? new Date(v).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '-' }] },
+      { title: `GPS Clocking (${(dayClocking || []).length})`, rows: dayClocking || [], columns: [{ key: 'checkpoint_name', label: 'Checkpoint' }, { key: 'guard_name', label: 'Guard' }, { key: 'clocked_at', label: 'Time', fmt: v => new Date(v).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) }, { key: 'distance_meters', label: 'Distance', fmt: v => `${v}m` }, { key: 'remark', label: 'Remark' }] },
     ])
 
     setGuardTimeline(buildTimelineRows(postLogs || [], 'guard_name', date))
@@ -126,7 +128,7 @@ export default function AuditPage() {
 
     setActivity(buildActivityLog({
       entries: dayEntries || [], postLogs: postLogs || [], gateEvents: dayGateEvents || [],
-      panicLogs: todayPanics || [], incidents: todayIncidents || [],
+      panicLogs: todayPanics || [], incidents: todayIncidents || [], clockingRecords: dayClocking || [],
     }))
 
     setLoading(false)
@@ -174,7 +176,7 @@ export default function AuditPage() {
       const rangeEnd = new Date(rangeTo + 'T23:59:59.999').toISOString()
 
       const [
-        { data: entries }, { data: postLogs }, { data: gateEvents }, { data: keyLogs }, { data: incidents }, { data: panics },
+        { data: entries }, { data: postLogs }, { data: gateEvents }, { data: keyLogs }, { data: incidents }, { data: panics }, { data: clocking },
       ] = await Promise.all([
         supabase.from('security_entries').select('*').gte('time_in', rangeStart).lte('time_in', rangeEnd).order('time_in'),
         supabase.from('security_post_logs').select('*').gte('time_in', rangeStart).lte('time_in', rangeEnd).order('time_in'),
@@ -182,6 +184,7 @@ export default function AuditPage() {
         supabase.from('security_key_logs').select('*').gte('time_issued', rangeStart).lte('time_issued', rangeEnd).order('time_issued'),
         supabase.from('security_incidents').select('*').gte('created_at', rangeStart).lte('created_at', rangeEnd).order('created_at'),
         supabase.from('security_panic_logs').select('*').gte('created_at', rangeStart).lte('created_at', rangeEnd).order('created_at'),
+        supabase.from('security_clocking_records').select('*').gte('clocked_at', rangeStart).lte('clocked_at', rangeEnd).order('clocked_at'),
       ])
 
       let csv = csvRow(['Security Log Export'])
@@ -233,6 +236,13 @@ export default function AuditPage() {
       csv += csvRow(['Triggered By', 'Remark', 'Time'])
       for (const p of panics || []) {
         csv += csvRow([p.triggered_by, p.remark, new Date(p.created_at).toLocaleString()])
+      }
+      csv += '\n'
+
+      csv += csvRow([`GPS Clocking (${(clocking || []).length})`])
+      csv += csvRow(['Checkpoint', 'Guard', 'Distance (m)', 'Remark', 'Time'])
+      for (const c of clocking || []) {
+        csv += csvRow([c.checkpoint_name, c.guard_name, c.distance_meters, c.remark, new Date(c.clocked_at).toLocaleString()])
       }
 
       const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
