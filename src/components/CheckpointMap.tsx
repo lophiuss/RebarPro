@@ -22,6 +22,13 @@ export default function CheckpointMap({
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
   const layerRef = useRef<L.LayerGroup | null>(null)
+  // The click listener below is attached once, at mount — but `onPick` is
+  // undefined on that very first render (the parent's canManage/role check
+  // is still loading), so a plain closure over `onPick` would permanently
+  // miss clicks even after the parent re-renders with a real handler. A
+  // ref sidesteps that: the listener always reads whatever onPick is now.
+  const onPickRef = useRef(onPick)
+  onPickRef.current = onPick
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
@@ -33,9 +40,7 @@ export default function CheckpointMap({
       attribution: '&copy; OpenStreetMap contributors', maxZoom: 20,
     }).addTo(map)
     layerRef.current = L.layerGroup().addTo(map)
-    if (onPick) {
-      map.on('click', (e: L.LeafletMouseEvent) => onPick(e.latlng.lat, e.latlng.lng))
-    }
+    map.on('click', (e: L.LeafletMouseEvent) => onPickRef.current?.(e.latlng.lat, e.latlng.lng))
     mapRef.current = map
     // Leaflet sizes itself off the container's dimensions at creation time —
     // if this mounted inside a hidden/animating panel that box can be wrong,
