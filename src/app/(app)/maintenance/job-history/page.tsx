@@ -13,10 +13,26 @@ type DoneRequest = {
   maintenance_equipment: { name: string; category: string | null } | null
 }
 
+type HeatRow = {
+  equipment_id: number | null; assigned_at: string | null; accepted_at: string | null
+  completed_at: string | null; created_at: string
+  maintenance_equipment: { name: string; category: string | null } | null
+}
+
 const PAGE_SIZE = 100
+const MONTH_LABELS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 function hoursBetween(a: string, b: string) {
   return ((new Date(b).getTime() - new Date(a).getTime()) / 3600000).toFixed(1)
+}
+
+// Same repair-time definition as the Dashboard's breakdown KPIs — the gap
+// between a request being picked up (accepted, or assigned/filed if never
+// explicitly accepted) and completed.
+function repairHours(r: { assigned_at: string | null; accepted_at: string | null; completed_at: string | null; created_at: string }) {
+  if (!r.completed_at) return null
+  const start = r.accepted_at || r.assigned_at || r.created_at
+  return Math.max(0, (new Date(r.completed_at).getTime() - new Date(start).getTime()) / 3600000)
 }
 
 // assigned_to sometimes holds several names at once (e.g. imported
@@ -46,6 +62,17 @@ export default function JobHistoryPage() {
   const [exporting, setExporting] = useState<'csv' | 'pdf' | null>(null)
   const [showTechSummary, setShowTechSummary] = useState(false)
 
+  // Heatmap — lazy-loaded only when opened (a heavier fetch than the thin
+  // summaryRows above: needs equipment/category + all four timestamps to
+  // compute per-cell downtime and breakdown counts).
+  const [showHeatmap, setShowHeatmap] = useState(false)
+  const [heatmapLoading, setHeatmapLoading] = useState(false)
+  const [heatmapLoaded, setHeatmapLoaded] = useState(false)
+  const [heatRows, setHeatRows] = useState<HeatRow[]>([])
+  const [heatGroupBy, setHeatGroupBy] = useState<'equipment' | 'category'>('equipment')
+  const [heatMetric, setHeatMetric] = useState<'downtime' | 'frequency'>('downtime')
+  const [heatYear, setHeatYear] = useState<number | null>(null)
+
   // Lightweight, department-wide data (not just the current page) for the
   // technician/category picklists and the per-technician summary cards —
   // only 3 thin columns, so fetching it across all ~7,000+ historical rows
@@ -71,6 +98,28 @@ export default function JobHistoryPage() {
       .in('status', ['completed', 'approved'])
       .limit(20000)
     setSummaryRows((data || []).map((r: any) => ({ assigned_to: r.assigned_to, status: r.status, category: r.maintenance_equipment?.category ?? null })))
+  }
+
+  async function loadHeatmap() {
+    if (heatmapLoaded || heatmapLoading) return
+    setHeatmapLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('maintenance_work_requests')
+        .select('equipment_id, assigned_at, accepted_at, completed_at, created_at, maintenance_equipment(name, category)')
+        .in('status', ['completed', 'approved'])
+        .not('completed_at', 'is', null)
+        .limit(20000)
+      if (error) throw error
+      setHeatRows((data as any) || [])
+      const years = [...new Set(((data as any[]) || []).map(r => new Date(r.completed_at).getFullYear()))].sort((a, b) => b - a)
+      setHeatYear(years[0] ?? new Date().getFullYear())
+      setHeatmapLoaded(true)
+    } catch (err: any) {
+      alert('Error loading heatmap: ' + err.message)
+    } finally {
+      setHeatmapLoading(false)
+    }
   }
 
   // Only admin/manager can edit or delete a historical job — same role
@@ -259,6 +308,40 @@ export default function JobHistoryPage() {
     total: summaryRows.filter(r => splitNames(r.assigned_to).includes(t)).length,
   })).sort((a, b) => b.approved - a.approved)
 
+  // Heatmap — which equipment/category has the longest cumulative downtime
+  // and/or breaks down most often, per month of the selected year. Grouped
+  // client-side from heatRows (fetched once, lazily, when first opened).
+  const heatYears = [...new Set(heatRows.map(r => new Date(r.completed_at!).getFullYear()))].sort((a, b) => b - a)
+  const heatGroups = new Map<string, { downtime: number[]; count: number[] }>()
+  for (const r of heatRows) {
+    const key = heatGroupBy === 'equipment' ? (r.maintenance_equipment?.name || 'Unlinked') : (r.maintenance_equipment?.category || 'Uncategorized')
+    const completed = new Date(r.completed_at!)
+    if (completed.getFullYear() !== heatYear) continue
+    const month = completed.getMonth()
+    const hrs = repairHours(r)
+    if (hrs === null) continue
+    if (!heatGroups.has(key)) heatGroups.set(key, { downtime: Array(12).fill(0), count: Array(12).fill(0) })
+    const g = heatGroups.get(key)!
+    g.downtime[month] += hrs
+    g.count[month] += 1
+  }
+  const heatRowsSorted = [...heatGroups.entries()]
+    .map(([name, g]) => ({
+      name, downtime: g.downtime, count: g.count,
+      totalDowntime: g.downtime.reduce((s, v) => s + v, 0), totalCount: g.count.reduce((s, v) => s + v, 0),
+    }))
+    .sort((a, b) => heatMetric === 'downtime' ? b.totalDowntime - a.totalDowntime : b.totalCount - a.totalCount)
+    .slice(0, 20)
+  const heatMax = Math.max(0.0001, ...heatRowsSorted.flatMap(r => heatMetric === 'downtime' ? r.downtime : r.count))
+  function heatCellStyle(v: number) {
+    if (v <= 0) return { backgroundColor: '#f9fafb' }
+    const t = Math.min(1, v / heatMax)
+    // Interpolates white -> red as intensity rises (0 stays a near-white
+    // "nothing happened" cell, 1 is the worst cell in the current view).
+    const r = 254, g = Math.round(242 - t * 200), b = Math.round(242 - t * 210)
+    return { backgroundColor: `rgb(${r}, ${g}, ${b})` }
+  }
+
   const hasFilters = !!(technicianFilter || categoryFilter || statusFilter || fromDate || toDate)
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
 
@@ -297,6 +380,80 @@ export default function JobHistoryPage() {
           <p className="text-[11px] text-gray-400 mt-1.5">A job shared by multiple people is credited to each of them, so these numbers can add up to more than the total above — that's expected, not a miscount.</p>
         </div>
       )}
+
+      <div className="mb-6">
+        <button onClick={() => { const next = !showHeatmap; setShowHeatmap(next); if (next) loadHeatmap() }} className="text-sm font-semibold text-gray-600 hover:text-gray-800 mb-2 flex items-center gap-1">
+          {showHeatmap ? '▾' : '▸'} Downtime &amp; Breakdown Heatmap — which equipment/category is worst, by month
+        </button>
+        {showHeatmap && (
+          <div className="bg-white border rounded-xl shadow-sm p-4">
+            {heatmapLoading && <p className="text-sm text-gray-400 py-6 text-center">Loading heatmap data…</p>}
+            {!heatmapLoading && heatmapLoaded && (
+              <>
+                <div className="flex flex-wrap items-end gap-3 mb-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Group By</label>
+                    <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+                      {(['equipment', 'category'] as const).map(g => (
+                        <button key={g} onClick={() => setHeatGroupBy(g)} className={`px-3 py-1.5 rounded-md text-sm font-semibold capitalize transition ${heatGroupBy === g ? 'bg-white shadow-sm text-slate-900' : 'text-gray-500 hover:text-gray-700'}`}>{g}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Metric</label>
+                    <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+                      <button onClick={() => setHeatMetric('downtime')} className={`px-3 py-1.5 rounded-md text-sm font-semibold transition ${heatMetric === 'downtime' ? 'bg-white shadow-sm text-slate-900' : 'text-gray-500 hover:text-gray-700'}`}>Downtime (h)</button>
+                      <button onClick={() => setHeatMetric('frequency')} className={`px-3 py-1.5 rounded-md text-sm font-semibold transition ${heatMetric === 'frequency' ? 'bg-white shadow-sm text-slate-900' : 'text-gray-500 hover:text-gray-700'}`}>Breakdown Frequency</button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Year</label>
+                    <select value={heatYear ?? ''} onChange={e => setHeatYear(Number(e.target.value))} className="border rounded-md px-3 py-2 text-sm bg-white">
+                      {heatYears.map(y => <option key={y} value={y}>{y}</option>)}
+                    </select>
+                  </div>
+                  <span className="text-xs text-gray-400 ml-auto">Top {heatRowsSorted.length} by total {heatMetric === 'downtime' ? 'downtime' : 'breakdown count'} · darker = worse</span>
+                </div>
+
+                {heatRowsSorted.length === 0 ? (
+                  <p className="text-sm text-gray-400 py-6 text-center">No breakdown data for {heatYear}.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-xs border-separate" style={{ borderSpacing: 2 }}>
+                      <thead>
+                        <tr>
+                          <th className="text-left text-[11px] font-medium text-gray-500 uppercase pr-3 pb-1 sticky left-0 bg-white">{heatGroupBy === 'equipment' ? 'Equipment' : 'Category'}</th>
+                          {MONTH_LABELS.map(m => <th key={m} className="text-center text-[11px] font-medium text-gray-500 uppercase px-1 pb-1 w-12">{m}</th>)}
+                          <th className="text-center text-[11px] font-medium text-gray-500 uppercase px-1 pb-1">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {heatRowsSorted.map(row => {
+                          const series = heatMetric === 'downtime' ? row.downtime : row.count
+                          const total = heatMetric === 'downtime' ? row.totalDowntime : row.totalCount
+                          return (
+                            <tr key={row.name}>
+                              <td className="pr-3 py-0.5 font-medium whitespace-nowrap sticky left-0 bg-white">{row.name}</td>
+                              {series.map((v, i) => (
+                                <td key={i} style={heatCellStyle(v)} title={`${MONTH_LABELS[i]} ${heatYear}: ${heatMetric === 'downtime' ? `${v.toFixed(1)}h downtime` : `${v} breakdown${v === 1 ? '' : 's'}`}`}
+                                  className="text-center py-1.5 rounded text-gray-600 font-medium">
+                                  {v > 0 ? (heatMetric === 'downtime' ? v.toFixed(0) : v) : ''}
+                                </td>
+                              ))}
+                              <td className="text-center py-1.5 font-bold text-slate-800">{heatMetric === 'downtime' ? `${total.toFixed(0)}h` : total}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <p className="text-[11px] text-gray-400 mt-3">Downtime = time between a breakdown being picked up and marked complete, same definition as the Dashboard's KPIs. Frequency = number of completed/approved breakdowns that month.</p>
+              </>
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="bg-white border rounded-xl shadow-sm p-4 mb-4 flex flex-wrap items-end gap-3">
         <div>
