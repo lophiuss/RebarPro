@@ -1,6 +1,6 @@
 import { login, signup } from './actions'
 import { Button } from '@/components/ui/button'
-import { Factory, Boxes, ShieldCheck } from 'lucide-react'
+import { Factory, Boxes, ShieldCheck, Wrench, Navigation } from 'lucide-react'
 
 export default async function LoginPage({
   searchParams,
@@ -26,10 +26,10 @@ export default async function LoginPage({
 
         <div className="relative">
           <h1 className="text-4xl xl:text-5xl font-bold text-white leading-tight mb-6">
-            One platform for<br />every yard and plant.
+            One platform for<br />your entire operation.
           </h1>
           <p className="text-slate-400 text-lg max-w-md">
-            Track rebar stock and cement batching operations side by side — real-time balances, weighbridge workflows, and reporting in one place.
+            Rebar stock, cement batching, equipment maintenance, and site security — real-time balances, work orders, patrols, and reporting, all in one place.
           </p>
 
           <div className="mt-10 space-y-4">
@@ -37,7 +37,19 @@ export default async function LoginPage({
               <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center flex-shrink-0">
                 <Boxes className="w-4 h-4 text-blue-400" />
               </div>
-              <span className="text-sm">Live stock &amp; silo balances across departments</span>
+              <span className="text-sm">Live stock, silo balances &amp; weighbridge workflows</span>
+            </div>
+            <div className="flex items-center gap-3 text-slate-300">
+              <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center flex-shrink-0">
+                <Wrench className="w-4 h-4 text-orange-400" />
+              </div>
+              <span className="text-sm">Work orders, PM schedules &amp; checklists for every asset</span>
+            </div>
+            <div className="flex items-center gap-3 text-slate-300">
+              <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center flex-shrink-0">
+                <Navigation className="w-4 h-4 text-cyan-400" />
+              </div>
+              <span className="text-sm">Gate entries, guard shifts &amp; GPS patrol checkpoints</span>
             </div>
             <div className="flex items-center gap-3 text-slate-300">
               <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center flex-shrink-0">
