@@ -25,6 +25,7 @@ export default function SparePartsPage() {
   const [editData, setEditData] = useState<any>({})
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [myIdentifier, setMyIdentifier] = useState('')
+  const [canManage, setCanManage] = useState(false)
 
   const [receiveTarget, setReceiveTarget] = useState<Request | null>(null)
   const [receiveForm, setReceiveForm] = useState({ quantityReceived: '', receivedDate: new Date().toISOString().split('T')[0] })
@@ -35,8 +36,12 @@ export default function SparePartsPage() {
   async function load() {
     setLoading(true)
     const { data: { user } } = await supabase.auth.getUser()
-    const { data: profile } = user ? await supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle() : { data: null }
+    const [{ data: profile }, { data: access }] = await Promise.all([
+      user ? supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle() : Promise.resolve({ data: null }),
+      user ? supabase.from('user_department_access').select('role').eq('user_id', user.id).eq('department', 'maintenance').maybeSingle() : Promise.resolve({ data: null }),
+    ])
     setMyIdentifier(profile?.full_name || user?.email || '')
+    setCanManage(access?.role === 'admin' || access?.role === 'manager')
 
     const [{ data: req }, { data: eq }] = await Promise.all([
       supabase.from('maintenance_spare_parts_requests').select('*, maintenance_equipment(name)').order('request_date', { ascending: false }).limit(100),
@@ -105,6 +110,7 @@ export default function SparePartsPage() {
   }
 
   function startEdit(r: Request) {
+    if (!canManage) return
     setEditingId(r.id)
     setEditData({
       part_name: r.part_name, equipment_id: r.equipment_id ?? '', location: r.location || '',
@@ -133,6 +139,7 @@ export default function SparePartsPage() {
   }
 
   async function deleteRequest(id: number) {
+    if (!canManage) return
     if (!confirm('Delete this spare parts request? This cannot be undone.')) return
     setDeletingId(id)
     try {
@@ -256,8 +263,12 @@ export default function SparePartsPage() {
                     {r.quantity_received < r.quantity_requested && (
                       <button onClick={() => openReceive(r)} className="flex items-center gap-1 text-xs bg-green-600 text-white font-medium px-2.5 py-1.5 rounded-lg hover:bg-green-700"><PackageCheck className="w-3.5 h-3.5" /> Log Receipt</button>
                     )}
-                    <button onClick={() => startEdit(r)} className="text-blue-600 hover:text-blue-800 p-1"><Pencil className="w-4 h-4" /></button>
-                    <button onClick={() => deleteRequest(r.id)} disabled={deletingId === r.id} className="text-red-500 hover:text-red-700 disabled:opacity-50 p-1"><Trash2 className="w-4 h-4" /></button>
+                    {canManage && (
+                      <>
+                        <button onClick={() => startEdit(r)} className="text-blue-600 hover:text-blue-800 p-1"><Pencil className="w-4 h-4" /></button>
+                        <button onClick={() => deleteRequest(r.id)} disabled={deletingId === r.id} className="text-red-500 hover:text-red-700 disabled:opacity-50 p-1"><Trash2 className="w-4 h-4" /></button>
+                      </>
+                    )}
                   </div>
                 </td>
               </tr>

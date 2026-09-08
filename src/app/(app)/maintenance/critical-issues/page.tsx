@@ -28,17 +28,21 @@ export default function CriticalIssuesPage() {
   const [form, setForm] = useState({ equipmentId: '', equipmentLabel: '', issue: '', leadTimeNote: '' })
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('')
+  const [canManage, setCanManage] = useState(false)
 
   useEffect(() => { load() }, [])
 
   async function load() {
     setLoading(true)
-    const [{ data: iss }, { data: eq }] = await Promise.all([
+    const { data: { user } } = await supabase.auth.getUser()
+    const [{ data: iss }, { data: eq }, { data: access }] = await Promise.all([
       supabase.from('maintenance_critical_issues').select('*, maintenance_equipment(name, category)').order('created_at', { ascending: false }),
       supabase.from('maintenance_equipment').select('id, name, category').eq('is_active', true).order('name'),
+      user ? supabase.from('user_department_access').select('role').eq('user_id', user.id).eq('department', 'maintenance').maybeSingle() : Promise.resolve({ data: null }),
     ])
     setIssues((iss as any) || [])
     setEquipment(eq || [])
+    setCanManage(access?.role === 'admin' || access?.role === 'manager')
     setLoading(false)
   }
 
@@ -64,7 +68,11 @@ export default function CriticalIssuesPage() {
     }
   }
 
+  // Any technician can report an issue (addIssue), but only a
+  // manager/admin can change its status/resolve it — same maker-checker
+  // split used for Work Requests (anyone files, only a manager approves).
   async function updateStatus(id: number, status: string) {
+    if (!canManage) return
     const patch: any = { status }
     if (status === 'completed') patch.resolved_at = new Date().toISOString()
     const { error } = await supabase.from('maintenance_critical_issues').update(patch).eq('id', id)
@@ -127,15 +135,19 @@ export default function CriticalIssuesPage() {
                 <td className="px-4 py-3 text-sm">{i.issue}</td>
                 <td className="px-4 py-3 text-sm text-gray-500">{i.lead_time_note || '-'}</td>
                 <td className="px-4 py-3">
-                  <select value={i.status} onChange={e => updateStatus(i.id, e.target.value)} className={`text-xs font-bold uppercase rounded-full px-2 py-1 border-0 ${STATUS_STYLE[i.status]}`}>
-                    <option value="open">Open</option>
-                    <option value="in_progress">In Progress</option>
-                    <option value="completed">Completed</option>
-                    <option value="cancelled">Cancelled</option>
-                  </select>
+                  {canManage ? (
+                    <select value={i.status} onChange={e => updateStatus(i.id, e.target.value)} className={`text-xs font-bold uppercase rounded-full px-2 py-1 border-0 ${STATUS_STYLE[i.status]}`}>
+                      <option value="open">Open</option>
+                      <option value="in_progress">In Progress</option>
+                      <option value="completed">Completed</option>
+                      <option value="cancelled">Cancelled</option>
+                    </select>
+                  ) : (
+                    <span className={`text-xs font-bold uppercase rounded-full px-2 py-1 ${STATUS_STYLE[i.status]}`}>{i.status}</span>
+                  )}
                 </td>
                 <td className="px-4 py-3">
-                  {i.status !== 'completed' && (
+                  {canManage && i.status !== 'completed' && (
                     <button onClick={() => updateStatus(i.id, 'completed')} className="flex items-center gap-1 text-xs text-green-700 hover:text-green-900"><CheckCircle2 className="w-3.5 h-3.5" /> Resolve</button>
                   )}
                 </td>
