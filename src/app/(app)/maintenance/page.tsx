@@ -3,7 +3,15 @@ export const revalidate = 0
 
 import { createClient } from '@/lib/supabase/server'
 import ShoutoutBoard from '@/components/ShoutoutBoard'
-import { Wrench, AlertTriangle, Bell, ClipboardCheck, CalendarClock, CheckCircle2 } from 'lucide-react'
+import { Wrench, AlertTriangle, Bell, ClipboardCheck, CalendarClock, CheckCircle2, Zap } from 'lucide-react'
+
+// assigned_to can hold several names at once (a manager can assign a job to
+// multiple technicians) — same splitter used on Work Requests/Job History,
+// duplicated here since this is a server component in a different file.
+function splitNames(assignedTo: string | null): string[] {
+  if (!assignedTo) return []
+  return assignedTo.split(/\s*(?:,|\/|&|;|\band\b)\s*/i).map(n => n.trim()).filter(Boolean)
+}
 
 // KPI formula explanations, shown as a hover tooltip on each card.
 const KPI_TOOLTIPS: Record<string, string> = {
@@ -243,6 +251,7 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
     { data: equipment }, { data: workRequests }, { data: prevWorkRequests }, { data: pmRows }, { data: spareParts },
     { data: critical }, { data: settingsRow }, { count: pendingCount }, { data: { user } }, { data: weekSubs }, { count: awaitingApprovalCount },
     { data: chartWorkRequests }, { data: chartPmRows }, { data: periodPmRowsRaw }, { data: prevPeriodPmRowsRaw },
+    { data: myAssignedCandidates },
   ] = await Promise.all([
     supabase.from('maintenance_equipment').select('id, name, category, target_repair_hours, pm_checklist_template_id').eq('is_active', true),
     supabase.from('maintenance_work_requests').select('id, equipment_id, assigned_at, accepted_at, completed_at, status, created_at').not('equipment_id', 'is', null).in('status', ['completed', 'approved']).gte('created_at', periodStart).lte('created_at', periodEnd + 'T23:59:59'),
@@ -259,6 +268,7 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
     supabase.from('maintenance_pm_schedule').select('equipment_id, year, week_number, planned, completed_at').in('year', chartYears),
     supabase.from('maintenance_pm_schedule').select('equipment_id, year, week_number, planned, completed_at').in('year', periodYears),
     supabase.from('maintenance_pm_schedule').select('equipment_id, year, week_number, planned, completed_at').in('year', prevPeriodYears),
+    supabase.from('maintenance_work_requests').select('id, issue_description, assigned_to, status').in('status', ['assigned', 'accepted']),
   ])
 
   let myName = ''
@@ -267,6 +277,11 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
     myName = profile?.full_name || user.email || ''
   }
   const myPendingPm = (pmRows || []).filter(r => r.planned && !r.completed_at && r.assigned_to === myName)
+  // Work Requests assigned to this person, not yet completed — previously
+  // had no dashboard prompt at all (only the PM-task banner existed), so a
+  // technician had no reason to notice a new job landed on them unless
+  // they happened to open Work Requests themselves.
+  const myAssignedTasks = myName ? (myAssignedCandidates || []).filter(r => splitNames(r.assigned_to).includes(myName)) : []
 
   // "Due this week" = planned this week and not yet marked complete —
   // regardless of whether the equipment has a checklist template attached.
@@ -443,6 +458,14 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
         </div>
       </div>
       <p className="text-xs text-gray-400 mb-6">KPIs reflect <strong>{periodLabel}</strong> ({periodStart} → {periodEnd}), across {equipmentCount} active equipment.</p>
+
+      {myAssignedTasks.length > 0 && (
+        <a href="/maintenance/work-requests" className="flex items-center gap-3 bg-rose-600 rounded-xl px-5 py-4 mb-3 text-sm font-semibold text-white shadow-lg shadow-rose-600/20 hover:bg-rose-700">
+          <Zap className="w-5 h-5 flex-shrink-0 fill-white" />
+          <span>You have {myAssignedTasks.length} job{myAssignedTasks.length === 1 ? '' : 's'} assigned to you — click to accept and start.</span>
+          <span className="ml-auto text-xs font-bold bg-white/20 rounded-full px-2.5 py-1 flex-shrink-0">{myAssignedTasks.length}</span>
+        </a>
+      )}
 
       {(!!pendingCount || !!awaitingApprovalCount || myPendingPm.length > 0 || outstandingChecklists.length > 0) && (
         <div className="space-y-2 mb-6">

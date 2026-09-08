@@ -85,7 +85,21 @@ export default function WorkRequestsPage() {
   const [savingEdit, setSavingEdit] = useState(false)
   const [busyId, setBusyId] = useState<number | null>(null)
 
+  // My own tasks (active AND history) are fetched separately from the
+  // department-wide `requests` (capped at the 200 most recent overall) —
+  // that cap meant an individual's older completed/approved jobs could
+  // silently vanish from "My Tasks" once other people's newer activity
+  // pushed them out of the top 200, with no way to see them again.
+  const [myAllTasks, setMyAllTasks] = useState<WorkRequest[]>([])
+  const [showMyHistory, setShowMyHistory] = useState(false)
+  const [detailTask, setDetailTask] = useState<WorkRequest | null>(null)
+  const [editingCompletion, setEditingCompletion] = useState(false)
+  const [editRemark, setEditRemark] = useState('')
+  const [editPhoto, setEditPhoto] = useState<File | null>(null)
+  const [savingCompletionEdit, setSavingCompletionEdit] = useState(false)
+
   useEffect(() => { load() }, [])
+  useEffect(() => { setEditingCompletion(false) }, [detailTask?.id])
 
   async function load() {
     setLoading(true)
@@ -96,18 +110,23 @@ export default function WorkRequestsPage() {
       supabase.from('user_department_access').select('role').eq('user_id', user?.id).eq('department', 'maintenance').maybeSingle(),
     ])
     setMyName(profile?.full_name ?? null)
+    const myIdent = profile?.full_name || user?.email || ''
     // Pending Queue + Approval + assigning work to someone else is a
     // manager/admin action — a technician only gets My Tasks.
     const manages = myAccess?.role === 'admin' || myAccess?.role === 'manager'
     setCanManage(manages)
     if (!manages) setTab('my_tasks')
 
-    const [{ data }, staffList] = await Promise.all([
+    const [{ data }, staffList, { data: myRows }] = await Promise.all([
       supabase.from('maintenance_work_requests').select('*').order('created_at', { ascending: false }).limit(200),
       manages ? listMaintenanceStaff().catch(() => []) : Promise.resolve([]),
+      myIdent
+        ? supabase.from('maintenance_work_requests').select('*').ilike('assigned_to', `%${myIdent}%`).order('created_at', { ascending: false }).limit(300)
+        : Promise.resolve({ data: [] as WorkRequest[] }),
     ])
     setRequests(data || [])
     setStaff(staffList)
+    setMyAllTasks(((myRows as WorkRequest[]) || []).filter(r => splitNames(r.assigned_to).includes(myIdent)))
     setLoading(false)
   }
 
@@ -115,8 +134,11 @@ export default function WorkRequestsPage() {
   const pending = requests.filter(r => r.status === 'pending')
   const inProgress = requests.filter(r => r.status === 'assigned' || r.status === 'accepted')
   const awaitingApproval = requests.filter(r => r.status === 'completed')
-  const myTasks = requests.filter(r => splitNames(r.assigned_to).includes(myIdentifier))
-  const myCompletedCount = myTasks.filter(r => r.status === 'approved').length
+  // Active = still needs some action from me or a manager. History
+  // (approved/cancelled) is shown separately, collapsed by default.
+  const myTasks = myAllTasks.filter(r => ['assigned', 'accepted', 'completed'].includes(r.status))
+  const myHistory = myAllTasks.filter(r => ['approved', 'cancelled'].includes(r.status))
+  const myCompletedCount = myAllTasks.filter(r => r.status === 'approved').length
 
   function openEdit(r: WorkRequest) {
     setEditTarget(r)
@@ -204,6 +226,40 @@ export default function WorkRequestsPage() {
     }
   }
 
+  // Lets the technician who submitted a completion fix their own remark or
+  // evidence photo — only while it's still "completed" (awaiting manager
+  // approval); once approved it's locked, same maker-checker principle as
+  // Job History's manager-only edit.
+  function startEditCompletion() {
+    if (!detailTask) return
+    setEditingCompletion(true)
+    setEditRemark(detailTask.completion_remark || '')
+    setEditPhoto(null)
+  }
+
+  async function saveCompletionEdit() {
+    if (!detailTask) return
+    setSavingCompletionEdit(true)
+    try {
+      const patch: any = { completion_remark: editRemark.trim() || null }
+      if (editPhoto) {
+        const blob = await compressImage(editPhoto)
+        const fd = new FormData()
+        fd.set('file', blob, 'resolution.jpg')
+        patch.resolution_photo_drive_id = await uploadMaintenanceFile(fd)
+      }
+      const { error } = await supabase.from('maintenance_work_requests').update(patch).eq('id', detailTask.id)
+      if (error) throw error
+      setEditingCompletion(false)
+      setDetailTask(null)
+      await load()
+    } catch (err: any) {
+      alert('Error: ' + err.message)
+    } finally {
+      setSavingCompletionEdit(false)
+    }
+  }
+
   // Manager reviews the technician's submitted evidence — approving is what
   // finally counts the task as done; rejecting sends it back to the
   // technician (still "accepted", so they can straight away redo it).
@@ -275,7 +331,7 @@ export default function WorkRequestsPage() {
             Awaiting Approval ({awaitingApproval.length})
           </button>
           <button onClick={() => setTab('my_tasks')} className={`px-4 py-2 rounded-md text-sm font-semibold transition ${tab === 'my_tasks' ? 'bg-white shadow-sm text-slate-900' : 'text-gray-500 hover:text-gray-700'}`}>
-            My Tasks
+            My Tasks ({myTasks.length})
           </button>
         </div>
       )}
@@ -410,6 +466,9 @@ export default function WorkRequestsPage() {
 
       {tab === 'my_tasks' && (
         <>
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <h2 className="text-lg font-bold text-slate-800">My Tasks <span className="text-gray-400 font-normal">({myTasks.length} active)</span></h2>
+          </div>
           <div className="bg-orange-50 border border-orange-200 rounded-xl px-5 py-3 mb-4 text-sm font-semibold text-orange-800">
             ✅ You've completed {myCompletedCount} task{myCompletedCount === 1 ? '' : 's'} so far.
           </div>
@@ -428,7 +487,7 @@ export default function WorkRequestsPage() {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {myTasks.map(r => (
-                  <tr key={r.id} className="hover:bg-gray-50">
+                  <tr key={r.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setDetailTask(r)}>
                     <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">{r.assigned_at ? new Date(r.assigned_at).toLocaleString() : '-'}</td>
                     <td className="px-4 py-3 text-sm whitespace-nowrap">{r.requester_name}</td>
                     <td className="px-4 py-3 text-sm">{r.location || '-'}</td>
@@ -442,14 +501,16 @@ export default function WorkRequestsPage() {
                       <span className={`text-xs font-bold uppercase rounded-full px-2 py-0.5 ${STATUS_STYLE[r.status] || 'bg-gray-100 text-gray-600'}`}>{r.status}</span>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-500">{r.completed_at && r.accepted_at ? `${hoursBetween(r.accepted_at, r.completed_at)} h` : '-'}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
                       {r.status === 'assigned' && (
                         <button onClick={() => acceptTask(r)} disabled={busyId === r.id} className="flex items-center gap-1 text-xs bg-blue-600 disabled:opacity-50 text-white font-medium px-3 py-1.5 rounded-lg hover:bg-blue-700"><PlayCircle className="w-3.5 h-3.5" /> Accept</button>
                       )}
                       {r.status === 'accepted' && (
                         <button onClick={() => { setCompleteTarget(r); setResolutionPhoto(null); setCompletionRemark('') }} className="flex items-center gap-1 text-xs bg-green-600 text-white font-medium px-3 py-1.5 rounded-lg hover:bg-green-700"><CheckCircle2 className="w-3.5 h-3.5" /> Mark Complete</button>
                       )}
-                      {r.status === 'completed' && <span className="text-xs text-gray-400">Awaiting manager approval</span>}
+                      {r.status === 'completed' && (
+                        <button onClick={() => setDetailTask(r)} className="flex items-center gap-1 text-xs bg-gray-100 text-gray-600 font-medium px-3 py-1.5 rounded-lg hover:bg-gray-200"><Pencil className="w-3.5 h-3.5" /> View / Edit</button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -459,6 +520,39 @@ export default function WorkRequestsPage() {
               </tbody>
             </table>
           </div>
+
+          <button onClick={() => setShowMyHistory(v => !v)} className="text-sm font-semibold text-gray-600 hover:text-gray-800 mt-6 mb-2 flex items-center gap-1">
+            {showMyHistory ? '▾' : '▸'} My History ({myHistory.length} approved/cancelled)
+          </button>
+          {showMyHistory && (
+            <div className="bg-white border rounded-xl shadow-sm overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Completed</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Requester</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Issue</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {myHistory.map(r => (
+                    <tr key={r.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setDetailTask(r)}>
+                      <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">{r.completed_at ? new Date(r.completed_at).toLocaleString() : '-'}</td>
+                      <td className="px-4 py-3 text-sm whitespace-nowrap">{r.requester_name}</td>
+                      <td className="px-4 py-3 text-sm max-w-[280px] truncate">{r.issue_description}</td>
+                      <td className="px-4 py-3">
+                        <span className={`text-xs font-bold uppercase rounded-full px-2 py-0.5 ${STATUS_STYLE[r.status] || 'bg-gray-100 text-gray-600'}`}>{r.status}</span>
+                      </td>
+                    </tr>
+                  ))}
+                  {myHistory.length === 0 && (
+                    <tr><td colSpan={4} className="px-4 py-6 text-center text-gray-400">No approved/cancelled history yet.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
         </>
       )}
 
@@ -547,6 +641,92 @@ export default function WorkRequestsPage() {
               <button onClick={() => setCompleteTarget(null)} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-200">Cancel</button>
               <button onClick={doComplete} disabled={saving} className="bg-green-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-green-700">{saving ? 'Submitting...' : 'Submit'}</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {detailTask && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setDetailTask(null)}>
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold">{editingCompletion ? 'Edit My Submission' : 'Task Detail'}</h2>
+              <button onClick={() => setDetailTask(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+
+            {editingCompletion ? (
+              <div className="space-y-3 text-sm">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Completion Remark</label>
+                  <textarea value={editRemark} onChange={e => setEditRemark(e.target.value)} rows={3} className="w-full border rounded-md px-3 py-2 text-sm" />
+                </div>
+                <PhotoPicker label="Replace Evidence Photo (optional — leave blank to keep the current one)" file={editPhoto} onChange={setEditPhoto} />
+                <div className="flex justify-end gap-3 pt-2">
+                  <button onClick={() => setEditingCompletion(false)} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-200">Cancel</button>
+                  <button onClick={saveCompletionEdit} disabled={savingCompletionEdit} className="bg-orange-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-orange-700">{savingCompletionEdit ? 'Saving...' : 'Save'}</button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3 text-sm">
+                <div>
+                  <span className={`text-xs font-bold uppercase rounded-full px-2 py-0.5 ${STATUS_STYLE[detailTask.status] || 'bg-gray-100 text-gray-600'}`}>{detailTask.status}</span>
+                  {detailTask.status === 'completed' && (
+                    <button onClick={startEditCompletion} className="ml-2 text-xs text-blue-600 hover:text-blue-800 font-medium">Edit my submission</button>
+                  )}
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-gray-400 uppercase">Issue</div>
+                  <div className="mt-0.5">{detailTask.issue_description}</div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <div className="text-xs font-medium text-gray-400 uppercase">Requested By</div>
+                    <div className="mt-0.5">{detailTask.requester_name}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium text-gray-400 uppercase">Location</div>
+                    <div className="mt-0.5">{detailTask.location || '-'}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium text-gray-400 uppercase">Assigned</div>
+                    <div className="mt-0.5">{detailTask.assigned_at ? new Date(detailTask.assigned_at).toLocaleString() : '-'}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium text-gray-400 uppercase">Accepted</div>
+                    <div className="mt-0.5">{detailTask.accepted_at ? new Date(detailTask.accepted_at).toLocaleString() : '-'}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium text-gray-400 uppercase">Completed</div>
+                    <div className="mt-0.5">{detailTask.completed_at ? new Date(detailTask.completed_at).toLocaleString() : '-'}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium text-gray-400 uppercase">Time Taken</div>
+                    <div className="mt-0.5">{detailTask.completed_at && detailTask.accepted_at ? `${hoursBetween(detailTask.accepted_at, detailTask.completed_at)} h` : '-'}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium text-gray-400 uppercase">Approved</div>
+                    <div className="mt-0.5">{detailTask.approved_at ? new Date(detailTask.approved_at).toLocaleString() : '-'}{detailTask.approved_by ? ` — ${detailTask.approved_by}` : ''}</div>
+                  </div>
+                </div>
+                {detailTask.completion_remark && (
+                  <div>
+                    <div className="text-xs font-medium text-gray-400 uppercase">Completion Remark</div>
+                    <div className="mt-0.5">{detailTask.completion_remark}</div>
+                  </div>
+                )}
+                {detailTask.rejection_reason && (
+                  <div>
+                    <div className="text-xs font-medium text-red-500 uppercase">Rejection Reason</div>
+                    <div className="mt-0.5 text-red-600">{detailTask.rejection_reason}</div>
+                  </div>
+                )}
+                {detailTask.resolution_photo_drive_id && (
+                  <div>
+                    <div className="text-xs font-medium text-gray-400 uppercase mb-1">Evidence Photo</div>
+                    <img src={`/api/maintenance/file/${detailTask.resolution_photo_drive_id}`} className="rounded-lg max-h-72 cursor-zoom-in" onClick={() => setZoomSrc(`/api/maintenance/file/${detailTask.resolution_photo_drive_id}`)} />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
