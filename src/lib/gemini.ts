@@ -46,6 +46,9 @@ async function callGenerateContent(model: string, body: any): Promise<any> {
 // repeat until it gives a final text answer or `maxTurns` is hit. This is
 // how the model looks at real, live data itself rather than being handed a
 // pre-built snapshot — each tool call is a real query run at that moment.
+export type GeminiUsage = { promptTokens: number; completionTokens: number; totalTokens: number }
+export type GeminiResult = { text: string; usage: GeminiUsage }
+
 export async function askGeminiWithTools(opts: {
   model: string
   effort: Effort
@@ -54,7 +57,7 @@ export async function askGeminiWithTools(opts: {
   tools: FunctionDeclaration[]
   executeTool: (name: string, args: any) => Promise<any>
   maxTurns?: number
-}): Promise<string> {
+}): Promise<GeminiResult> {
   const generationConfig: any = { temperature: 0.2 }
   if (supportsThinkingConfig(opts.model)) {
     generationConfig.thinkingConfig = { thinkingBudget: thinkingBudgetFor(opts.effort) }
@@ -63,6 +66,18 @@ export async function askGeminiWithTools(opts: {
   const contents: any[] = opts.messages.map(m => ({ role: m.role, parts: [{ text: m.text }] }))
   const maxTurns = opts.maxTurns ?? 6
 
+  // A tool-calling exchange is several generateContent calls (one per
+  // turn) — usage is summed across all of them so the logged figure is the
+  // true cost of one user question, not just its final turn.
+  const usage: GeminiUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 }
+  function addUsage(data: any) {
+    const u = data?.usageMetadata
+    if (!u) return
+    usage.promptTokens += u.promptTokenCount || 0
+    usage.completionTokens += u.candidatesTokenCount || 0
+    usage.totalTokens += u.totalTokenCount || 0
+  }
+
   for (let turn = 0; turn < maxTurns; turn++) {
     const data = await callGenerateContent(opts.model, {
       system_instruction: { parts: [{ text: opts.systemInstruction }] },
@@ -70,6 +85,7 @@ export async function askGeminiWithTools(opts: {
       tools: [{ functionDeclarations: opts.tools }],
       generationConfig,
     })
+    addUsage(data)
 
     const candidate = data?.candidates?.[0]
     const parts: any[] = candidate?.content?.parts || []
@@ -77,7 +93,7 @@ export async function askGeminiWithTools(opts: {
 
     if (functionCalls.length === 0) {
       const text = parts.map(p => p.text || '').join('')
-      if (text) return text
+      if (text) return { text, usage }
       const finishReason = candidate?.finishReason
       throw new Error(finishReason ? `No answer returned (${finishReason})` : 'No answer returned')
     }

@@ -5,8 +5,14 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { askGeminiWithTools, type ChatMessage, type Effort } from '@/lib/gemini'
 import { schemaReferenceText, queryDatabaseToolDeclaration, executeQueryDatabase } from '@/lib/ai-helper-tools'
 
-export type Settings = { model: string; effort: Effort; system_instructions: string }
+export type Settings = {
+  model: string; effort: Effort; system_instructions: string
+  price_per_1m_input_tokens: number; price_per_1m_output_tokens: number
+}
 export type AllowedPerson = { id: string; email: string; full_name: string | null }
+export type UsageSummary = {
+  promptTokens: number; completionTokens: number; totalTokens: number; callCount: number; estimatedCost: number
+}
 
 const BASE_INSTRUCTIONS = `You are AlphaVision's AI Helper, an internal assistant for a rebar inventory,
 cement plant, and site security management system.
@@ -63,7 +69,8 @@ export async function amISuperAdmin(): Promise<boolean> {
 
 export async function getSettings(): Promise<Settings> {
   const { supabase } = await requireAccess()
-  const { data, error } = await supabase.from('ai_helper_settings').select('model, effort, system_instructions').eq('id', 1).single()
+  const { data, error } = await supabase.from('ai_helper_settings')
+    .select('model, effort, system_instructions, price_per_1m_input_tokens, price_per_1m_output_tokens').eq('id', 1).single()
   if (error) throw error
   return data as Settings
 }
@@ -72,9 +79,28 @@ export async function updateSettings(patch: Settings): Promise<void> {
   const { supabase, user } = await requireSuperAdmin()
   const { error } = await supabase.from('ai_helper_settings').update({
     model: patch.model, effort: patch.effort, system_instructions: patch.system_instructions,
+    price_per_1m_input_tokens: patch.price_per_1m_input_tokens, price_per_1m_output_tokens: patch.price_per_1m_output_tokens,
     updated_at: new Date().toISOString(), updated_by: user.email || null,
   }).eq('id', 1)
   if (error) throw error
+}
+
+// All-time totals — the superadmin-only "token/cost track" view. Cost is
+// an estimate (tracked tokens × the configured $/1M rate above), not a
+// real-time bill from Google.
+export async function getUsageSummary(): Promise<UsageSummary> {
+  const { supabase } = await requireSuperAdmin()
+  const [{ data: rows, error }, settings] = await Promise.all([
+    supabase.from('ai_helper_usage_log').select('prompt_tokens, completion_tokens, total_tokens'),
+    getSettings(),
+  ])
+  if (error) throw error
+  const promptTokens = (rows || []).reduce((s, r) => s + (r.prompt_tokens || 0), 0)
+  const completionTokens = (rows || []).reduce((s, r) => s + (r.completion_tokens || 0), 0)
+  const totalTokens = (rows || []).reduce((s, r) => s + (r.total_tokens || 0), 0)
+  const estimatedCost = (promptTokens / 1_000_000) * settings.price_per_1m_input_tokens
+    + (completionTokens / 1_000_000) * settings.price_per_1m_output_tokens
+  return { promptTokens, completionTokens, totalTokens, callCount: (rows || []).length, estimatedCost }
 }
 
 export async function listAllowedPeople(): Promise<AllowedPerson[]> {
@@ -130,7 +156,7 @@ export async function askAiHelper(messages: ChatMessage[]): Promise<string> {
     settings.system_instructions?.trim() ? `\nAdditional instructions from this organization's admin:\n${settings.system_instructions.trim()}` : '',
   ].join('\n')
 
-  return askGeminiWithTools({
+  const result = await askGeminiWithTools({
     model: settings.model,
     effort: settings.effort,
     systemInstruction,
@@ -141,4 +167,13 @@ export async function askAiHelper(messages: ChatMessage[]): Promise<string> {
       return { error: `Unknown tool: ${name}` }
     },
   })
+
+  // Best-effort — a logging failure shouldn't take down an answer the user
+  // already has.
+  await supabase.from('ai_helper_usage_log').insert([{
+    user_id: user.id, model: settings.model,
+    prompt_tokens: result.usage.promptTokens, completion_tokens: result.usage.completionTokens, total_tokens: result.usage.totalTokens,
+  }]).then(({ error }) => { if (error) console.error('ai_helper_usage_log insert failed:', error.message) })
+
+  return result.text
 }

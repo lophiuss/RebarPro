@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from 'react'
 import { Sparkles, Send, Settings as SettingsIcon, X, UserPlus, Trash2, Loader2 } from 'lucide-react'
 import {
   askAiHelper, getSettings, updateSettings, amISuperAdmin,
-  listAllowedPeople, listAllPeople, grantAccess, revokeAccess,
-  type Settings, type AllowedPerson,
+  listAllowedPeople, listAllPeople, grantAccess, revokeAccess, getUsageSummary,
+  type Settings, type AllowedPerson, type UsageSummary,
 } from './actions'
 
 type Msg = { role: 'user' | 'model'; text: string }
@@ -40,16 +40,18 @@ export default function AiHelperPage() {
   const [allowedPeople, setAllowedPeople] = useState<AllowedPerson[]>([])
   const [allPeople, setAllPeople] = useState<AllowedPerson[]>([])
   const [grantUserId, setGrantUserId] = useState('')
+  const [usage, setUsage] = useState<UsageSummary | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     amISuperAdmin().then(async admin => {
       setIsSuperAdmin(admin)
       if (admin) {
-        const [s, allowed, all] = await Promise.all([getSettings(), listAllowedPeople(), listAllPeople()])
+        const [s, allowed, all, u] = await Promise.all([getSettings(), listAllowedPeople(), listAllPeople(), getUsageSummary()])
         setSettings(s)
         setAllowedPeople(allowed)
         setAllPeople(all)
+        setUsage(u)
       }
     })
   }, [])
@@ -66,6 +68,7 @@ export default function AiHelperPage() {
     try {
       const reply = await askAiHelper(nextMessages)
       setMessages(prev => [...prev, { role: 'model', text: reply }])
+      if (isSuperAdmin) getUsageSummary().then(setUsage).catch(() => {})
     } catch (err: any) {
       setMessages(prev => [...prev, { role: 'model', text: `⚠ ${err.message || 'Something went wrong.'}` }])
     } finally {
@@ -197,9 +200,42 @@ export default function AiHelperPage() {
               className="w-full border rounded-md px-3 py-2 text-sm mb-4"
             />
 
+            <div className="grid grid-cols-2 gap-3 mb-1">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">$ per 1M input tokens</label>
+                <input type="number" step="0.01" min="0" value={settings.price_per_1m_input_tokens}
+                  onChange={e => setSettings({ ...settings, price_per_1m_input_tokens: Number(e.target.value) || 0 })}
+                  className="w-full border rounded-md px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">$ per 1M output tokens</label>
+                <input type="number" step="0.01" min="0" value={settings.price_per_1m_output_tokens}
+                  onChange={e => setSettings({ ...settings, price_per_1m_output_tokens: Number(e.target.value) || 0 })}
+                  className="w-full border rounded-md px-3 py-2 text-sm" />
+              </div>
+            </div>
+            <p className="text-xs text-gray-400 mb-4">Set these to match this project's actual Gemini billing rate — used only to turn tracked token counts into the cost estimate below.</p>
+
             <button onClick={saveSettings} disabled={savingSettings} className="w-full bg-blue-600 disabled:opacity-50 text-white rounded-lg py-2.5 text-sm font-medium hover:bg-blue-700 mb-6">
               {savingSettings ? 'Saving...' : 'Save Settings'}
             </button>
+
+            {usage && (
+              <div className="border-t pt-4 mb-4">
+                <h3 className="text-sm font-bold text-slate-700 mb-2">Token Usage &amp; Cost (all-time)</h3>
+                <div className="grid grid-cols-2 gap-2 text-sm mb-1">
+                  <div className="bg-gray-50 rounded-lg px-3 py-2"><div className="text-xs text-gray-400">Questions asked</div><div className="font-semibold">{usage.callCount.toLocaleString()}</div></div>
+                  <div className="bg-gray-50 rounded-lg px-3 py-2"><div className="text-xs text-gray-400">Total tokens</div><div className="font-semibold">{usage.totalTokens.toLocaleString()}</div></div>
+                  <div className="bg-gray-50 rounded-lg px-3 py-2"><div className="text-xs text-gray-400">Input tokens</div><div className="font-semibold">{usage.promptTokens.toLocaleString()}</div></div>
+                  <div className="bg-gray-50 rounded-lg px-3 py-2"><div className="text-xs text-gray-400">Output tokens</div><div className="font-semibold">{usage.completionTokens.toLocaleString()}</div></div>
+                </div>
+                <div className="bg-violet-50 border border-violet-100 rounded-lg px-3 py-2 mt-2">
+                  <div className="text-xs text-violet-500">Estimated cost</div>
+                  <div className="font-bold text-violet-800">${usage.estimatedCost.toFixed(4)}</div>
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1.5">Estimate only — actual token counts × the rates above, not a real-time bill from Google.</p>
+              </div>
+            )}
 
             <div className="border-t pt-4">
               <h3 className="text-sm font-bold text-slate-700 mb-2">Who Can Use This</h3>
