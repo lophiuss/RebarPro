@@ -71,7 +71,7 @@ export default function JobHistoryPage() {
   const [heatRows, setHeatRows] = useState<HeatRow[]>([])
   const [heatGroupBy, setHeatGroupBy] = useState<'equipment' | 'category'>('equipment')
   const [heatMetric, setHeatMetric] = useState<'downtime' | 'frequency'>('downtime')
-  const [heatYear, setHeatYear] = useState<number | null>(null)
+  const [heatYear, setHeatYear] = useState<number | 'all' | null>(null)
 
   // Lightweight, department-wide data (not just the current page) for the
   // technician/category picklists and the per-technician summary cards —
@@ -112,8 +112,12 @@ export default function JobHistoryPage() {
         .limit(20000)
       if (error) throw error
       setHeatRows((data as any) || [])
-      const years = [...new Set(((data as any[]) || []).map(r => new Date(r.completed_at).getFullYear()))].sort((a, b) => b - a)
-      setHeatYear(years[0] ?? new Date().getFullYear())
+      // Defaults to "All Years" — defaulting to just the current year was
+      // confusing when most of the history is older (this dataset's ~7,400
+      // records span 5 years; the current year alone can be under a fifth
+      // of the total), making the heatmap look like it wasn't using most
+      // of the data even though every record was actually fetched.
+      setHeatYear('all')
       setHeatmapLoaded(true)
     } catch (err: any) {
       alert('Error loading heatmap: ' + err.message)
@@ -309,21 +313,25 @@ export default function JobHistoryPage() {
   })).sort((a, b) => b.approved - a.approved)
 
   // Heatmap — which equipment/category has the longest cumulative downtime
-  // and/or breaks down most often, per month of the selected year. Grouped
-  // client-side from heatRows (fetched once, lazily, when first opened).
+  // and/or breaks down most often, per month of a selected year, or per
+  // year across all of them. Grouped client-side from heatRows (fetched
+  // once, lazily, when first opened) — every fetched record is used
+  // either way, "All Years" just changes what the columns represent.
   const heatYears = [...new Set(heatRows.map(r => new Date(r.completed_at!).getFullYear()))].sort((a, b) => b - a)
+  const heatColumns = heatYear === 'all' ? heatYears : MONTH_LABELS.map((_, i) => i)
+  const heatColLabels = heatYear === 'all' ? heatYears.map(String) : MONTH_LABELS
   const heatGroups = new Map<string, { downtime: number[]; count: number[] }>()
   for (const r of heatRows) {
     const key = heatGroupBy === 'equipment' ? (r.maintenance_equipment?.name || 'Unlinked') : (r.maintenance_equipment?.category || 'Uncategorized')
     const completed = new Date(r.completed_at!)
-    if (completed.getFullYear() !== heatYear) continue
-    const month = completed.getMonth()
+    const colIndex = heatYear === 'all' ? heatYears.indexOf(completed.getFullYear()) : (completed.getFullYear() === heatYear ? completed.getMonth() : -1)
+    if (colIndex < 0) continue
     const hrs = repairHours(r)
     if (hrs === null) continue
-    if (!heatGroups.has(key)) heatGroups.set(key, { downtime: Array(12).fill(0), count: Array(12).fill(0) })
+    if (!heatGroups.has(key)) heatGroups.set(key, { downtime: Array(heatColumns.length).fill(0), count: Array(heatColumns.length).fill(0) })
     const g = heatGroups.get(key)!
-    g.downtime[month] += hrs
-    g.count[month] += 1
+    g.downtime[colIndex] += hrs
+    g.count[colIndex] += 1
   }
   const heatRowsSorted = [...heatGroups.entries()]
     .map(([name, g]) => ({
@@ -408,7 +416,8 @@ export default function JobHistoryPage() {
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">Year</label>
-                    <select value={heatYear ?? ''} onChange={e => setHeatYear(Number(e.target.value))} className="border rounded-md px-3 py-2 text-sm bg-white">
+                    <select value={String(heatYear ?? 'all')} onChange={e => setHeatYear(e.target.value === 'all' ? 'all' : Number(e.target.value))} className="border rounded-md px-3 py-2 text-sm bg-white">
+                      <option value="all">All Years ({heatRows.length.toLocaleString()} records)</option>
                       {heatYears.map(y => <option key={y} value={y}>{y}</option>)}
                     </select>
                   </div>
@@ -416,14 +425,14 @@ export default function JobHistoryPage() {
                 </div>
 
                 {heatRowsSorted.length === 0 ? (
-                  <p className="text-sm text-gray-400 py-6 text-center">No breakdown data for {heatYear}.</p>
+                  <p className="text-sm text-gray-400 py-6 text-center">No breakdown data{heatYear !== 'all' ? ` for ${heatYear}` : ''}.</p>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="min-w-full text-xs border-separate" style={{ borderSpacing: 2 }}>
                       <thead>
                         <tr>
                           <th className="text-left text-[11px] font-medium text-gray-500 uppercase pr-3 pb-1 sticky left-0 bg-white">{heatGroupBy === 'equipment' ? 'Equipment' : 'Category'}</th>
-                          {MONTH_LABELS.map(m => <th key={m} className="text-center text-[11px] font-medium text-gray-500 uppercase px-1 pb-1 w-12">{m}</th>)}
+                          {heatColLabels.map(l => <th key={l} className="text-center text-[11px] font-medium text-gray-500 uppercase px-1 pb-1 w-12">{l}</th>)}
                           <th className="text-center text-[11px] font-medium text-gray-500 uppercase px-1 pb-1">Total</th>
                         </tr>
                       </thead>
@@ -435,7 +444,7 @@ export default function JobHistoryPage() {
                             <tr key={row.name}>
                               <td className="pr-3 py-0.5 font-medium whitespace-nowrap sticky left-0 bg-white">{row.name}</td>
                               {series.map((v, i) => (
-                                <td key={i} style={heatCellStyle(v)} title={`${MONTH_LABELS[i]} ${heatYear}: ${heatMetric === 'downtime' ? `${v.toFixed(1)}h downtime` : `${v} breakdown${v === 1 ? '' : 's'}`}`}
+                                <td key={i} style={heatCellStyle(v)} title={`${heatColLabels[i]}: ${heatMetric === 'downtime' ? `${v.toFixed(1)}h downtime` : `${v} breakdown${v === 1 ? '' : 's'}`}`}
                                   className="text-center py-1.5 rounded text-gray-600 font-medium">
                                   {v > 0 ? (heatMetric === 'downtime' ? v.toFixed(0) : v) : ''}
                                 </td>
