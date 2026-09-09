@@ -24,30 +24,52 @@ function timeAgo(iso: string, preciseTime: boolean) {
   return `on ${new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
 }
 
+function toStr(d: Date) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
+
 export default async function CementDashboardPage() {
   const supabase = await createClient()
+
+  // "Days of cover" window — the 14 days up to and including today.
+  const today = new Date()
+  const fourteenDaysAgo = new Date(today)
+  fourteenDaysAgo.setDate(today.getDate() - 13)
 
   // The stock calculation (last stock-take + everything since) is done
   // server-side in the cement_silo_stock() function — see supabase_migration_v10_cement_merge.sql's
   // follow-up migration. Doing it client-side would require pulling every
   // weight_in/daily_usage/daily_stock_take row, which this project's PostgREST
   // caps at 1000 rows per request (cement_daily_stock_take alone has 1800+).
-  const [{ data, error }, { data: weightIns }, { data: weightOuts }, { data: stockTakes }] = await Promise.all([
+  const [{ data, error }, { data: weightIns }, { data: weightOuts }, { data: stockTakes }, { data: recentUsage }] = await Promise.all([
     supabase.rpc('cement_silo_stock'),
     supabase.from('cement_weight_in').select('id, lorry_no, supplier, created_at, cement_plants(name)').order('created_at', { ascending: false }).limit(10),
     supabase.from('cement_weight_in').select('id, lorry_no, weight_out_operator, weight_out_time, cement_plants(name)').not('weight_out_time', 'is', null).order('weight_out_time', { ascending: false }).limit(10),
     supabase.from('cement_daily_stock_take').select('id, take_date, operator, cement_silos(name, cement_plants(name))').order('take_date', { ascending: false }).order('id', { ascending: false }).limit(10),
+    supabase.from('cement_daily_usage').select('silo_id, usage').gte('usage_date', toStr(fourteenDaysAgo)).lte('usage_date', toStr(today)),
   ])
 
-  const siloStocks: SiloStock[] = (data || []).map((s: any) => ({
-    silo_id: s.silo_id,
-    silo: s.silo,
-    plant: s.plant,
-    material: s.material,
-    capacity: s.capacity,
-    current_stock: Number(s.current_stock),
-    bg_color: s.bg_color || '#ffffff',
-  }))
+  // Average daily usage over the trailing 14 days, per silo — days with no
+  // logged usage count as 0 (dividing by a fixed 14, not just the days that
+  // happen to have a record), matching "based on 14 days usage" literally.
+  const usageSumBySilo = new Map<number, number>()
+  for (const u of recentUsage || []) {
+    usageSumBySilo.set(u.silo_id, (usageSumBySilo.get(u.silo_id) || 0) + (Number(u.usage) || 0))
+  }
+
+  const siloStocks: SiloStock[] = (data || []).map((s: any) => {
+    const avgDailyUsage = (usageSumBySilo.get(s.silo_id) || 0) / 14
+    return {
+      silo_id: s.silo_id,
+      silo: s.silo,
+      plant: s.plant,
+      material: s.material,
+      capacity: s.capacity,
+      current_stock: Number(s.current_stock),
+      bg_color: s.bg_color || '#ffffff',
+      // null = no usage logged in the last 14 days, so "days of cover" isn't
+      // meaningful (not the same as "infinite cover" — just unknown).
+      days_of_cover: avgDailyUsage > 0 ? Number(s.current_stock) / avgDailyUsage : null,
+    }
+  })
 
   const byPlant = new Map<string, SiloStock[]>()
   for (const s of siloStocks) {

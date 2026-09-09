@@ -12,6 +12,10 @@ export type SiloStock = {
   capacity: number | null
   current_stock: number
   bg_color: string
+  // Current stock ÷ average daily usage over the trailing 14 days. null
+  // means no usage was logged in that window, so this isn't computable —
+  // shown as "—", not as infinite cover.
+  days_of_cover?: number | null
 }
 
 export default function CementSiloGrid({ silosByPlant }: { silosByPlant: [string, SiloStock[]][] }) {
@@ -99,6 +103,17 @@ export default function CementSiloGrid({ silosByPlant }: { silosByPlant: [string
                   <div className="text-xl font-bold text-slate-900 mt-2">{s.current_stock.toFixed(0)}</div>
                   <div className="text-xs text-gray-500">{s.current_stock.toFixed(0)} / {capacity} kg</div>
                   <div className="text-xs text-gray-500">{percent.toFixed(1)}%</div>
+                  <div
+                    className={`text-[11px] font-semibold rounded-full px-2 py-0.5 mt-1.5 ${
+                      s.days_of_cover == null ? 'bg-gray-100 text-gray-400'
+                        : s.days_of_cover < 3 ? 'bg-red-100 text-red-700'
+                        : s.days_of_cover < 7 ? 'bg-amber-100 text-amber-700'
+                        : 'bg-green-100 text-green-700'
+                    }`}
+                    title="Current stock ÷ average daily usage over the trailing 14 days"
+                  >
+                    {s.days_of_cover == null ? 'No recent usage' : `${s.days_of_cover.toFixed(1)}d cover`}
+                  </div>
                 </div>
               )
             })}
