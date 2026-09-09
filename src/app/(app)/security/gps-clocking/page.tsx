@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { uploadSecurityPhoto } from '../actions'
 import { Navigation, MapPin, CheckCircle2, Loader2 } from 'lucide-react'
@@ -64,8 +65,6 @@ export default function GpsClockingPage() {
   const [myName, setMyName] = useState('')
   const [myEmail, setMyEmail] = useState('')
   const [todayRecords, setTodayRecords] = useState<ClockRecord[]>([])
-  const [date, setDate] = useState(isoToday())
-  const [history, setHistory] = useState<ClockRecord[]>([])
   const [loading, setLoading] = useState(true)
 
   const [selectedCheckpointId, setSelectedCheckpointId] = useState('')
@@ -84,7 +83,6 @@ export default function GpsClockingPage() {
   const t = makeT(securityDict, lang)
 
   useEffect(() => { load() }, [])
-  useEffect(() => { loadHistory() }, [date])
 
   // Keeps the "you are here" dot on the map live as the guard walks around
   // — separate from the fresh, one-off getCurrentPosition() clockIn() does
@@ -119,14 +117,6 @@ export default function GpsClockingPage() {
     setCheckpoints(cps || [])
     setTodayRecords(todayRows || [])
     setLoading(false)
-    loadHistory()
-  }
-
-  async function loadHistory() {
-    const start = new Date(date + 'T00:00:00').toISOString()
-    const end = new Date(date + 'T23:59:59.999').toISOString()
-    const { data } = await supabase.from('security_clocking_records').select('*').gte('clocked_at', start).lte('clocked_at', end).order('clocked_at', { ascending: false })
-    setHistory(data || [])
   }
 
   const myIdentifier = myName || myEmail
@@ -204,23 +194,6 @@ export default function GpsClockingPage() {
       },
       { enableHighAccuracy: true, timeout: 15000 }
     )
-  }
-
-  // Session matrix — one row per guard's clocking "session" on the
-  // selected date, one column per checkpoint, so a full patrol round reads
-  // at a glance instead of scanning the flat chronological list below for
-  // who covered what. A checkpoint since renamed/deleted still gets its
-  // own column (by whatever name history recorded) rather than losing
-  // that data from the matrix.
-  const sessionGuards = [...new Set(history.map(h => h.guard_name))].sort()
-  const sessionColumns = [
-    ...checkpoints.map(c => c.name),
-    ...[...new Set(history.map(h => h.checkpoint_name))].filter(n => !checkpoints.some(c => c.name === n)).sort(),
-  ]
-  function sessionCell(guard: string, checkpointName: string): ClockRecord | null {
-    const matches = history.filter(h => h.guard_name === guard && h.checkpoint_name === checkpointName)
-    if (matches.length === 0) return null
-    return matches.reduce((latest, r) => (new Date(r.clocked_at) > new Date(latest.clocked_at) ? r : latest))
   }
 
   return (
@@ -303,81 +276,8 @@ export default function GpsClockingPage() {
         </div>
       </div>
 
-      <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between flex-wrap gap-2">
-          <h2 className="text-sm font-bold text-slate-700">{t('gps.historyAllGuards')}</h2>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)} className="border rounded-md px-2 py-1.5 text-sm" />
-        </div>
-        <table className="min-w-full divide-y divide-gray-200 text-sm">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('gps.time')}</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('common.guard')}</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('gps.checkpoint')}</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('gps.distance')}</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('common.remark')}</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('common.photo')}</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {history.map(h => (
-              <tr key={h.id}>
-                <td className="px-4 py-2 text-gray-500 whitespace-nowrap">{new Date(h.clocked_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</td>
-                <td className="px-4 py-2 font-medium whitespace-nowrap">{h.guard_name}</td>
-                <td className="px-4 py-2 whitespace-nowrap">{h.checkpoint_name}</td>
-                <td className="px-4 py-2 text-gray-500">{h.distance_meters}m</td>
-                <td className="px-4 py-2 text-gray-500">{h.remark || '-'}</td>
-                <td className="px-4 py-2">
-                  <img src={`/api/security/photo/${h.photo_drive_id}`} className="w-8 h-8 rounded object-cover cursor-zoom-in" onClick={() => setZoomSrc(`/api/security/photo/${h.photo_drive_id}`)} />
-                </td>
-              </tr>
-            ))}
-            {history.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">{t('gps.noClockingForDate')}</td></tr>}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="bg-white border rounded-xl shadow-sm overflow-hidden mt-8">
-        <div className="px-4 py-3 border-b bg-gray-50">
-          <h2 className="text-sm font-bold text-slate-700">{t('gps.sessionMatrix')} — {date}</h2>
-          <p className="text-xs text-gray-400 mt-0.5">{t('gps.sessionMatrixHint')}</p>
-        </div>
-        {sessionGuards.length === 0 ? (
-          <p className="px-4 py-8 text-center text-gray-400 text-sm">{t('gps.noClockingForDate')}</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 text-xs">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase sticky left-0 bg-gray-50">{t('common.guard')}</th>
-                  {sessionColumns.map(name => <th key={name} className="px-2 py-2 text-center font-medium text-gray-500 uppercase whitespace-nowrap">{name}</th>)}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {sessionGuards.map(guard => (
-                  <tr key={guard}>
-                    <td className="px-3 py-2 font-semibold whitespace-nowrap sticky left-0 bg-white">{guard}</td>
-                    {sessionColumns.map(name => {
-                      const rec = sessionCell(guard, name)
-                      return (
-                        <td key={name} className="px-2 py-2 text-center">
-                          {rec ? (
-                            <div className="flex flex-col items-center gap-0.5">
-                              <img src={`/api/security/photo/${rec.photo_drive_id}`} className="w-10 h-10 rounded object-cover cursor-zoom-in" onClick={() => setZoomSrc(`/api/security/photo/${rec.photo_drive_id}`)} />
-                              <span className="text-[10px] text-gray-400">{new Date(rec.clocked_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</span>
-                            </div>
-                          ) : (
-                            <span className="text-gray-300">—</span>
-                          )}
-                        </td>
-                      )
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+      <div className="bg-blue-50 border border-blue-200 rounded-xl px-5 py-3 text-xs text-blue-700">
+        {t('gps.historyMovedToAudit')} <Link href="/security/audit" className="font-semibold underline">{t('audit.title')}</Link>.
       </div>
 
       <PhotoLightbox src={zoomSrc} onClose={() => setZoomSrc(null)} />

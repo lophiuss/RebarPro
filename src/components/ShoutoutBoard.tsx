@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Megaphone, Plus, X, ChevronDown, ChevronUp } from 'lucide-react'
+import { Megaphone, Plus, X, ChevronDown, ChevronUp, Archive, ArchiveRestore } from 'lucide-react'
 
 type Department = 'rebar' | 'cement' | 'security' | 'maintenance'
-type Shoutout = { id: number; to_name: string; message: string; from_name: string; created_at: string }
+type Shoutout = { id: number; to_name: string; message: string; from_name: string; created_at: string; archived: boolean }
 
 function timeAgo(iso: string) {
   const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000)
@@ -21,7 +21,8 @@ function timeAgo(iso: string) {
 // A small team-recognition feed, dropped into each department's landing
 // page. Posting a shoutout is limited (in the UI, same nav-hiding
 // convention used elsewhere in this app) to admin/manager in that
-// department; everyone with department access can read the feed.
+// department; everyone with department access can read the feed
+// (active and archived).
 export default function ShoutoutBoard({ department }: { department: Department }) {
   const supabase = createClient()
   const [items, setItems] = useState<Shoutout[]>([])
@@ -34,6 +35,13 @@ export default function ShoutoutBoard({ department }: { department: Department }
   // null = no manual override yet, so it auto-collapses once loaded with
   // nothing to show; true/false once the user has clicked the chevron.
   const [manualExpanded, setManualExpanded] = useState<boolean | null>(null)
+  // Archived view is a separate, lazy-loaded tab within the same
+  // expanded panel — nobody needs old shoutouts on every page load.
+  const [viewArchived, setViewArchived] = useState(false)
+  const [archivedItems, setArchivedItems] = useState<Shoutout[]>([])
+  const [archivedLoaded, setArchivedLoaded] = useState(false)
+  const [archivedLoading, setArchivedLoading] = useState(false)
+  const [busyId, setBusyId] = useState<number | null>(null)
 
   useEffect(() => { load() }, [department])
 
@@ -41,7 +49,7 @@ export default function ShoutoutBoard({ department }: { department: Department }
     setLoading(true)
     const [{ data: { user } }, { data }] = await Promise.all([
       supabase.auth.getUser(),
-      supabase.from('shoutouts').select('id, to_name, message, from_name, created_at').eq('department', department).order('created_at', { ascending: false }).limit(15),
+      supabase.from('shoutouts').select('id, to_name, message, from_name, created_at, archived').eq('department', department).eq('archived', false).order('created_at', { ascending: false }).limit(15),
     ])
     setItems(data || [])
     if (user) {
@@ -49,6 +57,38 @@ export default function ShoutoutBoard({ department }: { department: Department }
       setCanPost(access?.role === 'admin' || access?.role === 'manager')
     }
     setLoading(false)
+  }
+
+  async function loadArchived() {
+    setArchivedLoading(true)
+    const { data } = await supabase.from('shoutouts').select('id, to_name, message, from_name, created_at, archived').eq('department', department).eq('archived', true).order('created_at', { ascending: false }).limit(50)
+    setArchivedItems(data || [])
+    setArchivedLoaded(true)
+    setArchivedLoading(false)
+  }
+
+  function openArchived() {
+    setViewArchived(true)
+    if (!archivedLoaded) loadArchived()
+  }
+
+  async function setArchived(id: number, archived: boolean) {
+    setBusyId(id)
+    try {
+      const { error } = await supabase.from('shoutouts').update({ archived }).eq('id', id)
+      if (error) throw error
+      if (archived) {
+        setItems(prev => prev.filter(s => s.id !== id))
+        setArchivedItems(prev => prev.filter(s => s.id !== id)) // in case it's stale
+      } else {
+        setArchivedItems(prev => prev.filter(s => s.id !== id))
+        await load()
+      }
+    } catch (err: any) {
+      alert('Error: ' + err.message)
+    } finally {
+      setBusyId(null)
+    }
   }
 
   async function post() {
@@ -76,6 +116,8 @@ export default function ShoutoutBoard({ department }: { department: Department }
   // took up a fixed block of space for no reason. Still expandable
   // manually (e.g. to post the first one), and any manual choice sticks.
   const collapsed = manualExpanded !== null ? !manualExpanded : (!loading && items.length === 0)
+  const shownItems = viewArchived ? archivedItems : items
+  const shownLoading = viewArchived ? archivedLoading : loading
 
   return (
     <div className="bg-white border rounded-xl shadow-sm overflow-hidden mb-8">
@@ -92,17 +134,39 @@ export default function ShoutoutBoard({ department }: { department: Department }
         )}
       </div>
       {!collapsed && (
-      <div className="divide-y divide-gray-50 max-h-64 overflow-y-auto">
-        {items.map(s => (
-          <div key={s.id} className="px-5 py-3 text-sm">
-            <div><span className="font-semibold text-slate-800">🎉 {s.to_name}</span> <span className="text-gray-600">— {s.message}</span></div>
-            <div className="text-xs text-gray-400 mt-0.5">from {s.from_name} · {timeAgo(s.created_at)}</div>
-          </div>
-        ))}
-        {!loading && items.length === 0 && (
-          <p className="px-5 py-6 text-center text-sm text-gray-400">No shoutouts yet{canPost ? ' — be the first to recognize someone!' : '.'}</p>
-        )}
-      </div>
+      <>
+        <div className="px-5 pt-3 flex items-center gap-1 text-xs font-semibold border-b">
+          <button onClick={() => setViewArchived(false)} className={`px-2.5 py-1.5 rounded-t-lg ${!viewArchived ? 'bg-amber-50 text-amber-700' : 'text-gray-400 hover:text-gray-600'}`}>Active</button>
+          <button onClick={openArchived} className={`flex items-center gap-1 px-2.5 py-1.5 rounded-t-lg ${viewArchived ? 'bg-amber-50 text-amber-700' : 'text-gray-400 hover:text-gray-600'}`}>
+            <Archive className="w-3 h-3" /> Archived
+          </button>
+        </div>
+        <div className="divide-y divide-gray-50 max-h-64 overflow-y-auto">
+          {shownItems.map(s => (
+            <div key={s.id} className="px-5 py-3 text-sm flex items-start justify-between gap-2 group">
+              <div className="min-w-0">
+                <div><span className="font-semibold text-slate-800">🎉 {s.to_name}</span> <span className="text-gray-600">— {s.message}</span></div>
+                <div className="text-xs text-gray-400 mt-0.5">from {s.from_name} · {timeAgo(s.created_at)}</div>
+              </div>
+              {canPost && (
+                <button
+                  onClick={() => setArchived(s.id, !viewArchived)}
+                  disabled={busyId === s.id}
+                  title={viewArchived ? 'Restore to active feed' : 'Archive this shoutout'}
+                  className="flex-shrink-0 text-gray-300 hover:text-amber-600 disabled:opacity-50 opacity-0 group-hover:opacity-100 transition"
+                >
+                  {viewArchived ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
+                </button>
+              )}
+            </div>
+          ))}
+          {!shownLoading && shownItems.length === 0 && (
+            <p className="px-5 py-6 text-center text-sm text-gray-400">
+              {viewArchived ? 'No archived shoutouts.' : `No shoutouts yet${canPost ? ' — be the first to recognize someone!' : '.'}`}
+            </p>
+          )}
+        </div>
+      </>
       )}
 
       {composing && (

@@ -90,6 +90,7 @@ export const securityDict: Record<Lang, Dict> = {
     'gps.historyAllGuards': 'History — All Guards', 'gps.time': 'Time', 'gps.distance': 'Distance',
     'gps.noClockingForDate': 'No clocking recorded for this date.',
     'gps.sessionMatrix': 'Session Matrix', 'gps.sessionMatrixHint': "One row per guard's patrol that day, one column per checkpoint — click any photo to zoom in.",
+    'gps.historyMovedToAudit': 'Full clocking history and the session matrix have moved to',
     'gps.selectCheckpointFirst': 'Please select a checkpoint', 'gps.photoRequired': 'A photo is required',
     'gps.noGpsSupport': 'This device/browser does not support GPS location',
     'gps.outsideGeofence': 'outside its', 'gps.geofenceMoveCloser': 'geofence. Move closer and try again.',
@@ -127,7 +128,7 @@ export const securityDict: Record<Lang, Dict> = {
     'settings.layoutUpdated': 'Site layout updated — visible on the Dashboard and Gates page.',
 
     // Audit
-    'audit.title': 'Audit & History',
+    'audit.title': 'Audit & History', 'audit.expand': 'Expand', 'audit.collapse': 'Collapse',
     'audit.exportToday': 'Export Today', 'audit.exportTodayTitle': "Export just this day's audit view",
     'audit.exportByRange': 'Export by Date Range', 'audit.from': 'From', 'audit.to': 'To',
     'audit.downloadExcel': 'Download Excel/CSV', 'audit.exporting': 'Exporting...',
@@ -238,6 +239,7 @@ export const securityDict: Record<Lang, Dict> = {
     'gps.historyAllGuards': '历史记录 —— 所有保安', 'gps.time': '时间', 'gps.distance': '距离',
     'gps.noClockingForDate': '此日期没有打卡记录。',
     'gps.sessionMatrix': '巡逻记录矩阵', 'gps.sessionMatrixHint': '每行代表当天一位保安的巡逻，每列代表一个检查点 —— 点击任意照片可放大。',
+    'gps.historyMovedToAudit': '完整打卡历史与巡逻记录矩阵已移至',
     'gps.selectCheckpointFirst': '请选择检查点', 'gps.photoRequired': '必须拍照',
     'gps.noGpsSupport': '此设备/浏览器不支持GPS定位',
     'gps.outsideGeofence': '超出其', 'gps.geofenceMoveCloser': '范围。请靠近后重试。',
@@ -273,7 +275,7 @@ export const securityDict: Record<Lang, Dict> = {
     'settings.layoutUpdated': '厂区平面图已更新 —— 可在仪表板与闸门页面查看。',
 
     // Audit
-    'audit.title': '稽核与历史记录',
+    'audit.title': '稽核与历史记录', 'audit.expand': '展开', 'audit.collapse': '收起',
     'audit.exportToday': '导出今日', 'audit.exportTodayTitle': '导出当天的稽核视图',
     'audit.exportByRange': '按日期范围导出', 'audit.from': '开始日期', 'audit.to': '结束日期',
     'audit.downloadExcel': '下载 Excel/CSV', 'audit.exporting': '导出中...',
@@ -382,6 +384,7 @@ export const securityDict: Record<Lang, Dict> = {
     'gps.historyAllGuards': 'Sejarah — Semua Pengawal', 'gps.time': 'Masa', 'gps.distance': 'Jarak',
     'gps.noClockingForDate': 'Tiada rekod untuk tarikh ini.',
     'gps.sessionMatrix': 'Matriks Sesi', 'gps.sessionMatrixHint': 'Satu baris bagi setiap rondaan pengawal pada hari itu, satu lajur bagi setiap titik semak — klik mana-mana gambar untuk zum.',
+    'gps.historyMovedToAudit': 'Sejarah penuh daftar masuk dan matriks sesi telah dipindahkan ke',
     'gps.selectCheckpointFirst': 'Sila pilih titik semak', 'gps.photoRequired': 'Gambar diperlukan',
     'gps.noGpsSupport': 'Peranti/pelayar ini tidak menyokong lokasi GPS',
     'gps.outsideGeofence': 'di luar', 'gps.geofenceMoveCloser': 'nya. Dekatkan diri dan cuba lagi.',
@@ -417,7 +420,7 @@ export const securityDict: Record<Lang, Dict> = {
     'settings.layoutUpdated': 'Pelan tapak dikemaskini — kelihatan pada halaman Papan Pemuka dan Pintu Pagar.',
 
     // Audit
-    'audit.title': 'Audit & Sejarah',
+    'audit.title': 'Audit & Sejarah', 'audit.expand': 'Kembang', 'audit.collapse': 'Kuncup',
     'audit.exportToday': 'Eksport Hari Ini', 'audit.exportTodayTitle': 'Eksport paparan audit untuk hari ini sahaja',
     'audit.exportByRange': 'Eksport Mengikut Julat Tarikh', 'audit.from': 'Dari', 'audit.to': 'Hingga',
     'audit.downloadExcel': 'Muat Turun Excel/CSV', 'audit.exporting': 'Mengeksport...',

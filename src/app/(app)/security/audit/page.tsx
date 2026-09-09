@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { createClient } from '@/lib/supabase/client'
-import { ClipboardList, AlertOctagon, Download, ChevronLeft, ChevronRight, X, Activity } from 'lucide-react'
+import { ClipboardList, AlertOctagon, Download, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, X, Activity } from 'lucide-react'
 import PhotoLightbox from '@/components/PhotoLightbox'
 import ActivityLogFeed from '@/components/ActivityLogFeed'
 import { buildActivityLog, ActivityEvent } from '@/lib/security/activityLog'
@@ -29,6 +30,8 @@ function addDays(dateStr: string, n: number) {
 type Section = { title: string; icon?: string; rows: any[]; columns: { key: string; label: string; fmt?: (v: any, row: any) => string }[] }
 type Entry = { id: number; category: string; person_name: string; company: string | null; photo_drive_id: string | null; time_in: string; time_out: string | null; purpose: string | null; looking_for: string | null; vehicle_no: string | null; badge_no: string | null; reference_no: string | null; notes: string | null; created_by: string | null }
 type PostLog = { guard_name: string; post_name: string; time_in: string; time_out: string | null }
+type Checkpoint = { id: number; name: string; sequence_order: number }
+type ClockRecord = { id: number; checkpoint_name: string; guard_name: string; clocked_at: string; distance_meters: number; photo_drive_id: string; remark: string | null }
 
 // One row per guard/post, one cell per hour of the day — a cell is filled if
 // that guard/post had an active shift covering that hour. Mirrors the
@@ -74,8 +77,23 @@ export default function AuditPage() {
   const [rangeExporting, setRangeExporting] = useState(false)
   const [lang, setLang] = useLang()
   const t = makeT(securityDict, lang)
+  // Long, rarely-needed history tables/timelines stay collapsed by default
+  // and render only once expanded — keyed by section title, which already
+  // changes per-date, so switching days naturally starts collapsed again.
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([])
+  const [clockingRecords, setClockingRecords] = useState<ClockRecord[]>([])
+
+  function toggle(key: string) { setExpanded(e => ({ ...e, [key]: !e[key] })) }
 
   useEffect(() => { load() }, [date, lang])
+  // Checkpoints rarely change — load once rather than on every date switch.
+  useEffect(() => { loadCheckpoints() }, [])
+
+  async function loadCheckpoints() {
+    const { data } = await supabase.from('security_checkpoints').select('id, name, sequence_order').order('sequence_order')
+    setCheckpoints(data || [])
+  }
 
   async function load() {
     setLoading(true)
@@ -123,6 +141,7 @@ export default function AuditPage() {
     ])
 
     setPhotoEntries((dayEntries || []).filter(e => e.photo_drive_id))
+    setClockingRecords(dayClocking || [])
 
     setHistorySections([
       { title: `${t('audit.sec.visitorEntries')} (${(dayEntries || []).length})`, rows: dayEntries || [], columns: [{ key: 'category', label: t('audit.col.type'), fmt: catLabel }, { key: 'person_name', label: t('audit.col.name') }, { key: 'company', label: t('audit.col.company') }, { key: 'time_in', label: t('audit.col.in'), fmt: v => new Date(v).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) }, { key: 'time_out', label: t('audit.col.out'), fmt: v => v ? new Date(v).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '-' }] },
@@ -144,6 +163,15 @@ export default function AuditPage() {
 
   function exportCSV() {
     if (!containerRef.current) return
+    // Collapsed sections have no <table> in the DOM to scrape (they're not
+    // rendered until expanded) — force everything open, scrape, then put
+    // the user's collapsed/expanded state back exactly as it was.
+    // flushSync forces the expand to actually commit to the DOM before the
+    // very next line reads it, instead of waiting for React's own timing.
+    const prevExpanded = expanded
+    const allKeys = ['guardTimeline', 'postTimeline', 'gpsSessionMatrix', ...historySections.map(s => s.title)]
+    flushSync(() => setExpanded(Object.fromEntries(allKeys.map(k => [k, true]))))
+
     let csv = `${t('audit.export.reportDate')},${date}\n\n`
     containerRef.current.querySelectorAll('[data-audit-card]').forEach(card => {
       const title = card.querySelector('[data-audit-title]')?.textContent?.trim() || ''
@@ -157,6 +185,9 @@ export default function AuditPage() {
       }
       csv += '\n'
     })
+
+    flushSync(() => setExpanded(prevExpanded))
+
     const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
@@ -269,6 +300,22 @@ export default function AuditPage() {
   const totalFlags = anomalySections.reduce((s, sec) => s + sec.rows.length, 0)
   const isToday = date === isoToday()
 
+  // GPS Clocking session matrix — one row per guard's patrol that day, one
+  // column per checkpoint (moved here from the GPS Clocking page itself,
+  // which now only handles the live clock-in action). A checkpoint since
+  // renamed/deleted still gets its own column (by whatever name history
+  // recorded) rather than losing that data from the matrix.
+  const sessionGuards = [...new Set(clockingRecords.map(h => h.guard_name))].sort()
+  const sessionColumns = [
+    ...checkpoints.map(c => c.name),
+    ...[...new Set(clockingRecords.map(h => h.checkpoint_name))].filter(n => !checkpoints.some(c => c.name === n)).sort(),
+  ]
+  function sessionCell(guard: string, checkpointName: string): ClockRecord | null {
+    const matches = clockingRecords.filter(h => h.guard_name === guard && h.checkpoint_name === checkpointName)
+    if (matches.length === 0) return null
+    return matches.reduce((latest, r) => (new Date(r.clocked_at) > new Date(latest.clocked_at) ? r : latest))
+  }
+
   function renderTable(section: Section) {
     return (
       <table className="min-w-full divide-y divide-gray-200 text-sm">
@@ -309,6 +356,22 @@ export default function AuditPage() {
           </tbody>
         </table>
       </div>
+    )
+  }
+
+  // Header button for a collapsible history block — collapsed by default
+  // (see `expanded` state), so a long day's worth of logs doesn't render
+  // (or even get iterated over) until someone actually asks to see it.
+  function renderSectionToggle(key: string, label: React.ReactNode) {
+    const isOpen = !!expanded[key]
+    return (
+      <button onClick={() => toggle(key)} className="w-full flex items-center justify-between gap-2 text-left mb-2">
+        <h3 className="text-xs font-bold text-slate-500 uppercase" data-audit-title>{label}</h3>
+        <span className="flex items-center gap-1 text-xs font-semibold text-blue-600 flex-shrink-0">
+          {isOpen ? t('audit.collapse') : t('audit.expand')}
+          {isOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        </span>
+      </button>
     )
   }
 
@@ -395,24 +458,69 @@ export default function AuditPage() {
 
         {guardTimeline.length > 0 && (
           <div className="mb-6" data-audit-card>
-            <h3 className="text-xs font-bold text-slate-500 uppercase mb-2" data-audit-title>⏱️ {t('audit.guardMovements')}</h3>
-            <p className="text-[11px] text-gray-400 mb-2">{t('audit.guardMovementsHint')}</p>
-            {renderTimeline(guardTimeline, t('audit.guardCol'))}
+            {renderSectionToggle('guardTimeline', <>⏱️ {t('audit.guardMovements')}</>)}
+            {expanded['guardTimeline'] && (<>
+              <p className="text-[11px] text-gray-400 mb-2">{t('audit.guardMovementsHint')}</p>
+              {renderTimeline(guardTimeline, t('audit.guardCol'))}
+            </>)}
           </div>
         )}
 
         {postTimeline.length > 0 && (
           <div className="mb-6" data-audit-card>
-            <h3 className="text-xs font-bold text-slate-500 uppercase mb-2" data-audit-title>⏱️ {t('audit.postDuty')}</h3>
-            <p className="text-[11px] text-gray-400 mb-2">{t('audit.postDutyHint')}</p>
-            {renderTimeline(postTimeline, t('audit.postCol'))}
+            {renderSectionToggle('postTimeline', <>⏱️ {t('audit.postDuty')}</>)}
+            {expanded['postTimeline'] && (<>
+              <p className="text-[11px] text-gray-400 mb-2">{t('audit.postDutyHint')}</p>
+              {renderTimeline(postTimeline, t('audit.postCol'))}
+            </>)}
+          </div>
+        )}
+
+        {sessionGuards.length > 0 && (
+          <div className="mb-6" data-audit-card>
+            {renderSectionToggle('gpsSessionMatrix', <>🧭 {t('gps.sessionMatrix')}</>)}
+            {expanded['gpsSessionMatrix'] && (<>
+              <p className="text-[11px] text-gray-400 mb-2">{t('gps.sessionMatrixHint')}</p>
+              <div className="overflow-x-auto border rounded-lg">
+                <table className="min-w-full divide-y divide-gray-200 text-xs">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase sticky left-0 bg-gray-50">{t('common.guard')}</th>
+                      {sessionColumns.map(name => <th key={name} className="px-2 py-2 text-center font-medium text-gray-500 uppercase whitespace-nowrap">{name}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {sessionGuards.map(guard => (
+                      <tr key={guard}>
+                        <td className="px-3 py-2 font-semibold whitespace-nowrap sticky left-0 bg-white">{guard}</td>
+                        {sessionColumns.map(name => {
+                          const rec = sessionCell(guard, name)
+                          return (
+                            <td key={name} className="px-2 py-2 text-center">
+                              {rec ? (
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <img src={`/api/security/photo/${rec.photo_drive_id}`} className="w-10 h-10 rounded object-cover cursor-zoom-in" onClick={() => setZoomSrc(`/api/security/photo/${rec.photo_drive_id}`)} />
+                                  <span className="text-[10px] text-gray-400">{new Date(rec.clocked_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</span>
+                                </div>
+                              ) : (
+                                <span className="text-gray-300">—</span>
+                              )}
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>)}
           </div>
         )}
 
         {historySections.map(s => s.rows.length > 0 && (
           <div key={s.title} className="mb-6 last:mb-0" data-audit-card>
-            <h3 className="text-xs font-bold text-slate-500 uppercase mb-2" data-audit-title>{s.title}</h3>
-            <div className="overflow-x-auto border rounded-lg">{renderTable(s)}</div>
+            {renderSectionToggle(s.title, s.title)}
+            {expanded[s.title] && <div className="overflow-x-auto border rounded-lg">{renderTable(s)}</div>}
           </div>
         ))}
 
