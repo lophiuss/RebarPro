@@ -47,6 +47,24 @@ export const securityDict: Record<Lang, Dict> = {
     'entries.reviewSelfCheckin': 'Review Self Check-In', 'entries.whichGroup': 'Which group are they? *',
     'entries.referenceDoNo': 'Reference/DO No', 'entries.approving': 'Approving...', 'entries.approveLetIn': 'Approve & Let In',
     'entries.flagged': 'Flagged',
+
+    // Gates
+    'gates.title': 'Gates', 'gates.newGateName': 'New gate name', 'gates.clickToPlace': 'Click the map to place it', 'gates.addGate': 'Add Gate',
+    'gates.dragHint': 'Drag a gate marker to reposition it on the map.', 'gates.noLayout': 'No site layout uploaded yet',
+    'gates.gate': 'Gate', 'gates.lastUpdated': 'Last Updated', 'gates.unlock': 'Unlock', 'gates.lock': 'Lock',
+    'gates.noGates': 'No gates configured yet.', 'gates.editGate': 'Edit Gate', 'gates.posX': 'Position X (%)', 'gates.posY': 'Position Y (%)',
+    'gates.enterNameFirst': 'Enter a gate name first', 'gates.confirmDelete': 'Delete this gate?',
+    'status.locked': 'Locked', 'status.open': 'Open', 'status.out': 'Out', 'status.returned': 'Returned',
+
+    // Keys
+    'keys.title': 'Keys', 'keys.issueKey': 'Issue a Key', 'keys.key': 'Key', 'keys.selectKey': 'Select a key...',
+    'keys.issuedTo': 'Issued To', 'keys.issueBtn': 'Issue Key', 'keys.currentlyOut': 'Currently Out', 'keys.issued': 'issued',
+    'keys.markReturned': 'Mark Returned', 'keys.noKeysOut': 'No keys currently out.',
+    'keys.keyDefinitions': 'Key Definitions', 'keys.keyName': 'Key name', 'keys.keyNo': 'Key no.', 'keys.description': 'Description',
+    'keys.noKeysDefined': 'No keys defined yet.', 'keys.recentActivity': 'Recent Activity',
+    'keys.issuedCol': 'Issued', 'keys.returnedCol': 'Returned', 'keys.noActivity': 'No key activity yet.',
+    'keys.keyIssuedToRequired': 'Key and issued-to name are required', 'keys.keyNameRequired': 'Key name is required',
+    'keys.confirmDeleteKey': 'Delete this key definition?',
   },
   zh: {
     'common.name': '姓名', 'common.company': '公司', 'common.purpose': '目的', 'common.notes': '备注',
@@ -85,6 +103,22 @@ export const securityDict: Record<Lang, Dict> = {
     'entries.reviewSelfCheckin': '审核自助登记', 'entries.whichGroup': '他们属于哪个类别？*',
     'entries.referenceDoNo': '参考/送货单号', 'entries.approving': '批准中...', 'entries.approveLetIn': '批准并放行',
     'entries.flagged': '已标记',
+
+    'gates.title': '闸门', 'gates.newGateName': '新闸门名称', 'gates.clickToPlace': '点击地图以放置', 'gates.addGate': '添加闸门',
+    'gates.dragHint': '拖动闸门图标以在地图上重新定位。', 'gates.noLayout': '尚未上传厂区平面图',
+    'gates.gate': '闸门', 'gates.lastUpdated': '最后更新', 'gates.unlock': '开锁', 'gates.lock': '上锁',
+    'gates.noGates': '尚未设置闸门。', 'gates.editGate': '编辑闸门', 'gates.posX': 'X 位置 (%)', 'gates.posY': 'Y 位置 (%)',
+    'gates.enterNameFirst': '请先输入闸门名称', 'gates.confirmDelete': '确定删除此闸门？',
+    'status.locked': '已锁', 'status.open': '已开', 'status.out': '已借出', 'status.returned': '已归还',
+
+    'keys.title': '钥匙管理', 'keys.issueKey': '发放钥匙', 'keys.key': '钥匙', 'keys.selectKey': '请选择钥匙...',
+    'keys.issuedTo': '领用人', 'keys.issueBtn': '发放钥匙', 'keys.currentlyOut': '目前借出', 'keys.issued': '发放于',
+    'keys.markReturned': '标记已归还', 'keys.noKeysOut': '目前没有借出的钥匙。',
+    'keys.keyDefinitions': '钥匙清单', 'keys.keyName': '钥匙名称', 'keys.keyNo': '钥匙编号', 'keys.description': '说明',
+    'keys.noKeysDefined': '尚未设置钥匙。', 'keys.recentActivity': '最近活动',
+    'keys.issuedCol': '发放时间', 'keys.returnedCol': '归还时间', 'keys.noActivity': '尚无钥匙活动记录。',
+    'keys.keyIssuedToRequired': '请选择钥匙并填写领用人姓名', 'keys.keyNameRequired': '请输入钥匙名称',
+    'keys.confirmDeleteKey': '确定删除此钥匙？',
   },
   ms: {
     'common.name': 'Nama', 'common.company': 'Syarikat', 'common.purpose': 'Tujuan', 'common.notes': 'Catatan',
@@ -123,5 +157,21 @@ export const securityDict: Record<Lang, Dict> = {
     'entries.reviewSelfCheckin': 'Semak Daftar Masuk Sendiri', 'entries.whichGroup': 'Kumpulan mereka yang mana? *',
     'entries.referenceDoNo': 'No. Rujukan/DO', 'entries.approving': 'Meluluskan...', 'entries.approveLetIn': 'Luluskan & Benarkan Masuk',
     'entries.flagged': 'Ditanda',
+
+    'gates.title': 'Pintu Pagar', 'gates.newGateName': 'Nama pintu pagar baharu', 'gates.clickToPlace': 'Klik peta untuk meletakkannya', 'gates.addGate': 'Tambah Pintu Pagar',
+    'gates.dragHint': 'Seret penanda pintu pagar untuk mengubah kedudukannya pada peta.', 'gates.noLayout': 'Belum ada pelan tapak dimuat naik',
+    'gates.gate': 'Pintu Pagar', 'gates.lastUpdated': 'Terakhir Dikemaskini', 'gates.unlock': 'Buka Kunci', 'gates.lock': 'Kunci',
+    'gates.noGates': 'Tiada pintu pagar ditetapkan lagi.', 'gates.editGate': 'Sunting Pintu Pagar', 'gates.posX': 'Kedudukan X (%)', 'gates.posY': 'Kedudukan Y (%)',
+    'gates.enterNameFirst': 'Sila masukkan nama pintu pagar dahulu', 'gates.confirmDelete': 'Padam pintu pagar ini?',
+    'status.locked': 'Berkunci', 'status.open': 'Terbuka', 'status.out': 'Dikeluarkan', 'status.returned': 'Dikembalikan',
+
+    'keys.title': 'Kunci', 'keys.issueKey': 'Keluarkan Kunci', 'keys.key': 'Kunci', 'keys.selectKey': 'Pilih kunci...',
+    'keys.issuedTo': 'Dikeluarkan Kepada', 'keys.issueBtn': 'Keluarkan Kunci', 'keys.currentlyOut': 'Sedang Dikeluarkan', 'keys.issued': 'dikeluarkan',
+    'keys.markReturned': 'Tanda Dikembalikan', 'keys.noKeysOut': 'Tiada kunci sedang dikeluarkan.',
+    'keys.keyDefinitions': 'Senarai Kunci', 'keys.keyName': 'Nama kunci', 'keys.keyNo': 'No. kunci', 'keys.description': 'Keterangan',
+    'keys.noKeysDefined': 'Belum ada kunci ditetapkan.', 'keys.recentActivity': 'Aktiviti Terkini',
+    'keys.issuedCol': 'Dikeluarkan', 'keys.returnedCol': 'Dikembalikan', 'keys.noActivity': 'Belum ada aktiviti kunci.',
+    'keys.keyIssuedToRequired': 'Kunci dan nama penerima diperlukan', 'keys.keyNameRequired': 'Nama kunci diperlukan',
+    'keys.confirmDeleteKey': 'Padam kunci ini?',
   },
 }
