@@ -105,6 +105,17 @@ export default function SecuritySettingsPage() {
     load()
   }
 
+  // Quick rename straight from the map label, as an alternative to opening
+  // the full edit form below (which also requires re-clicking the point).
+  async function renameCheckpointFromMap(id: number | string, currentName: string) {
+    if (!canManage) return
+    const next = window.prompt('Rename checkpoint:', currentName)
+    if (next === null || !next.trim() || next.trim() === currentName) return
+    const { error } = await supabase.from('security_checkpoints').update({ name: next.trim() }).eq('id', id)
+    if (error) { alert('Error: ' + error.message); return }
+    load()
+  }
+
   async function addPost(e: React.FormEvent) {
     e.preventDefault()
     if (!newPost.trim()) return
@@ -234,6 +245,7 @@ export default function SecuritySettingsPage() {
           markers={checkpoints.map(c => ({ id: c.id, name: c.name, lat: c.latitude, lng: c.longitude, radiusMeters: c.radius_meters, active: c.is_active }))}
           pendingPoint={pendingPoint ? { lat: pendingPoint.lat, lng: pendingPoint.lng, radiusMeters: Math.max(5, Number(cpForm.radiusMeters) || 50) } : null}
           onPick={canManage ? startAddCheckpoint : undefined}
+          onRename={canManage ? renameCheckpointFromMap : undefined}
           center={pendingPoint || (checkpoints[0] ? { lat: checkpoints[0].latitude, lng: checkpoints[0].longitude } : undefined)}
         />
 

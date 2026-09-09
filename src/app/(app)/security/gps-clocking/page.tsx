@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { uploadSecurityPhoto } from '../actions'
 import { Navigation, MapPin, CheckCircle2, Loader2 } from 'lucide-react'
@@ -137,6 +137,23 @@ export default function GpsClockingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checkpoints.length])
 
+  // Which checkpoint (if any) the guard's live location currently falls
+  // inside — same haversine-vs-radius test clockIn() does at submit time,
+  // just continuous. Auto-selects the dropdown the MOMENT they walk into a
+  // new one (not on every position tick, so picking a different checkpoint
+  // manually while standing still doesn't get silently reverted).
+  const inRangeCheckpoint = myLocation
+    ? checkpoints.find(c => distanceMeters(myLocation.lat, myLocation.lng, c.latitude, c.longitude) <= c.radius_meters)
+    : undefined
+  const lastAutoSelectedRef = useRef<number | null>(null)
+  useEffect(() => {
+    if (inRangeCheckpoint && inRangeCheckpoint.id !== lastAutoSelectedRef.current) {
+      lastAutoSelectedRef.current = inRangeCheckpoint.id
+      setSelectedCheckpointId(String(inRangeCheckpoint.id))
+    }
+    if (!inRangeCheckpoint) lastAutoSelectedRef.current = null
+  }, [inRangeCheckpoint?.id])
+
   async function clockIn() {
     const checkpoint = checkpoints.find(c => c.id === Number(selectedCheckpointId))
     if (!checkpoint) { alert('Please select a checkpoint'); return }
@@ -183,6 +200,23 @@ export default function GpsClockingPage() {
     )
   }
 
+  // Session matrix — one row per guard's clocking "session" on the
+  // selected date, one column per checkpoint, so a full patrol round reads
+  // at a glance instead of scanning the flat chronological list below for
+  // who covered what. A checkpoint since renamed/deleted still gets its
+  // own column (by whatever name history recorded) rather than losing
+  // that data from the matrix.
+  const sessionGuards = [...new Set(history.map(h => h.guard_name))].sort()
+  const sessionColumns = [
+    ...checkpoints.map(c => c.name),
+    ...[...new Set(history.map(h => h.checkpoint_name))].filter(n => !checkpoints.some(c => c.name === n)).sort(),
+  ]
+  function sessionCell(guard: string, checkpointName: string): ClockRecord | null {
+    const matches = history.filter(h => h.guard_name === guard && h.checkpoint_name === checkpointName)
+    if (matches.length === 0) return null
+    return matches.reduce((latest, r) => (new Date(r.clocked_at) > new Date(latest.clocked_at) ? r : latest))
+  }
+
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto">
       <h1 className="text-3xl font-bold mb-2 flex items-center gap-2"><Navigation className="w-7 h-7 text-blue-600" /> GPS Clocking</h1>
@@ -218,12 +252,20 @@ export default function GpsClockingPage() {
       <div className="bg-white border rounded-xl shadow-sm p-6 mb-8 space-y-4">
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">Checkpoint</label>
-          <select value={selectedCheckpointId} onChange={e => setSelectedCheckpointId(e.target.value)} className="w-full border rounded-md px-3 py-2 text-sm bg-white">
+          <select
+            value={selectedCheckpointId}
+            onChange={e => setSelectedCheckpointId(e.target.value)}
+            className={`w-full border-2 rounded-md px-3 py-2 text-sm bg-white transition ${inRangeCheckpoint ? 'border-green-400 ring-2 ring-green-100' : 'border-gray-200'}`}
+          >
             <option value="">Select a checkpoint…</option>
             {checkpoints.map(c => (
               <option key={c.id} value={c.id}>#{c.sequence_order} {c.name}{myClockedCheckpointIds.has(c.id) ? ' — already clocked today' : ''}</option>
             ))}
           </select>
+          <div className={`flex items-center gap-1.5 mt-1.5 text-xs font-medium ${inRangeCheckpoint ? 'text-green-700' : 'text-gray-400'}`}>
+            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${inRangeCheckpoint ? 'bg-green-500' : 'bg-gray-300'}`} />
+            {inRangeCheckpoint ? `In range of ${inRangeCheckpoint.name} — auto-selected` : myLocation ? 'Not within any checkpoint’s geofence right now' : 'Waiting for your location…'}
+          </div>
         </div>
         <PhotoPicker label="Evidence Photo (required)" file={photo} onChange={setPhoto} />
         <div>
@@ -284,6 +326,49 @@ export default function GpsClockingPage() {
             {history.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">No clocking recorded for this date.</td></tr>}
           </tbody>
         </table>
+      </div>
+
+      <div className="bg-white border rounded-xl shadow-sm overflow-hidden mt-8">
+        <div className="px-4 py-3 border-b bg-gray-50">
+          <h2 className="text-sm font-bold text-slate-700">Session Matrix — {date}</h2>
+          <p className="text-xs text-gray-400 mt-0.5">One row per guard's patrol that day, one column per checkpoint — click any photo to zoom in.</p>
+        </div>
+        {sessionGuards.length === 0 ? (
+          <p className="px-4 py-8 text-center text-gray-400 text-sm">No clocking recorded for this date.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200 text-xs">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase sticky left-0 bg-gray-50">Guard</th>
+                  {sessionColumns.map(name => <th key={name} className="px-2 py-2 text-center font-medium text-gray-500 uppercase whitespace-nowrap">{name}</th>)}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {sessionGuards.map(guard => (
+                  <tr key={guard}>
+                    <td className="px-3 py-2 font-semibold whitespace-nowrap sticky left-0 bg-white">{guard}</td>
+                    {sessionColumns.map(name => {
+                      const rec = sessionCell(guard, name)
+                      return (
+                        <td key={name} className="px-2 py-2 text-center">
+                          {rec ? (
+                            <div className="flex flex-col items-center gap-0.5">
+                              <img src={`/api/security/photo/${rec.photo_drive_id}`} className="w-10 h-10 rounded object-cover cursor-zoom-in" onClick={() => setZoomSrc(`/api/security/photo/${rec.photo_drive_id}`)} />
+                              <span className="text-[10px] text-gray-400">{new Date(rec.clocked_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</span>
+                            </div>
+                          ) : (
+                            <span className="text-gray-300">—</span>
+                          )}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <PhotoLightbox src={zoomSrc} onClose={() => setZoomSrc(null)} />
