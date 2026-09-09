@@ -47,16 +47,32 @@ export default async function CementDashboardPage() {
     supabase.from('cement_daily_usage').select('silo_id, usage').gte('usage_date', toStr(fourteenDaysAgo)).lte('usage_date', toStr(today)),
   ])
 
-  // Average daily usage over the trailing 14 days, per silo — days with no
-  // logged usage count as 0 (dividing by a fixed 14, not just the days that
-  // happen to have a record), matching "based on 14 days usage" literally.
+  // Days of cover is a MATERIAL figure, not a per-silo one — a plant often
+  // splits one material across several silos, and stock naturally shifts
+  // between them (transfers, uneven draw-down) without changing how much
+  // of that material the plant actually has on hand. Summing stock and
+  // usage across every silo of the same material at the same plant before
+  // dividing gives one true figure per material, shown on each of that
+  // material's silo cards rather than a misleading number per container.
   const usageSumBySilo = new Map<number, number>()
   for (const u of recentUsage || []) {
     usageSumBySilo.set(u.silo_id, (usageSumBySilo.get(u.silo_id) || 0) + (Number(u.usage) || 0))
   }
 
+  const materialGroups = new Map<string, { stock: number; avgDailyUsage: number }>()
+  for (const s of data || []) {
+    const key = `${s.plant}::${s.material || ''}`
+    const g = materialGroups.get(key) || { stock: 0, avgDailyUsage: 0 }
+    g.stock += Number(s.current_stock)
+    // Days with no logged usage count as 0 (dividing by a fixed 14, not
+    // just the days that happen to have a record) — matches "based on 14
+    // days usage" literally.
+    g.avgDailyUsage += (usageSumBySilo.get(s.silo_id) || 0) / 14
+    materialGroups.set(key, g)
+  }
+
   const siloStocks: SiloStock[] = (data || []).map((s: any) => {
-    const avgDailyUsage = (usageSumBySilo.get(s.silo_id) || 0) / 14
+    const group = materialGroups.get(`${s.plant}::${s.material || ''}`)!
     return {
       silo_id: s.silo_id,
       silo: s.silo,
@@ -65,9 +81,9 @@ export default async function CementDashboardPage() {
       capacity: s.capacity,
       current_stock: Number(s.current_stock),
       bg_color: s.bg_color || '#ffffff',
-      // null = no usage logged in the last 14 days, so "days of cover" isn't
-      // meaningful (not the same as "infinite cover" — just unknown).
-      days_of_cover: avgDailyUsage > 0 ? Number(s.current_stock) / avgDailyUsage : null,
+      // null = no usage logged for this material (across all its silos at
+      // this plant) in the last 14 days — not the same as infinite cover.
+      days_of_cover: group.avgDailyUsage > 0 ? group.stock / group.avgDailyUsage : null,
     }
   })
 

@@ -12,9 +12,11 @@ export type SiloStock = {
   capacity: number | null
   current_stock: number
   bg_color: string
-  // Current stock ÷ average daily usage over the trailing 14 days. null
-  // means no usage was logged in that window, so this isn't computable —
-  // shown as "—", not as infinite cover.
+  // This SILO'S MATERIAL total stock ÷ total average daily usage over the
+  // trailing 14 days, summed across every silo holding that material at
+  // this plant — a material figure, not a per-container one, so silos
+  // sharing a material show the same value. null means no usage was
+  // logged for that material in the window, so this isn't computable.
   days_of_cover?: number | null
 }
 
@@ -110,7 +112,7 @@ export default function CementSiloGrid({ silosByPlant }: { silosByPlant: [string
                         : s.days_of_cover < 7 ? 'bg-amber-100 text-amber-700'
                         : 'bg-green-100 text-green-700'
                     }`}
-                    title="Current stock ÷ average daily usage over the trailing 14 days"
+                    title="This material's total stock ÷ its total average daily usage over the trailing 14 days, across all its silos at this plant"
                   >
                     {s.days_of_cover == null ? 'No recent usage' : `${s.days_of_cover.toFixed(1)}d cover`}
                   </div>

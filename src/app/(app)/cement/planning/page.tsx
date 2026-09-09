@@ -5,6 +5,9 @@ import { createClient } from '@/lib/supabase/client'
 import { LineChart, Factory } from 'lucide-react'
 
 type SiloStock = { silo_id: number; silo: string; plant: string; material: string | null; capacity: number | null; current_stock: number }
+type SiloUsageRow = { silo_id: number; usage: number }
+
+function isoStr(d: Date) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
 type Material = { id: number; name: string; batching_req: number | null }
 type UsageRow = { usage_date: string; usage: number; plant: string; material: string }
 
@@ -58,17 +61,25 @@ export default function PlanningPage() {
   const [hoverIdx, setHoverIdx] = useState<number | null>(null)
   const [rollingWindow, setRollingWindow] = useState<RollingWindow>(7)
   const [rollingHoverIdx, setRollingHoverIdx] = useState<number | null>(null)
+  const [coverUsage, setCoverUsage] = useState<SiloUsageRow[]>([])
 
   useEffect(() => { loadStatic() }, [])
   useEffect(() => { loadUsage() }, [fromDate, toDate])
 
   async function loadStatic() {
-    const [{ data: stockRows }, { data: matRows }] = await Promise.all([
+    const today = new Date()
+    const fourteenDaysAgo = new Date(today)
+    fourteenDaysAgo.setDate(today.getDate() - 13)
+    const [{ data: stockRows }, { data: matRows }, { data: coverUsageRows }] = await Promise.all([
       supabase.rpc('cement_silo_stock'),
       supabase.from('cement_materials').select('id, name, batching_req').eq('is_active', true).order('name'),
+      // Fixed trailing-14-day window for "days of cover" — independent of
+      // the usage-trend chart's own (user-adjustable) date range below.
+      supabase.from('cement_daily_usage').select('silo_id, usage').gte('usage_date', isoStr(fourteenDaysAgo)).lte('usage_date', isoStr(today)),
     ])
     setSilos((stockRows || []).map((s: any) => ({ ...s, current_stock: Number(s.current_stock) })))
     setMaterials(matRows || [])
+    setCoverUsage((coverUsageRows || []).map((r: any) => ({ silo_id: r.silo_id, usage: Number(r.usage) || 0 })))
     const reqs: Record<number, string> = {}
     ;(matRows || []).forEach((m: any) => { reqs[m.id] = String(m.batching_req ?? 0) })
     setReqInputs(reqs)
@@ -214,6 +225,29 @@ export default function PlanningPage() {
     if (!byPlant.has(s.plant)) byPlant.set(s.plant, [])
     byPlant.get(s.plant)!.push(s)
   }
+
+  // Days of cover, by material at each plant (not per silo) — a material
+  // is often split across several silos, and stock naturally shifts
+  // between them without changing how much of that material the plant
+  // actually has on hand overall. Same aggregate approach as the
+  // Dashboard's Current Stock heatmap-adjacent badge.
+  const usageSumBySilo = new Map<number, number>()
+  for (const u of coverUsage) usageSumBySilo.set(u.silo_id, (usageSumBySilo.get(u.silo_id) || 0) + u.usage)
+  const coverByMaterial = new Map<string, number | null>()
+  for (const [plant, plantSilos] of byPlant) {
+    const byMaterial = new Map<string, SiloStock[]>()
+    for (const s of plantSilos) {
+      const key = s.material || ''
+      if (!byMaterial.has(key)) byMaterial.set(key, [])
+      byMaterial.get(key)!.push(s)
+    }
+    for (const [material, matSilos] of byMaterial) {
+      const stock = matSilos.reduce((sum, s) => sum + s.current_stock, 0)
+      const avgDailyUsage = matSilos.reduce((sum, s) => sum + (usageSumBySilo.get(s.silo_id) || 0) / 14, 0)
+      coverByMaterial.set(`${plant}::${material}`, avgDailyUsage > 0 ? stock / avgDailyUsage : null)
+    }
+  }
+  function daysOfCoverFor(s: SiloStock) { return coverByMaterial.get(`${s.plant}::${s.material || ''}`) ?? null }
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8">
@@ -432,6 +466,7 @@ export default function PlanningPage() {
                       const fillClass = percent < 15 ? 'bg-red-500' : percent < 30 ? 'bg-amber-400' : 'bg-green-500'
                       const mat = materials.find(m => m.name === s.material)
                       const req = mat?.batching_req || 0
+                      const cover = daysOfCoverFor(s)
                       return (
                         <div key={s.silo_id} className="border rounded-xl p-3 flex flex-col items-center text-center">
                           <div className="text-xs font-bold text-slate-700 uppercase truncate w-full">{s.silo}</div>
@@ -440,6 +475,17 @@ export default function PlanningPage() {
                             <div className={`h-2 rounded-full ${fillClass}`} style={{ width: `${Math.max(percent, 2)}%` }} />
                           </div>
                           <div className="text-lg font-bold text-slate-900">{s.current_stock.toFixed(0)}</div>
+                          <div
+                            className={`text-[11px] font-semibold rounded-full px-2 py-0.5 mt-1 ${
+                              cover == null ? 'bg-gray-100 text-gray-400'
+                                : cover < 3 ? 'bg-red-100 text-red-700'
+                                : cover < 7 ? 'bg-amber-100 text-amber-700'
+                                : 'bg-green-100 text-green-700'
+                            }`}
+                            title="This material's total stock ÷ its total average daily usage over the trailing 14 days, across all its silos at this plant"
+                          >
+                            {cover == null ? 'No recent usage' : `${cover.toFixed(1)}d cover`}
+                          </div>
                           <div className="mt-2 bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1.5 w-full">
                             {req > 0 && s.current_stock > 0 ? (
                               <>
