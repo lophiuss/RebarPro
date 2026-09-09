@@ -7,6 +7,10 @@ import { Navigation, MapPin, CheckCircle2, Loader2 } from 'lucide-react'
 import PhotoPicker from '@/components/PhotoPicker'
 import PhotoLightbox from '@/components/PhotoLightbox'
 import CheckpointMap from '@/components/CheckpointMap'
+import { useLang } from '@/lib/i18n/useLang'
+import { makeT } from '@/lib/i18n/languages'
+import { securityDict } from '@/lib/i18n/dict/security'
+import LanguageSwitcher from '@/components/LanguageSwitcher'
 
 type Checkpoint = { id: number; name: string; latitude: number; longitude: number; radius_meters: number; sequence_order: number; is_active: boolean }
 type ClockRecord = {
@@ -76,6 +80,8 @@ export default function GpsClockingPage() {
   // watchPosition, and re-centering the whole view on every single tick
   // would fight anyone trying to pan/zoom the map themselves.
   const [initialCenter, setInitialCenter] = useState<{ lat: number; lng: number } | null>(null)
+  const [lang, setLang] = useLang()
+  const t = makeT(securityDict, lang)
 
   useEffect(() => { load() }, [])
   useEffect(() => { loadHistory() }, [date])
@@ -85,10 +91,10 @@ export default function GpsClockingPage() {
   // at the actual moment of clocking in (that one has to be exact right
   // then; this one is just for orientation on the map).
   useEffect(() => {
-    if (!navigator.geolocation) { setLocationError('This device/browser does not support GPS location'); return }
+    if (!navigator.geolocation) { setLocationError(t('gps.noGpsSupport')); return }
     const watchId = navigator.geolocation.watchPosition(
       pos => { setLocationError(null); setMyLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracyMeters: pos.coords.accuracy || undefined }) },
-      err => setLocationError('Could not get your location: ' + err.message),
+      err => setLocationError('Error: ' + err.message),
       { enableHighAccuracy: true, maximumAge: 5000 }
     )
     return () => navigator.geolocation.clearWatch(watchId)
@@ -156,9 +162,9 @@ export default function GpsClockingPage() {
 
   async function clockIn() {
     const checkpoint = checkpoints.find(c => c.id === Number(selectedCheckpointId))
-    if (!checkpoint) { alert('Please select a checkpoint'); return }
-    if (!photo) { alert('A photo is required'); return }
-    if (!navigator.geolocation) { alert('This device/browser does not support GPS location'); return }
+    if (!checkpoint) { alert(t('gps.selectCheckpointFirst')); return }
+    if (!photo) { alert(t('gps.photoRequired')); return }
+    if (!navigator.geolocation) { alert(t('gps.noGpsSupport')); return }
 
     setLocating(true)
     navigator.geolocation.getCurrentPosition(
@@ -167,7 +173,7 @@ export default function GpsClockingPage() {
           const { latitude, longitude } = pos.coords
           const dist = distanceMeters(latitude, longitude, checkpoint.latitude, checkpoint.longitude)
           if (dist > checkpoint.radius_meters) {
-            alert(`You're ${Math.round(dist)}m from "${checkpoint.name}" — outside its ${checkpoint.radius_meters}m geofence. Move closer and try again.`)
+            alert(`${Math.round(dist)}m — "${checkpoint.name}" ${t('gps.outsideGeofence')} ${checkpoint.radius_meters}m ${t('gps.geofenceMoveCloser')}`)
             setLocating(false)
             return
           }
@@ -194,7 +200,7 @@ export default function GpsClockingPage() {
       },
       err => {
         setLocating(false)
-        alert('Could not get your location: ' + err.message + '. Make sure location access is allowed for this site.')
+        alert('Error: ' + err.message + ' — ' + t('gps.locationErrorSuffix'))
       },
       { enableHighAccuracy: true, timeout: 15000 }
     )
@@ -219,28 +225,31 @@ export default function GpsClockingPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto">
-      <h1 className="text-3xl font-bold mb-2 flex items-center gap-2"><Navigation className="w-7 h-7 text-blue-600" /> GPS Clocking</h1>
-      <p className="text-sm text-gray-500 mb-6">Clock in at a checkpoint — you must be physically within its marked radius. A photo is required.</p>
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
+        <h1 className="text-3xl font-bold flex items-center gap-2"><Navigation className="w-7 h-7 text-blue-600" /> {t('gps.title')}</h1>
+        <LanguageSwitcher lang={lang} onChange={setLang} />
+      </div>
+      <p className="text-sm text-gray-500 mb-6">{t('gps.subtitle')}</p>
 
       {checkpoints.length === 0 && !loading && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 text-sm text-amber-800 mb-6">
-          No active checkpoints are configured yet. Ask a Security admin/manager to add some in Settings.
+          {t('gps.noCheckpoints')}
         </div>
       )}
 
       {nextSuggested && (
         <div className="flex items-center gap-2.5 bg-blue-600 rounded-xl px-5 py-3 mb-6 text-sm font-semibold text-white">
           <MapPin className="w-4 h-4 flex-shrink-0" />
-          Next suggested checkpoint: {nextSuggested.name} <span className="font-normal opacity-80">(#{nextSuggested.sequence_order} — you can still pick any other one below)</span>
+          {t('gps.nextSuggested')}: {nextSuggested.name} <span className="font-normal opacity-80">(#{nextSuggested.sequence_order} — {t('gps.pickAnyOther')})</span>
         </div>
       )}
 
       <div className="bg-white border rounded-xl shadow-sm p-4 mb-6">
         <div className="flex items-center justify-between mb-2">
-          <h2 className="text-sm font-bold text-slate-700 flex items-center gap-1.5"><MapPin className="w-4 h-4 text-blue-600" /> Map — checkpoints &amp; your current location</h2>
-          {myLocation?.accuracyMeters != null && <span className="text-xs text-gray-400">±{Math.round(myLocation.accuracyMeters)}m accuracy</span>}
+          <h2 className="text-sm font-bold text-slate-700 flex items-center gap-1.5"><MapPin className="w-4 h-4 text-blue-600" /> {t('gps.mapTitle')}</h2>
+          {myLocation?.accuracyMeters != null && <span className="text-xs text-gray-400">±{Math.round(myLocation.accuracyMeters)}m {t('gps.accuracy')}</span>}
         </div>
-        {locationError && <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2">{locationError} — make sure location access is allowed for this site.</p>}
+        {locationError && <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-2">{locationError} — {t('gps.locationErrorSuffix')}</p>}
         <CheckpointMap
           markers={checkpoints.map(c => ({ id: c.id, name: c.name, lat: c.latitude, lng: c.longitude, radiusMeters: c.radius_meters, active: c.is_active }))}
           userLocation={myLocation}
@@ -251,63 +260,63 @@ export default function GpsClockingPage() {
 
       <div className="bg-white border rounded-xl shadow-sm p-6 mb-8 space-y-4">
         <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">Checkpoint</label>
+          <label className="block text-xs font-medium text-gray-500 mb-1">{t('gps.checkpoint')}</label>
           <select
             value={selectedCheckpointId}
             onChange={e => setSelectedCheckpointId(e.target.value)}
             className={`w-full border-2 rounded-md px-3 py-2 text-sm bg-white transition ${inRangeCheckpoint ? 'border-green-400 ring-2 ring-green-100' : 'border-gray-200'}`}
           >
-            <option value="">Select a checkpoint…</option>
+            <option value="">{t('gps.selectCheckpoint')}</option>
             {checkpoints.map(c => (
-              <option key={c.id} value={c.id}>#{c.sequence_order} {c.name}{myClockedCheckpointIds.has(c.id) ? ' — already clocked today' : ''}</option>
+              <option key={c.id} value={c.id}>#{c.sequence_order} {c.name}{myClockedCheckpointIds.has(c.id) ? ` — ${t('gps.alreadyClocked')}` : ''}</option>
             ))}
           </select>
           <div className={`flex items-center gap-1.5 mt-1.5 text-xs font-medium ${inRangeCheckpoint ? 'text-green-700' : 'text-gray-400'}`}>
             <span className={`w-2 h-2 rounded-full flex-shrink-0 ${inRangeCheckpoint ? 'bg-green-500' : 'bg-gray-300'}`} />
-            {inRangeCheckpoint ? `In range of ${inRangeCheckpoint.name} — auto-selected` : myLocation ? 'Not within any checkpoint’s geofence right now' : 'Waiting for your location…'}
+            {inRangeCheckpoint ? `${t('gps.inRangeOf')} ${inRangeCheckpoint.name} — ${t('gps.autoSelected')}` : myLocation ? t('gps.notInRange') : t('gps.waitingForLocation')}
           </div>
         </div>
-        <PhotoPicker label="Evidence Photo (required)" file={photo} onChange={setPhoto} />
+        <PhotoPicker label={t('gps.evidencePhoto')} file={photo} onChange={setPhoto} />
         <div>
-          <label className="block text-xs font-medium text-gray-500 mb-1">Remark (optional)</label>
-          <input value={remark} onChange={e => setRemark(e.target.value)} placeholder="e.g. All clear, gate secured" className="w-full border rounded-md px-3 py-2 text-sm" />
+          <label className="block text-xs font-medium text-gray-500 mb-1">{t('gps.remarkOptional')}</label>
+          <input value={remark} onChange={e => setRemark(e.target.value)} placeholder={t('gps.remarkPlaceholder')} className="w-full border rounded-md px-3 py-2 text-sm" />
         </div>
         <button onClick={clockIn} disabled={locating || !selectedCheckpointId || !photo} className="w-full flex items-center justify-center gap-2 bg-blue-600 disabled:opacity-50 text-white text-sm font-semibold px-4 py-3 rounded-lg hover:bg-blue-700">
-          {locating ? <><Loader2 className="w-4 h-4 animate-spin" /> Getting your location…</> : <><Navigation className="w-4 h-4" /> Clock In Here</>}
+          {locating ? <><Loader2 className="w-4 h-4 animate-spin" /> {t('gps.gettingLocation')}</> : <><Navigation className="w-4 h-4" /> {t('gps.clockInHere')}</>}
         </button>
       </div>
 
       <div className="bg-white border rounded-xl shadow-sm overflow-hidden mb-8">
-        <div className="px-4 py-3 border-b bg-gray-50"><h2 className="text-sm font-bold text-slate-700">My Clocking Today ({myClockedToday.length})</h2></div>
+        <div className="px-4 py-3 border-b bg-gray-50"><h2 className="text-sm font-bold text-slate-700">{t('gps.myClockingToday')} ({myClockedToday.length})</h2></div>
         <div className="divide-y divide-gray-100">
           {myClockedToday.map(r => (
             <div key={r.id} className="px-4 py-3 flex items-center gap-3 text-sm">
               <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <div className="font-medium truncate">{r.checkpoint_name}</div>
-                <div className="text-xs text-gray-400">{new Date(r.clocked_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} · {r.distance_meters}m from point{r.remark ? ` · ${r.remark}` : ''}</div>
+                <div className="text-xs text-gray-400">{new Date(r.clocked_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} · {r.distance_meters}m {t('gps.fromPoint')}{r.remark ? ` · ${r.remark}` : ''}</div>
               </div>
               <img src={`/api/security/photo/${r.photo_drive_id}`} className="w-10 h-10 rounded object-cover cursor-zoom-in flex-shrink-0" onClick={() => setZoomSrc(`/api/security/photo/${r.photo_drive_id}`)} />
             </div>
           ))}
-          {myClockedToday.length === 0 && <p className="px-4 py-6 text-center text-sm text-gray-400">Nothing clocked yet today.</p>}
+          {myClockedToday.length === 0 && <p className="px-4 py-6 text-center text-sm text-gray-400">{t('gps.nothingClockedToday')}</p>}
         </div>
       </div>
 
       <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between flex-wrap gap-2">
-          <h2 className="text-sm font-bold text-slate-700">History — All Guards</h2>
+          <h2 className="text-sm font-bold text-slate-700">{t('gps.historyAllGuards')}</h2>
           <input type="date" value={date} onChange={e => setDate(e.target.value)} className="border rounded-md px-2 py-1.5 text-sm" />
         </div>
         <table className="min-w-full divide-y divide-gray-200 text-sm">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Time</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Guard</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Checkpoint</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Distance</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Remark</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Photo</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('gps.time')}</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('common.guard')}</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('gps.checkpoint')}</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('gps.distance')}</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('common.remark')}</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('common.photo')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -323,24 +332,24 @@ export default function GpsClockingPage() {
                 </td>
               </tr>
             ))}
-            {history.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">No clocking recorded for this date.</td></tr>}
+            {history.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-gray-400">{t('gps.noClockingForDate')}</td></tr>}
           </tbody>
         </table>
       </div>
 
       <div className="bg-white border rounded-xl shadow-sm overflow-hidden mt-8">
         <div className="px-4 py-3 border-b bg-gray-50">
-          <h2 className="text-sm font-bold text-slate-700">Session Matrix — {date}</h2>
-          <p className="text-xs text-gray-400 mt-0.5">One row per guard's patrol that day, one column per checkpoint — click any photo to zoom in.</p>
+          <h2 className="text-sm font-bold text-slate-700">{t('gps.sessionMatrix')} — {date}</h2>
+          <p className="text-xs text-gray-400 mt-0.5">{t('gps.sessionMatrixHint')}</p>
         </div>
         {sessionGuards.length === 0 ? (
-          <p className="px-4 py-8 text-center text-gray-400 text-sm">No clocking recorded for this date.</p>
+          <p className="px-4 py-8 text-center text-gray-400 text-sm">{t('gps.noClockingForDate')}</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200 text-xs">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase sticky left-0 bg-gray-50">Guard</th>
+                  <th className="px-3 py-2 text-left font-medium text-gray-500 uppercase sticky left-0 bg-gray-50">{t('common.guard')}</th>
                   {sessionColumns.map(name => <th key={name} className="px-2 py-2 text-center font-medium text-gray-500 uppercase whitespace-nowrap">{name}</th>)}
                 </tr>
               </thead>

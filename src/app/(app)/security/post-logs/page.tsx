@@ -3,6 +3,10 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Radio, LogOut, AlertTriangle } from 'lucide-react'
+import { useLang } from '@/lib/i18n/useLang'
+import { makeT } from '@/lib/i18n/languages'
+import { securityDict } from '@/lib/i18n/dict/security'
+import LanguageSwitcher from '@/components/LanguageSwitcher'
 
 type Post = { id: number; name: string }
 type PostLog = { id: number; post_name: string; guard_name: string; time_in: string; time_out: string | null; notes: string | null }
@@ -21,6 +25,8 @@ export default function PostLogsPage() {
   const [history, setHistory] = useState<PostLog[]>([])
   const [date, setDate] = useState(isoToday())
   const [form, setForm] = useState({ post_name: '', guard_name: '', notes: '' })
+  const [lang, setLang] = useLang()
+  const t = makeT(securityDict, lang)
 
   useEffect(() => { load() }, [])
   useEffect(() => { loadHistory() }, [date])
@@ -44,7 +50,7 @@ export default function PostLogsPage() {
 
   async function startShift(e: React.FormEvent) {
     e.preventDefault()
-    if (!form.post_name || !form.guard_name.trim()) { alert('Post and guard name are required'); return }
+    if (!form.post_name || !form.guard_name.trim()) { alert(t('postLogs.postGuardRequired')); return }
     const { data: { user } } = await supabase.auth.getUser()
     const { error } = await supabase.from('security_post_logs').insert([{
       post_name: form.post_name, guard_name: form.guard_name.trim(), time_in: new Date().toISOString(),
@@ -73,42 +79,45 @@ export default function PostLogsPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-6xl mx-auto">
-      <h1 className="text-3xl font-bold mb-6 flex items-center gap-2"><Radio className="w-7 h-7 text-blue-600" /> Post Logs</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <h1 className="text-3xl font-bold flex items-center gap-2"><Radio className="w-7 h-7 text-blue-600" /> {t('postLogs.title')}</h1>
+        <LanguageSwitcher lang={lang} onChange={setLang} />
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.3fr] gap-6 mb-8">
         <form onSubmit={startShift} className="bg-white border rounded-xl shadow-sm p-6 space-y-3 h-fit">
-          <h2 className="text-sm font-bold text-slate-700 mb-1">Start a Shift</h2>
+          <h2 className="text-sm font-bold text-slate-700 mb-1">{t('postLogs.startShift')}</h2>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Guard Post</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1">{t('postLogs.guardPost')}</label>
             <select required value={form.post_name} onChange={e => setForm({ ...form, post_name: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm bg-white">
-              <option value="">Select a post...</option>
+              <option value="">{t('postLogs.selectPost')}</option>
               {posts.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
             </select>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Guard Name</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1">{t('postLogs.guardName')}</label>
             <input required value={form.guard_name} onChange={e => setForm({ ...form, guard_name: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Notes</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1">{t('common.notes')}</label>
             <input value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
           </div>
-          <button type="submit" className="w-full bg-blue-600 text-white text-sm font-semibold px-4 py-2.5 rounded-lg hover:bg-blue-700 mt-2">Start Shift</button>
+          <button type="submit" className="w-full bg-blue-600 text-white text-sm font-semibold px-4 py-2.5 rounded-lg hover:bg-blue-700 mt-2">{t('postLogs.startShiftBtn')}</button>
         </form>
 
         <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b bg-gray-50"><h2 className="text-sm font-bold text-slate-700">Active Shifts ({currentActive.length})</h2></div>
+          <div className="px-4 py-3 border-b bg-gray-50"><h2 className="text-sm font-bold text-slate-700">{t('postLogs.activeShifts')} ({currentActive.length})</h2></div>
           <div className="divide-y divide-gray-100 max-h-[420px] overflow-y-auto">
             {currentActive.map(a => (
               <div key={a.id} className="px-4 py-3 flex items-center justify-between text-sm">
                 <div>
                   <div className="font-medium">{a.post_name} — {a.guard_name}</div>
-                  <div className="text-xs text-gray-500">Since {new Date(a.time_in).toLocaleString()}</div>
+                  <div className="text-xs text-gray-500">{t('postLogs.since')} {new Date(a.time_in).toLocaleString()}</div>
                 </div>
-                <button onClick={() => endShift(a.id)} className="flex items-center gap-1 text-xs bg-green-50 text-green-700 px-2.5 py-1.5 rounded-lg hover:bg-green-100 flex-shrink-0"><LogOut className="w-3.5 h-3.5" /> End Shift</button>
+                <button onClick={() => endShift(a.id)} className="flex items-center gap-1 text-xs bg-green-50 text-green-700 px-2.5 py-1.5 rounded-lg hover:bg-green-100 flex-shrink-0"><LogOut className="w-3.5 h-3.5" /> {t('postLogs.endShift')}</button>
               </div>
             ))}
-            {currentActive.length === 0 && <p className="px-4 py-8 text-center text-sm text-gray-400">No active shifts.</p>}
+            {currentActive.length === 0 && <p className="px-4 py-8 text-center text-sm text-gray-400">{t('postLogs.noActiveShifts')}</p>}
           </div>
         </div>
       </div>
@@ -116,8 +125,8 @@ export default function PostLogsPage() {
       {overdue.length > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl shadow-sm overflow-hidden mb-8">
           <div className="px-4 py-3 border-b border-amber-200 flex items-center justify-between">
-            <h2 className="text-sm font-bold text-amber-800 flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> Overdue (Forgot to Checkout?)</h2>
-            <button onClick={endAllOverdue} className="text-xs bg-red-600 text-white font-medium px-2.5 py-1.5 rounded-lg hover:bg-red-700">End All Overdue</button>
+            <h2 className="text-sm font-bold text-amber-800 flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> {t('postLogs.overdue')}</h2>
+            <button onClick={endAllOverdue} className="text-xs bg-red-600 text-white font-medium px-2.5 py-1.5 rounded-lg hover:bg-red-700">{t('postLogs.endAllOverdue')}</button>
           </div>
           <div className="divide-y divide-amber-100">
             {overdue.map(a => {
@@ -126,9 +135,9 @@ export default function PostLogsPage() {
                 <div key={a.id} className="px-4 py-3 flex items-center justify-between text-sm bg-white">
                   <div>
                     <div className="font-medium">{a.post_name} — {a.guard_name}</div>
-                    <div className="text-xs text-red-600">Started {new Date(a.time_in).toLocaleString()} <span className="font-bold">({hrs.toFixed(1)} hrs ago)</span></div>
+                    <div className="text-xs text-red-600">{t('postLogs.started')} {new Date(a.time_in).toLocaleString()} <span className="font-bold">({hrs.toFixed(1)} {t('postLogs.hrsAgo')})</span></div>
                   </div>
-                  <button onClick={() => endShift(a.id)} className="flex items-center gap-1 text-xs bg-red-50 text-red-700 px-2.5 py-1.5 rounded-lg hover:bg-red-100 flex-shrink-0"><LogOut className="w-3.5 h-3.5" /> End Shift</button>
+                  <button onClick={() => endShift(a.id)} className="flex items-center gap-1 text-xs bg-red-50 text-red-700 px-2.5 py-1.5 rounded-lg hover:bg-red-100 flex-shrink-0"><LogOut className="w-3.5 h-3.5" /> {t('postLogs.endShift')}</button>
                 </div>
               )
             })}
@@ -138,17 +147,17 @@ export default function PostLogsPage() {
 
       <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between flex-wrap gap-2">
-          <h2 className="text-sm font-bold text-slate-700">History</h2>
+          <h2 className="text-sm font-bold text-slate-700">{t('postLogs.history')}</h2>
           <input type="date" value={date} onChange={e => setDate(e.target.value)} className="border rounded-md px-2 py-1.5 text-sm" />
         </div>
         <table className="min-w-full divide-y divide-gray-200 text-sm">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Post</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Guard</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">In</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Out</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Notes</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('postLogs.post')}</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('common.guard')}</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('postLogs.in')}</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('postLogs.out')}</th>
+              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('common.notes')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -157,11 +166,11 @@ export default function PostLogsPage() {
                 <td className="px-4 py-2 font-medium">{h.post_name}</td>
                 <td className="px-4 py-2">{h.guard_name}</td>
                 <td className="px-4 py-2 text-gray-500">{new Date(h.time_in).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</td>
-                <td className="px-4 py-2 text-gray-500">{h.time_out ? new Date(h.time_out).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : <span className="text-amber-600 font-medium">Active</span>}</td>
+                <td className="px-4 py-2 text-gray-500">{h.time_out ? new Date(h.time_out).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : <span className="text-amber-600 font-medium">{t('postLogs.active')}</span>}</td>
                 <td className="px-4 py-2 text-gray-500">{h.notes || '-'}</td>
               </tr>
             ))}
-            {history.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400">No shifts recorded for this date.</td></tr>}
+            {history.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400">{t('postLogs.noShiftsForDate')}</td></tr>}
           </tbody>
         </table>
       </div>
