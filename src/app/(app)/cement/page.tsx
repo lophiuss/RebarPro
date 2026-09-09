@@ -24,15 +24,26 @@ function timeAgo(iso: string, preciseTime: boolean) {
   return `on ${new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
 }
 
-function toStr(d: Date) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
+// This page runs server-side (Vercel), which defaults to UTC — new Date()'s
+// local getters would read the SERVER's calendar date, not Malaysia's. Since
+// MYT is UTC+8, that's a full day behind during Malaysia's 00:00-08:00, which
+// would silently shift the whole 14-day window back a day right when a plant
+// is likely mid-shift. Intl with an explicit timeZone sidesteps the server's
+// own clock/timezone entirely.
+function isoInKL(d: Date) { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }).format(d) }
+function addIsoDays(iso: string, days: number) {
+  const [y, m, d] = iso.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d + days))
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`
+}
 
 export default async function CementDashboardPage() {
   const supabase = await createClient()
 
-  // "Days of cover" window — the 14 days up to and including today.
-  const today = new Date()
-  const fourteenDaysAgo = new Date(today)
-  fourteenDaysAgo.setDate(today.getDate() - 13)
+  // "Days of cover" window — the 14 days up to and including today, in
+  // Malaysia's calendar (see isoInKL above), not the server's.
+  const todayStr = isoInKL(new Date())
+  const fourteenDaysAgoStr = addIsoDays(todayStr, -13)
 
   // The stock calculation (last stock-take + everything since) is done
   // server-side in the cement_silo_stock() function — see supabase_migration_v10_cement_merge.sql's
@@ -44,7 +55,7 @@ export default async function CementDashboardPage() {
     supabase.from('cement_weight_in').select('id, lorry_no, supplier, created_at, cement_plants(name)').order('created_at', { ascending: false }).limit(10),
     supabase.from('cement_weight_in').select('id, lorry_no, weight_out_operator, weight_out_time, cement_plants(name)').not('weight_out_time', 'is', null).order('weight_out_time', { ascending: false }).limit(10),
     supabase.from('cement_daily_stock_take').select('id, take_date, operator, cement_silos(name, cement_plants(name))').order('take_date', { ascending: false }).order('id', { ascending: false }).limit(10),
-    supabase.from('cement_daily_usage').select('silo_id, usage').gte('usage_date', toStr(fourteenDaysAgo)).lte('usage_date', toStr(today)),
+    supabase.from('cement_daily_usage').select('silo_id, usage').gte('usage_date', fourteenDaysAgoStr).lte('usage_date', todayStr),
   ])
 
   // Days of cover is a MATERIAL figure, not a per-silo one — a plant often
