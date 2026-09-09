@@ -6,6 +6,10 @@ import { uploadSecurityPhoto } from '../actions'
 import { Siren } from 'lucide-react'
 import PhotoLightbox from '@/components/PhotoLightbox'
 import PhotoPicker from '@/components/PhotoPicker'
+import { useLang } from '@/lib/i18n/useLang'
+import { makeT } from '@/lib/i18n/languages'
+import { securityDict } from '@/lib/i18n/dict/security'
+import LanguageSwitcher from '@/components/LanguageSwitcher'
 
 type Incident = {
   id: number
@@ -57,6 +61,8 @@ export default function IncidentsPage() {
   const [photoFile, setPhotoFile] = useState<File | null>(null)
   const [zoomSrc, setZoomSrc] = useState<string | null>(null)
   const [form, setForm] = useState({ type: '', description: '', location: '', reported_by: '', severity: 'medium' as Incident['severity'] })
+  const [lang, setLang] = useLang()
+  const t = makeT(securityDict, lang)
 
   useEffect(() => { load() }, [])
 
@@ -67,7 +73,7 @@ export default function IncidentsPage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (!form.type.trim() || !form.description.trim() || !form.reported_by.trim()) { alert('Type, description, and reported by are required'); return }
+    if (!form.type.trim() || !form.description.trim() || !form.reported_by.trim()) { alert(t('incidents.requiredFields')); return }
     setSubmitting(true)
     try {
       let photo_drive_id: string | null = null
@@ -101,45 +107,48 @@ export default function IncidentsPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-6xl mx-auto">
-      <h1 className="text-3xl font-bold mb-6 flex items-center gap-2"><Siren className="w-7 h-7 text-red-500" /> Incidents</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <h1 className="text-3xl font-bold flex items-center gap-2"><Siren className="w-7 h-7 text-red-500" /> {t('incidents.title')}</h1>
+        <LanguageSwitcher lang={lang} onChange={setLang} />
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.3fr] gap-6">
         <form onSubmit={submit} className="bg-white border rounded-xl shadow-sm p-6 space-y-3 h-fit">
-          <h2 className="text-sm font-bold text-slate-700 mb-1">Report an Incident</h2>
+          <h2 className="text-sm font-bold text-slate-700 mb-1">{t('incidents.reportIncident')}</h2>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Type</label>
-            <input required value={form.type} onChange={e => setForm({ ...form, type: e.target.value })} placeholder="e.g. Theft, Trespassing, Fire" className="w-full border rounded-md px-3 py-2 text-sm" />
+            <label className="block text-xs font-medium text-gray-500 mb-1">{t('incidents.type')}</label>
+            <input required value={form.type} onChange={e => setForm({ ...form, type: e.target.value })} placeholder={t('incidents.typePlaceholder')} className="w-full border rounded-md px-3 py-2 text-sm" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Description</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1">{t('incidents.description')}</label>
             <textarea required value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" rows={3} />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Location</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1">{t('common.location')}</label>
             <input value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Reported By</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1">{t('incidents.reportedBy')}</label>
             <input required value={form.reported_by} onChange={e => setForm({ ...form, reported_by: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Severity</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1">{t('incidents.severity')}</label>
             <select value={form.severity} onChange={e => setForm({ ...form, severity: e.target.value as Incident['severity'] })} className="w-full border rounded-md px-3 py-2 text-sm bg-white">
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
+              <option value="low">{t('severity.low')}</option>
+              <option value="medium">{t('severity.medium')}</option>
+              <option value="high">{t('severity.high')}</option>
             </select>
           </div>
           <div>
-            <PhotoPicker label="Photo Evidence" file={photoFile} onChange={setPhotoFile} />
+            <PhotoPicker label={t('incidents.photoEvidence')} file={photoFile} onChange={setPhotoFile} />
           </div>
           <button type="submit" disabled={submitting} className="w-full bg-red-600 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2.5 rounded-lg hover:bg-red-700 mt-2">
-            {submitting ? 'Saving...' : 'Report Incident'}
+            {submitting ? t('common.saving') : t('incidents.reportBtn')}
           </button>
         </form>
 
         <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b bg-gray-50"><h2 className="text-sm font-bold text-slate-700">Recent Incidents</h2></div>
+          <div className="px-4 py-3 border-b bg-gray-50"><h2 className="text-sm font-bold text-slate-700">{t('incidents.recentIncidents')}</h2></div>
           <div className="divide-y divide-gray-100 max-h-[640px] overflow-y-auto">
             {incidents.map(i => (
               <div key={i.id} className="px-4 py-3 flex items-start gap-3">
@@ -155,18 +164,18 @@ export default function IncidentsPage() {
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium text-sm">{i.type}</span>
-                    <span className={`text-[10px] font-bold uppercase rounded-full px-2 py-0.5 ${SEVERITY_STYLE[i.severity]}`}>{i.severity}</span>
-                    {i.status === 'closed' && <span className="text-[10px] font-bold uppercase rounded-full px-2 py-0.5 bg-gray-100 text-gray-500">Closed</span>}
+                    <span className={`text-[10px] font-bold uppercase rounded-full px-2 py-0.5 ${SEVERITY_STYLE[i.severity]}`}>{t(`severity.${i.severity}`)}</span>
+                    {i.status === 'closed' && <span className="text-[10px] font-bold uppercase rounded-full px-2 py-0.5 bg-gray-100 text-gray-500">{t('incidents.closed')}</span>}
                   </div>
                   <p className="text-sm text-gray-600 mt-0.5">{i.description}</p>
                   <div className="text-xs text-gray-400 mt-1">{i.location || '-'} · {i.reported_by} · {new Date(i.created_at).toLocaleString()}</div>
                 </div>
                 {i.status === 'open' && (
-                  <button onClick={() => closeIncident(i.id)} className="text-xs bg-gray-100 text-gray-700 px-2.5 py-1.5 rounded-lg hover:bg-gray-200 flex-shrink-0">Close</button>
+                  <button onClick={() => closeIncident(i.id)} className="text-xs bg-gray-100 text-gray-700 px-2.5 py-1.5 rounded-lg hover:bg-gray-200 flex-shrink-0">{t('incidents.close')}</button>
                 )}
               </div>
             ))}
-            {incidents.length === 0 && <p className="px-4 py-8 text-center text-sm text-gray-400">No incidents reported.</p>}
+            {incidents.length === 0 && <p className="px-4 py-8 text-center text-sm text-gray-400">{t('incidents.noIncidents')}</p>}
           </div>
         </div>
       </div>

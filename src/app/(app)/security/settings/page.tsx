@@ -5,6 +5,10 @@ import { createClient } from '@/lib/supabase/client'
 import QRCode from 'qrcode'
 import { Settings as SettingsIcon, Plus, Trash2, Pencil, Image as ImageIcon, QrCode, Copy, Check, MapPin, X } from 'lucide-react'
 import CheckpointMap from '@/components/CheckpointMap'
+import { useLang } from '@/lib/i18n/useLang'
+import { makeT } from '@/lib/i18n/languages'
+import { securityDict } from '@/lib/i18n/dict/security'
+import LanguageSwitcher from '@/components/LanguageSwitcher'
 
 type Post = { id: number; name: string }
 type LayoutRow = { photo_url: string | null; photo_drive_id: string | null } | null
@@ -27,6 +31,8 @@ export default function SecuritySettingsPage() {
   const [cpForm, setCpForm] = useState({ name: '', radiusMeters: '50', sequenceOrder: '' })
   const [pendingPoint, setPendingPoint] = useState<{ lat: number; lng: number } | null>(null)
   const [savingCp, setSavingCp] = useState(false)
+  const [lang, setLang] = useLang()
+  const t = makeT(securityDict, lang)
 
   useEffect(() => {
     load()
@@ -70,7 +76,7 @@ export default function SecuritySettingsPage() {
   }
 
   async function saveCheckpoint() {
-    if (!pendingPoint || !cpForm.name.trim()) { alert('Click a point on the map and enter a name first.'); return }
+    if (!pendingPoint || !cpForm.name.trim()) { alert(t('settings.enterNameFirst')); return }
     setSavingCp(true)
     try {
       const patch = {
@@ -98,7 +104,7 @@ export default function SecuritySettingsPage() {
   }
 
   async function deleteCheckpoint(id: number) {
-    if (!confirm('Delete this checkpoint? Past clocking records against it are kept (they store their own snapshot of the name), but it will no longer be clockable.')) return
+    if (!confirm(t('settings.confirmDeleteCheckpoint'))) return
     const { error } = await supabase.from('security_checkpoints').delete().eq('id', id)
     if (error) { alert('Error: ' + error.message); return }
     if (editingCp?.id === id) cancelCheckpointEdit()
@@ -109,7 +115,7 @@ export default function SecuritySettingsPage() {
   // the full edit form below (which also requires re-clicking the point).
   async function renameCheckpointFromMap(id: number | string, currentName: string) {
     if (!canManage) return
-    const next = window.prompt('Rename checkpoint:', currentName)
+    const next = window.prompt(t('settings.renamePrompt'), currentName)
     if (next === null || !next.trim() || next.trim() === currentName) return
     const { error } = await supabase.from('security_checkpoints').update({ name: next.trim() }).eq('id', id)
     if (error) { alert('Error: ' + error.message); return }
@@ -134,7 +140,7 @@ export default function SecuritySettingsPage() {
   }
 
   async function deletePost(id: number) {
-    if (!confirm('Delete this guard post?')) return
+    if (!confirm(t('settings.confirmDeletePost'))) return
     const { error } = await supabase.from('security_guard_posts').delete().eq('id', id)
     if (error) { alert('Error: ' + error.message); return }
     load()
@@ -154,7 +160,7 @@ export default function SecuritySettingsPage() {
       const { data: { user } } = await supabase.auth.getUser()
       const { error } = await supabase.from('security_layout').insert([{ photo_url: pub.publicUrl, uploaded_by: user?.email || null }])
       if (error) throw error
-      alert('Site layout updated — visible on the Dashboard and Gates page.')
+      alert(t('settings.layoutUpdated'))
       load()
     } catch (err: any) {
       alert('Error uploading layout: ' + err.message)
@@ -173,46 +179,45 @@ export default function SecuritySettingsPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-3xl mx-auto">
-      <h1 className="text-3xl font-bold mb-6 flex items-center gap-2"><SettingsIcon className="w-7 h-7 text-blue-600" /> Security Settings</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <h1 className="text-3xl font-bold flex items-center gap-2"><SettingsIcon className="w-7 h-7 text-blue-600" /> {t('settings.title')}</h1>
+        <LanguageSwitcher lang={lang} onChange={setLang} />
+      </div>
 
       <div className="bg-white border rounded-xl shadow-sm p-6 mb-6">
-        <h2 className="text-sm font-bold text-slate-700 mb-1 flex items-center gap-2"><QrCode className="w-4 h-4" /> Visitor Self Check-In Kiosk</h2>
-        <p className="text-xs text-gray-500 mb-4">
-          Print this QR code at the gate or reception. A visitor scans it, fills in their own name, company,
-          purpose, and who they're looking for — it lands in Entries as <b>Pending</b> until a guard adds
-          their photo and lets them in.
-        </p>
+        <h2 className="text-sm font-bold text-slate-700 mb-1 flex items-center gap-2"><QrCode className="w-4 h-4" /> {t('settings.kioskTitle')}</h2>
+        <p className="text-xs text-gray-500 mb-4">{t('settings.kioskHint')}</p>
         <div className="flex items-center gap-6 flex-wrap">
           {qrDataUrl && <img src={qrDataUrl} alt="Visitor check-in QR code" className="w-40 h-40 border rounded-lg p-1" />}
           <div className="flex-1 min-w-[220px]">
-            <label className="block text-xs font-medium text-gray-500 mb-1">Link</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1">{t('settings.link')}</label>
             <div className="flex gap-2">
               <input readOnly value={kioskUrl} className="flex-1 border rounded-md px-3 py-2 text-sm bg-gray-50" />
               <button onClick={copyLink} className="flex items-center gap-1.5 bg-gray-100 text-gray-700 text-sm font-medium px-3 py-2 rounded-lg hover:bg-gray-200 flex-shrink-0">
                 {copied ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
-                {copied ? 'Copied' : 'Copy'}
+                {copied ? t('settings.copied') : t('settings.copy')}
               </button>
             </div>
-            <p className="text-xs text-gray-400 mt-2">No login needed — anyone with the link or QR code can open the form.</p>
+            <p className="text-xs text-gray-400 mt-2">{t('settings.noLoginNeeded')}</p>
           </div>
         </div>
       </div>
 
       <div className="bg-white border rounded-xl shadow-sm p-6 mb-6">
-        <h2 className="text-sm font-bold text-slate-700 mb-1 flex items-center gap-2"><ImageIcon className="w-4 h-4" /> Site Layout</h2>
-        <p className="text-xs text-gray-500 mb-3">Uploaded as the background map on the Dashboard and Gates page.</p>
+        <h2 className="text-sm font-bold text-slate-700 mb-1 flex items-center gap-2"><ImageIcon className="w-4 h-4" /> {t('settings.siteLayout')}</h2>
+        <p className="text-xs text-gray-500 mb-3">{t('settings.siteLayoutHint')}</p>
         {currentLayoutSrc && <img src={currentLayoutSrc} className="w-full max-h-48 object-contain border rounded-lg mb-3 bg-gray-50" />}
         <label className="inline-block bg-gray-100 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-200 cursor-pointer">
-          {uploadingLayout ? 'Uploading...' : 'Upload New Layout Image'}
+          {uploadingLayout ? t('settings.uploading') : t('settings.uploadNewLayout')}
           <input type="file" accept="image/*" className="hidden" disabled={uploadingLayout} onChange={e => uploadLayout(e.target.files?.[0] ?? null)} />
         </label>
       </div>
 
       <div className="bg-white border rounded-xl shadow-sm p-6">
-        <h2 className="text-sm font-bold text-slate-700 mb-3">Guard Posts</h2>
+        <h2 className="text-sm font-bold text-slate-700 mb-3">{t('settings.guardPosts')}</h2>
         <form onSubmit={addPost} className="flex gap-2 mb-4">
-          <input value={newPost} onChange={e => setNewPost(e.target.value)} placeholder="New post name" className="flex-1 border rounded-md px-3 py-2 text-sm" />
-          <button type="submit" className="flex items-center gap-1.5 bg-blue-600 text-white text-sm font-medium px-3 py-2 rounded-lg hover:bg-blue-700"><Plus className="w-4 h-4" /> Add</button>
+          <input value={newPost} onChange={e => setNewPost(e.target.value)} placeholder={t('settings.newPostName')} className="flex-1 border rounded-md px-3 py-2 text-sm" />
+          <button type="submit" className="flex items-center gap-1.5 bg-blue-600 text-white text-sm font-medium px-3 py-2 rounded-lg hover:bg-blue-700"><Plus className="w-4 h-4" /> {t('common.add')}</button>
         </form>
         <div className="divide-y divide-gray-100">
           {posts.map(p => (
@@ -228,18 +233,14 @@ export default function SecuritySettingsPage() {
               </div>
             </div>
           ))}
-          {posts.length === 0 && <p className="text-sm text-gray-400 py-2">No guard posts configured yet.</p>}
+          {posts.length === 0 && <p className="text-sm text-gray-400 py-2">{t('settings.noPostsConfigured')}</p>}
         </div>
       </div>
 
       <div className="bg-white border rounded-xl shadow-sm p-6 mt-6">
-        <h2 className="text-sm font-bold text-slate-700 mb-1 flex items-center gap-2"><MapPin className="w-4 h-4" /> GPS Checkpoints</h2>
-        <p className="text-xs text-gray-500 mb-4">
-          Click the map to place a new checkpoint (or click an existing marker below to reposition it). The shaded
-          circle is the geofence — a guard must be physically inside it to clock in. Sequence number is the suggested
-          patrol order shown on the GPS Clocking page; a guard can still clock any checkpoint out of order if needed.
-        </p>
-        {!canManage && <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">Only a Security admin/manager can add, move, or delete checkpoints.</p>}
+        <h2 className="text-sm font-bold text-slate-700 mb-1 flex items-center gap-2"><MapPin className="w-4 h-4" /> {t('settings.gpsCheckpoints')}</h2>
+        <p className="text-xs text-gray-500 mb-4">{t('settings.checkpointsHint')}</p>
+        {!canManage && <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">{t('settings.onlyManagerCheckpoints')}</p>}
 
         <CheckpointMap
           markers={checkpoints.map(c => ({ id: c.id, name: c.name, lat: c.latitude, lng: c.longitude, radiusMeters: c.radius_meters, active: c.is_active }))}
@@ -252,27 +253,27 @@ export default function SecuritySettingsPage() {
         {canManage && pendingPoint && (
           <div className="mt-4 bg-blue-50 border border-blue-100 rounded-lg p-4">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-blue-900">{editingCp ? `Editing — ${editingCp.name}` : 'New Checkpoint'}</h3>
+              <h3 className="text-sm font-bold text-blue-900">{editingCp ? `${t('settings.editingPrefix')} — ${editingCp.name}` : t('settings.newCheckpoint')}</h3>
               <button onClick={cancelCheckpointEdit} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Name</label>
+                <label className="block text-xs font-medium text-gray-500 mb-1">{t('common.name')}</label>
                 <input value={cpForm.name} onChange={e => setCpForm({ ...cpForm, name: e.target.value })} placeholder="e.g. Main Gate" className="w-full border rounded-md px-3 py-2 text-sm" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Radius (meters)</label>
+                <label className="block text-xs font-medium text-gray-500 mb-1">{t('settings.radiusMeters')}</label>
                 <input type="number" min={5} value={cpForm.radiusMeters} onChange={e => setCpForm({ ...cpForm, radiusMeters: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Sequence #</label>
+                <label className="block text-xs font-medium text-gray-500 mb-1">{t('settings.sequenceNo')}</label>
                 <input type="number" min={1} value={cpForm.sequenceOrder} onChange={e => setCpForm({ ...cpForm, sequenceOrder: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
               </div>
             </div>
-            <p className="text-[11px] text-gray-400 mb-3">Point: {pendingPoint.lat.toFixed(6)}, {pendingPoint.lng.toFixed(6)} — click elsewhere on the map to move it.</p>
+            <p className="text-[11px] text-gray-400 mb-3">{t('settings.pointHint')}: {pendingPoint.lat.toFixed(6)}, {pendingPoint.lng.toFixed(6)} — {t('settings.clickToMove')}</p>
             <div className="flex justify-end gap-2">
-              <button onClick={cancelCheckpointEdit} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-200">Cancel</button>
-              <button onClick={saveCheckpoint} disabled={savingCp} className="bg-blue-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-blue-700">{savingCp ? 'Saving...' : editingCp ? 'Save Changes' : 'Add Checkpoint'}</button>
+              <button onClick={cancelCheckpointEdit} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-200">{t('common.cancel')}</button>
+              <button onClick={saveCheckpoint} disabled={savingCp} className="bg-blue-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-blue-700">{savingCp ? t('common.saving') : editingCp ? t('settings.saveChanges') : t('settings.addCheckpoint')}</button>
             </div>
           </div>
         )}
@@ -282,19 +283,19 @@ export default function SecuritySettingsPage() {
             <div key={cp.id} className="py-2.5 flex items-center justify-between text-sm gap-2">
               <div className="min-w-0">
                 <span className="font-medium">#{cp.sequence_order} {cp.name}</span>
-                <span className="text-xs text-gray-400 ml-2">{cp.radius_meters}m radius</span>
-                {!cp.is_active && <span className="text-xs text-gray-400 ml-2">(inactive)</span>}
+                <span className="text-xs text-gray-400 ml-2">{cp.radius_meters}m {t('settings.radius')}</span>
+                {!cp.is_active && <span className="text-xs text-gray-400 ml-2">({t('settings.inactive')})</span>}
               </div>
               {canManage && (
                 <div className="flex gap-1 flex-shrink-0">
-                  <button onClick={() => toggleCheckpointActive(cp)} className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1">{cp.is_active ? 'Deactivate' : 'Activate'}</button>
+                  <button onClick={() => toggleCheckpointActive(cp)} className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1">{cp.is_active ? t('settings.deactivate') : t('settings.activate')}</button>
                   <button onClick={() => startEditCheckpoint(cp)} className="text-gray-400 hover:text-blue-600 p-1"><Pencil className="w-3.5 h-3.5" /></button>
                   <button onClick={() => deleteCheckpoint(cp.id)} className="text-red-500 hover:text-red-700 p-1"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div>
               )}
             </div>
           ))}
-          {checkpoints.length === 0 && <p className="text-sm text-gray-400 py-2">No checkpoints configured yet — click the map above to add one.</p>}
+          {checkpoints.length === 0 && <p className="text-sm text-gray-400 py-2">{t('settings.noCheckpointsYet')}</p>}
         </div>
       </div>
     </div>
