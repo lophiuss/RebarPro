@@ -1,50 +1,65 @@
-export const dynamic = 'force-dynamic'
-export const revalidate = 0
+'use client'
 
-import { createClient } from '@/lib/supabase/server'
+import { useEffect, useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
 import UsageTrendsChart from '@/components/UsageTrendsChart'
 import StockBalanceLineChart from '@/components/StockBalanceLineChart'
 import ShoutoutBoard from '@/components/ShoutoutBoard'
 import { naturalSort } from '@/lib/utils/sort'
 import { fmtQty, fmtQtyNum, unitLabel, type DefaultUnit } from '@/lib/utils/unit'
 
-interface SearchParams {
-  period?: string
-  from?: string
-  to?: string
-  project_type?: string
-}
+type Period = 'all' | 'this_month' | 'last_month' | 'custom'
+type Tx = { quantity: number; type: string; transaction_date: string; size_id: string; project_type_id: string | null; project_id: string | null }
 
-export default async function DashboardPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
-  const { period: rawPeriod, from: rawFrom, to: rawTo, project_type: rawProjectType } = await searchParams
-  const period = (['this_month', 'last_month', 'custom'].includes(rawPeriod || '') ? rawPeriod : 'all') as 'all' | 'this_month' | 'last_month' | 'custom'
+// Was a force-dynamic server component (fresh Vercel invocation + full
+// unbounded transactions fetch + full aggregation re-run on every single
+// page view). Converted to a client component, matching the rest of the
+// app — the fetch and all the size/balance number-crunching below now run
+// in the visitor's own browser instead of on Vercel's compute.
+export default function DashboardPage() {
+  const supabase = createClient()
+  const [loading, setLoading] = useState(true)
+  const [transactions, setTransactions] = useState<Tx[]>([])
+  const [sizes, setSizes] = useState<any[]>([])
+  const [targetCoverageDays, setTargetCoverageDays] = useState(14)
+  const [unit, setUnit] = useState<DefaultUnit>('kg')
+  const [allStockTakes, setAllStockTakes] = useState<any[]>([])
+  const [projectTypes, setProjectTypes] = useState<any[]>([])
+  const [projects, setProjects] = useState<any[]>([])
 
-  const supabase = await createClient()
+  const [period, setPeriod] = useState<Period>('all')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
+  const [selectedTypeId, setSelectedTypeId] = useState('all')
 
-  const [txRes, sizesRes, settingsRes, stRes, pTypesRes, projectsRes] = await Promise.all([
-    supabase.from('transactions').select('quantity, type, transaction_date, size_id, project_type_id, project_id'),
-    supabase.from('rebar_sizes').select('*'),
-    supabase.from('global_settings').select('target_coverage_days, default_unit').eq('id', 1).single(),
-    supabase.from('stock_takes').select('id, size_id, stock_take_date, physical_count, project_type_id').order('stock_take_date', { ascending: false }),
-    supabase.from('project_types').select('id, name'),
-    supabase.from('projects').select('id, name, project_type_id')
-  ])
+  useEffect(() => { load() }, [])
 
-  const transactions = txRes.data || []
-  const sizes = naturalSort(sizesRes.data || [], s => s.size)
-  const targetCoverageDays = settingsRes.data?.target_coverage_days || 14
-  const unit: DefaultUnit = (settingsRes.data?.default_unit as DefaultUnit) || 'kg'
+  async function load() {
+    setLoading(true)
+    const [txRes, sizesRes, settingsRes, stRes, pTypesRes, projectsRes] = await Promise.all([
+      supabase.from('transactions').select('quantity, type, transaction_date, size_id, project_type_id, project_id'),
+      supabase.from('rebar_sizes').select('*'),
+      supabase.from('global_settings').select('target_coverage_days, default_unit').eq('id', 1).single(),
+      supabase.from('stock_takes').select('id, size_id, stock_take_date, physical_count, project_type_id').order('stock_take_date', { ascending: false }),
+      supabase.from('project_types').select('id, name'),
+      supabase.from('projects').select('id, name, project_type_id'),
+    ])
+    setTransactions(txRes.data || [])
+    setSizes(naturalSort(sizesRes.data || [], s => s.size))
+    setTargetCoverageDays(settingsRes.data?.target_coverage_days || 14)
+    setUnit((settingsRes.data?.default_unit as DefaultUnit) || 'kg')
+    setAllStockTakes(stRes.data || [])
+    setProjectTypes(naturalSort(pTypesRes.data || [], pt => pt.name))
+    setProjects(naturalSort(projectsRes.data || [], p => p.name))
+    setLoading(false)
+  }
+
   const uLabel = unitLabel(unit)
-
-  const allStockTakes = stRes.data || []
-  const projectTypes = naturalSort(pTypesRes.data || [], pt => pt.name)
-  const projects = naturalSort(projectsRes.data || [], p => p.name)
 
   // Project Type switch — 'all' (default) blends every project type together,
   // same as before; picking one scopes every KPI/chart/table on this page to
   // just that type (a transaction with no project_type_id is matched via its
   // project's own type; still-unassigned transactions only ever count under "All").
-  const selectedTypeId = rawProjectType && projectTypes.some(pt => String(pt.id) === rawProjectType) ? rawProjectType : 'all'
   const selectedTypeName = selectedTypeId === 'all' ? null : projectTypes.find(pt => String(pt.id) === selectedTypeId)?.name ?? null
   const projectTypeIdOf = new Map(projects.map(p => [p.id, p.project_type_id]))
 
@@ -90,24 +105,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     periodEnd = toStr(lastOfMonth(lastMonthDate))
     periodLabel = lastMonthDate.toLocaleString('default', { month: 'long', year: 'numeric' })
   } else if (period === 'custom') {
-    periodStart = rawFrom || toStr(firstOfMonth(today))
-    periodEnd = rawTo || todayStr
+    periodStart = customFrom || toStr(firstOfMonth(today))
+    periodEnd = customTo || todayStr
     periodLabel = `${periodStart} → ${periodEnd}`
-  }
-
-  // Builds a dashboard URL that keeps whichever of period/project_type isn't
-  // being changed by this particular link/form.
-  function hrefWith(overrides: { period?: string; from?: string; to?: string; project_type?: string }) {
-    const merged = { period, from: rawFrom, to: rawTo, project_type: selectedTypeId, ...overrides }
-    const params = new URLSearchParams()
-    if (merged.period && merged.period !== 'all') params.set('period', merged.period)
-    if (merged.period === 'custom') {
-      if (merged.from) params.set('from', merged.from)
-      if (merged.to) params.set('to', merged.to)
-    }
-    if (merged.project_type && merged.project_type !== 'all') params.set('project_type', merged.project_type)
-    const qs = params.toString()
-    return qs ? `/rebar/dashboard?${qs}` : '/rebar/dashboard'
   }
 
   // Transactions counted toward point-in-time balances: everything up to the end of the selected period.
@@ -165,9 +165,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   let totalSuspended = 0
   let periodUsage = 0
 
+  // One balance lookup per size, reused below for both the global total and
+  // that size's own row — getSizeBalanceInfo() used to be called twice per
+  // size (once for the global total, again per-row) doing the exact same
+  // O(project types × transactions) work both times.
+  const balanceInfoBySize = new Map(sizes.map(size => [size.id, getSizeBalanceInfo(size.id, balanceTxs)]))
+
   sizes.forEach(size => {
-    const { balance } = getSizeBalanceInfo(size.id, balanceTxs)
-    totalBalance += balance
+    totalBalance += balanceInfoBySize.get(size.id)!.balance
   })
 
   balanceTxs.forEach(tx => {
@@ -207,7 +212,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   const sizeStats = sizes.map(size => {
     const sizeTxs = scopedTransactions.filter(t => t.size_id === size.id)
-    const { balance, hasST, latestSTDate } = getSizeBalanceInfo(size.id)
+    const { balance, hasST, latestSTDate } = balanceInfoBySize.get(size.id)!
 
     let usage7d = 0
     let usage14d = 0
@@ -288,27 +293,25 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
             {[
-              { key: 'all', label: 'All Time' },
-              { key: 'this_month', label: 'This Month' },
-              { key: 'last_month', label: 'Last Month' },
+              { key: 'all' as Period, label: 'All Time' },
+              { key: 'this_month' as Period, label: 'This Month' },
+              { key: 'last_month' as Period, label: 'Last Month' },
             ].map(opt => (
-              <a
+              <button
                 key={opt.key}
-                href={hrefWith({ period: opt.key })}
+                onClick={() => setPeriod(opt.key)}
                 className={`px-3 py-1.5 rounded-md text-sm font-semibold transition ${period === opt.key ? 'bg-white shadow-sm text-slate-900' : 'text-gray-500 hover:text-gray-700'}`}
               >
                 {opt.label}
-              </a>
+              </button>
             ))}
           </div>
-          <form method="GET" className="flex items-center gap-1.5 bg-gray-100 rounded-lg p-1">
-            <input type="hidden" name="period" value="custom" />
-            <input type="hidden" name="project_type" value={selectedTypeId} />
-            <input type="date" name="from" defaultValue={period === 'custom' ? (periodStart || '') : ''} className="border rounded-md px-2 py-1 text-sm bg-white" />
+          <div className="flex items-center gap-1.5 bg-gray-100 rounded-lg p-1">
+            <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} className="border rounded-md px-2 py-1 text-sm bg-white" />
             <span className="text-gray-400 text-sm">→</span>
-            <input type="date" name="to" defaultValue={period === 'custom' ? periodEnd : ''} className="border rounded-md px-2 py-1 text-sm bg-white" />
-            <button type="submit" className={`px-3 py-1 rounded-md text-sm font-semibold transition ${period === 'custom' ? 'bg-white shadow-sm text-slate-900' : 'text-gray-500 hover:text-gray-700'}`}>Go</button>
-          </form>
+            <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} className="border rounded-md px-2 py-1 text-sm bg-white" />
+            <button onClick={() => setPeriod('custom')} className={`px-3 py-1 rounded-md text-sm font-semibold transition ${period === 'custom' ? 'bg-white shadow-sm text-slate-900' : 'text-gray-500 hover:text-gray-700'}`}>Go</button>
+          </div>
         </div>
       </div>
 
@@ -316,20 +319,20 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       <div className="flex flex-wrap items-center gap-1.5 mb-3">
         <span className="text-xs font-semibold text-gray-400 uppercase mr-1">Project Type</span>
         <div className="flex flex-wrap gap-1 bg-gray-100 rounded-lg p-1">
-          <a
-            href={hrefWith({ project_type: 'all' })}
+          <button
+            onClick={() => setSelectedTypeId('all')}
             className={`px-3 py-1.5 rounded-md text-sm font-semibold transition ${selectedTypeId === 'all' ? 'bg-white shadow-sm text-slate-900' : 'text-gray-500 hover:text-gray-700'}`}
           >
             All
-          </a>
+          </button>
           {projectTypes.map(pt => (
-            <a
+            <button
               key={pt.id}
-              href={hrefWith({ project_type: String(pt.id) })}
+              onClick={() => setSelectedTypeId(String(pt.id))}
               className={`px-3 py-1.5 rounded-md text-sm font-semibold transition ${selectedTypeId === String(pt.id) ? 'bg-white shadow-sm text-slate-900' : 'text-gray-500 hover:text-gray-700'}`}
             >
               {pt.name}
-            </a>
+            </button>
           ))}
         </div>
       </div>
@@ -341,6 +344,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
       <ShoutoutBoard department="rebar" />
 
+      {loading ? (
+        <p className="text-sm text-gray-400 py-12 text-center">Loading…</p>
+      ) : (
+      <>
       {/* Global KPIs */}
       <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 mb-10">
         <div className="border rounded-xl p-4 bg-white shadow-sm overflow-hidden">
@@ -461,6 +468,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           </tbody>
         </table>
       </div>
+      </>
+      )}
     </div>
   )
 }

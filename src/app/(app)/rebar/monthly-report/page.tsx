@@ -1,23 +1,37 @@
-export const dynamic = 'force-dynamic'
-export const revalidate = 0
+'use client'
 
-import { createClient } from '@/lib/supabase/server'
+import { useEffect, useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
 import Link from 'next/link'
 import { naturalSort } from '@/lib/utils/sort'
 import ExportMonthlyReportButton from '@/components/ExportMonthlyReportButton'
 import { fmtQty, fmtQtyNum, unitLabel, type DefaultUnit } from '@/lib/utils/unit'
 
-interface SearchParams {
-  month?: string
-  project_type?: string
+function defaultMonthStr() {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 }
 
-export default async function MonthlyReportPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
-  const { month: rawMonth, project_type: rawProjectType } = await searchParams
-  const now = new Date()
-  const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-  const selectedMonth = rawMonth || defaultMonth
-  const selectedProjectType = rawProjectType || 'all'
+// Was a force-dynamic server component (fresh Vercel invocation + a
+// month-bounded but still substantial transactions fetch, re-aggregated
+// from scratch on every view). Converted to a client component, matching
+// the rest of the app — fetch + aggregation now run in the visitor's own
+// browser instead of on Vercel's compute.
+export default function MonthlyReportPage() {
+  const supabase = createClient()
+  const [loading, setLoading] = useState(true)
+  const [selectedMonth, setSelectedMonth] = useState(defaultMonthStr())
+  const [monthInput, setMonthInput] = useState(defaultMonthStr())
+  const [selectedProjectType, setSelectedProjectType] = useState('all')
+  const [projectTypeInput, setProjectTypeInput] = useState('all')
+
+  const [unit, setUnit] = useState<DefaultUnit>('kg')
+  const [rawSizes, setRawSizes] = useState<any[]>([])
+  const [rawProjects, setRawProjects] = useState<any[]>([])
+  const [rawProjectTypes, setRawProjectTypes] = useState<any[]>([])
+  const [allRawTxs, setAllRawTxs] = useState<any[]>([])
+  const [rawStockTakesThisMonth, setRawStockTakesThisMonth] = useState<any[]>([])
+  const [rawPrevSTs, setRawPrevSTs] = useState<any[]>([])
 
   const [year, mon] = selectedMonth.split('-').map(Number)
   const monthName = new Date(year, mon - 1).toLocaleString('default', { month: 'long', year: 'numeric' })
@@ -25,34 +39,45 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
   const endDay = new Date(year, mon, 0).getDate()
   const endDate = `${selectedMonth}-${String(endDay).padStart(2, '0')}`
 
-  const supabase = await createClient()
+  // Static reference data — fetched once.
+  useEffect(() => { loadStatic() }, [])
+  // Depends on the selected month's date range.
+  useEffect(() => { loadMonthData() }, [selectedMonth])
 
-  const [txRes, sizesRes, projRes, pTypeRes, stRes, prevStRes, settingsRes] = await Promise.all([
-    supabase.from('transactions')
-      .select('quantity, type, transaction_date, size_id, project_id, project_type_id, rebar_sizes(size), projects(name, project_type_id), project_types(name)')
-      .lte('transaction_date', endDate),
-    supabase.from('rebar_sizes').select('*'),
-    supabase.from('projects').select('id, name, project_type_id'),
-    supabase.from('project_types').select('id, name'),
-    supabase.from('stock_takes').select('id, size_id, physical_count, system_balance, variance, stock_take_date, project_type_id, project_types(name), rebar_sizes(size)')
-      .gte('stock_take_date', startDate)
-      .lte('stock_take_date', endDate)
-      .order('stock_take_date', { ascending: true }),
-    supabase.from('stock_takes').select('size_id, physical_count, stock_take_date, project_type_id')
-      .lt('stock_take_date', startDate)
-      .order('stock_take_date', { ascending: false }),
-    supabase.from('global_settings').select('default_unit').eq('id', 1).single()
-  ])
+  async function loadStatic() {
+    const [sizesRes, projRes, pTypeRes, settingsRes] = await Promise.all([
+      supabase.from('rebar_sizes').select('*'),
+      supabase.from('projects').select('id, name, project_type_id'),
+      supabase.from('project_types').select('id, name'),
+      supabase.from('global_settings').select('default_unit').eq('id', 1).single(),
+    ])
+    setRawSizes(sizesRes.data || [])
+    setRawProjects(projRes.data || [])
+    setRawProjectTypes(pTypeRes.data || [])
+    setUnit((settingsRes.data?.default_unit as DefaultUnit) || 'kg')
+  }
 
-  const unit: DefaultUnit = (settingsRes.data?.default_unit as DefaultUnit) || 'kg'
+  async function loadMonthData() {
+    setLoading(true)
+    const [txRes, stRes, prevStRes] = await Promise.all([
+      supabase.from('transactions')
+        .select('quantity, type, transaction_date, size_id, project_id, project_type_id, rebar_sizes(size), projects(name, project_type_id), project_types(name)')
+        .lte('transaction_date', endDate),
+      supabase.from('stock_takes').select('id, size_id, physical_count, system_balance, variance, stock_take_date, project_type_id, project_types(name), rebar_sizes(size)')
+        .gte('stock_take_date', startDate)
+        .lte('stock_take_date', endDate)
+        .order('stock_take_date', { ascending: true }),
+      supabase.from('stock_takes').select('size_id, physical_count, stock_take_date, project_type_id')
+        .lt('stock_take_date', startDate)
+        .order('stock_take_date', { ascending: false }),
+    ])
+    setAllRawTxs(txRes.data || [])
+    setRawStockTakesThisMonth(stRes.data || [])
+    setRawPrevSTs(prevStRes.data || [])
+    setLoading(false)
+  }
+
   const uLabel = unitLabel(unit)
-
-  const allRawTxs = txRes.data || []
-  const rawSizes = sizesRes.data || []
-  const rawProjects = projRes.data || []
-  const rawProjectTypes = pTypeRes.data || []
-  const rawStockTakesThisMonth = stRes.data || []
-  const rawPrevSTs = prevStRes.data || []
 
   const sizes = naturalSort(rawSizes, s => s.size)
   const projects = naturalSort(rawProjects, p => p.name)
@@ -94,8 +119,8 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
 
     for (const pt of activeProjectTypes) {
       const pIds = projects.filter(p => p.project_type_id === pt.id).map(p => p.id)
-      const ptTxs = allRawTxs.filter(t => 
-        t.size_id === sizeId && 
+      const ptTxs = allRawTxs.filter(t =>
+        t.size_id === sizeId &&
         (t.project_type_id === pt.id || (t.project_id && pIds.includes(t.project_id)))
       )
 
@@ -123,9 +148,9 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
 
     if (!isTypeFiltered) {
       const knownProjectIds = projects.map(p => p.id)
-      const unassignedTxs = allRawTxs.filter(t => 
-        t.size_id === sizeId && 
-        !t.project_type_id && 
+      const unassignedTxs = allRawTxs.filter(t =>
+        t.size_id === sizeId &&
+        !t.project_type_id &&
         (!t.project_id || !knownProjectIds.includes(t.project_id)) &&
         t.transaction_date < startDate
       )
@@ -195,9 +220,9 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
     wastage: acc.wastage + r.wastage,
     expectedClosing: acc.expectedClosing + r.expectedClosing,
     variance: acc.variance + (r.variance || 0)
-  }), { 
-    opening: 0, incoming: 0, transfer: 0, usage: 0, suspended: 0, 
-    wastage: unassignedWastageQty, 
+  }), {
+    opening: 0, incoming: 0, transfer: 0, usage: 0, suspended: 0,
+    wastage: unassignedWastageQty,
     expectedClosing: -unassignedWastageQty,
     variance: 0
   })
@@ -238,6 +263,12 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
 
   function fmt(n: number) { return n === 0 ? '-' : fmtQtyNum(n, unit) }
 
+  function applyFilters(e: React.FormEvent) {
+    e.preventDefault()
+    setSelectedMonth(monthInput)
+    setSelectedProjectType(projectTypeInput)
+  }
+
   return (
     <div className="p-4 md:p-8 max-w-[96rem] mx-auto pb-20">
       <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
@@ -254,16 +285,16 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          <form method="GET" className="flex flex-wrap items-center gap-2 bg-white p-1.5 rounded-xl border shadow-xs">
+          <form onSubmit={applyFilters} className="flex flex-wrap items-center gap-2 bg-white p-1.5 rounded-xl border shadow-xs">
             <input
               type="month"
-              name="month"
-              defaultValue={selectedMonth}
+              value={monthInput}
+              onChange={e => setMonthInput(e.target.value)}
               className="border rounded-lg px-3 py-1.5 text-sm bg-white"
             />
             <select
-              name="project_type"
-              defaultValue={selectedProjectType}
+              value={projectTypeInput}
+              onChange={e => setProjectTypeInput(e.target.value)}
               className="border rounded-lg px-3 py-1.5 text-sm bg-white font-medium text-slate-800"
             >
               <option value="all">All Project Types</option>
@@ -294,6 +325,10 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
         </div>
       </div>
 
+      {loading ? (
+        <p className="text-sm text-gray-400 py-12 text-center">Loading…</p>
+      ) : (
+      <>
       {/* Summary KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-10">
         {[
@@ -302,10 +337,10 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
           { label: 'Usage', value: `-${fmtQty(totals.usage, unit)}`, color: 'text-red-600' },
           { label: 'Wastage (Total)', value: `-${fmtQty(totals.wastage, unit)} (${totalWastagePct.toFixed(1)}%)`, color: 'text-orange-600' },
           { label: 'Expected Closing', value: fmtQty(totals.expectedClosing, unit), color: 'text-slate-700 font-bold' },
-          { 
-            label: 'Total Variance', 
-            value: `${totals.variance > 0 ? '+' : ''}${fmtQty(totals.variance, unit)} (${totalVariancePct > 0 ? '+' : ''}${totalVariancePct.toFixed(1)}%)`, 
-            color: totals.variance < 0 ? 'text-red-600 font-bold' : totals.variance > 0 ? 'text-green-600 font-bold' : 'text-slate-700' 
+          {
+            label: 'Total Variance',
+            value: `${totals.variance > 0 ? '+' : ''}${fmtQty(totals.variance, unit)} (${totalVariancePct > 0 ? '+' : ''}${totalVariancePct.toFixed(1)}%)`,
+            color: totals.variance < 0 ? 'text-red-600 font-bold' : totals.variance > 0 ? 'text-green-600 font-bold' : 'text-slate-700'
           },
         ].map(kpi => (
           <div key={kpi.label} className="bg-white border rounded-xl p-4 shadow-sm">
@@ -367,7 +402,7 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
                   r.variance > 0 ? 'text-green-600' :
                   'text-green-600'
                 }`}>
-                  {r.variance === null ? '—' : 
+                  {r.variance === null ? '—' :
                    r.variance === 0 ? <span className="text-green-600">✓ Match</span> :
                    (r.variance > 0 ? `+${fmtQtyNum(r.variance, unit)}` : fmtQtyNum(r.variance, unit))}
                 </td>
@@ -377,7 +412,7 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
                   r.variancePct > 0 ? 'text-green-600' :
                   'text-green-600'
                 }`}>
-                  {r.variancePct === null ? '—' : 
+                  {r.variancePct === null ? '—' :
                    r.variancePct === 0 ? '0.0%' :
                    (r.variancePct > 0 ? `+${r.variancePct.toFixed(1)}%` : `${r.variancePct.toFixed(1)}%`)}
                 </td>
@@ -540,6 +575,8 @@ export default async function MonthlyReportPage({ searchParams }: { searchParams
           </div>
         </div>
       </div>
+      </>
+      )}
     </div>
   )
 }
