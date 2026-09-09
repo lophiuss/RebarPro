@@ -6,6 +6,10 @@ import { ClipboardList, AlertOctagon, Download, ChevronLeft, ChevronRight, X, Ac
 import PhotoLightbox from '@/components/PhotoLightbox'
 import ActivityLogFeed from '@/components/ActivityLogFeed'
 import { buildActivityLog, ActivityEvent } from '@/lib/security/activityLog'
+import { useLang } from '@/lib/i18n/useLang'
+import { makeT } from '@/lib/i18n/languages'
+import { securityDict } from '@/lib/i18n/dict/security'
+import LanguageSwitcher from '@/components/LanguageSwitcher'
 
 // Local-date arithmetic only — .toISOString() converts to UTC, which silently
 // shifts the date by a day for any timezone ahead of UTC (e.g. the "forward"
@@ -68,8 +72,10 @@ export default function AuditPage() {
   const [rangeFrom, setRangeFrom] = useState(isoToday())
   const [rangeTo, setRangeTo] = useState(isoToday())
   const [rangeExporting, setRangeExporting] = useState(false)
+  const [lang, setLang] = useLang()
+  const t = makeT(securityDict, lang)
 
-  useEffect(() => { load() }, [date])
+  useEffect(() => { load() }, [date, lang])
 
   async function load() {
     setLoading(true)
@@ -105,22 +111,24 @@ export default function AuditPage() {
     // thing as an "incomplete" approved entry, so exclude it here.
     const incompleteEntries = (dayEntries || []).filter(e => e.status !== 'pending' && (!e.company || !e.purpose))
 
+    const catLabel = (v: string) => t(`category.${v}`)
+
     setAnomalySections([
-      { title: 'Panic Alarms', rows: todayPanics || [], columns: [{ key: 'triggered_by', label: 'Triggered By' }, { key: 'remark', label: 'Remark' }, { key: 'created_at', label: 'Time', fmt: v => new Date(v).toLocaleString() }] },
-      { title: 'Incident Reports', rows: todayIncidents || [], columns: [{ key: 'type', label: 'Type' }, { key: 'severity', label: 'Severity' }, { key: 'description', label: 'Description' }, { key: 'reported_by', label: 'Reporter' }, { key: 'created_at', label: 'Time', fmt: v => new Date(v).toLocaleString() }] },
-      { title: 'Overstayed Visitors / Deliveries (>24h)', rows: overstayed || [], columns: [{ key: 'category', label: 'Type' }, { key: 'person_name', label: 'Name' }, { key: 'time_in', label: 'Time In', fmt: v => new Date(v).toLocaleString() }] },
-      { title: 'Overdue Keys (out >24h)', rows: abandonedKeys || [], columns: [{ key: 'key_name', label: 'Key' }, { key: 'issued_to', label: 'Issued To' }, { key: 'issued_by', label: 'Issued By' }, { key: 'time_issued', label: 'Time Out', fmt: v => new Date(v).toLocaleString() }] },
-      { title: 'Suspicious Shifts (<30min or >14h)', rows: suspiciousShifts, columns: [{ key: 'guard_name', label: 'Guard' }, { key: 'post_name', label: 'Post' }, { key: 'time_in', label: 'In', fmt: v => new Date(v).toLocaleString() }, { key: 'time_out', label: 'Out', fmt: v => v ? new Date(v).toLocaleString() : 'Still active' }] },
-      { title: 'Incomplete Entries (missing company/purpose)', rows: incompleteEntries, columns: [{ key: 'category', label: 'Type' }, { key: 'person_name', label: 'Name' }, { key: 'created_by', label: 'Attended By' }] },
+      { title: t('audit.sec.panicAlarms'), rows: todayPanics || [], columns: [{ key: 'triggered_by', label: t('audit.col.triggeredBy') }, { key: 'remark', label: t('audit.col.remark') }, { key: 'created_at', label: t('audit.col.time'), fmt: v => new Date(v).toLocaleString() }] },
+      { title: t('audit.sec.incidentReports'), rows: todayIncidents || [], columns: [{ key: 'type', label: t('audit.col.type') }, { key: 'severity', label: t('audit.col.severity') }, { key: 'description', label: t('audit.col.description') }, { key: 'reported_by', label: t('audit.col.reporter') }, { key: 'created_at', label: t('audit.col.time'), fmt: v => new Date(v).toLocaleString() }] },
+      { title: t('audit.sec.overstayed'), rows: overstayed || [], columns: [{ key: 'category', label: t('audit.col.type'), fmt: catLabel }, { key: 'person_name', label: t('audit.col.name') }, { key: 'time_in', label: t('audit.col.timeIn'), fmt: v => new Date(v).toLocaleString() }] },
+      { title: t('audit.sec.overdueKeys'), rows: abandonedKeys || [], columns: [{ key: 'key_name', label: t('audit.col.key') }, { key: 'issued_to', label: t('audit.col.issuedTo') }, { key: 'issued_by', label: t('audit.col.issuedBy') }, { key: 'time_issued', label: t('audit.col.timeOut'), fmt: v => new Date(v).toLocaleString() }] },
+      { title: t('audit.sec.suspiciousShifts'), rows: suspiciousShifts, columns: [{ key: 'guard_name', label: t('audit.col.guard') }, { key: 'post_name', label: t('audit.col.post') }, { key: 'time_in', label: t('audit.col.in'), fmt: v => new Date(v).toLocaleString() }, { key: 'time_out', label: t('audit.col.out'), fmt: v => v ? new Date(v).toLocaleString() : t('audit.col.stillActive') }] },
+      { title: t('audit.sec.incompleteEntries'), rows: incompleteEntries, columns: [{ key: 'category', label: t('audit.col.type'), fmt: catLabel }, { key: 'person_name', label: t('audit.col.name') }, { key: 'created_by', label: t('audit.col.attendedBy') }] },
     ])
 
     setPhotoEntries((dayEntries || []).filter(e => e.photo_drive_id))
 
     setHistorySections([
-      { title: `Visitor/Delivery Entries (${(dayEntries || []).length})`, rows: dayEntries || [], columns: [{ key: 'category', label: 'Type' }, { key: 'person_name', label: 'Name' }, { key: 'company', label: 'Company' }, { key: 'time_in', label: 'In', fmt: v => new Date(v).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) }, { key: 'time_out', label: 'Out', fmt: v => v ? new Date(v).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '-' }] },
-      { title: `Guard Post Logs (${(postLogs || []).length})`, rows: postLogs || [], columns: [{ key: 'post_name', label: 'Post' }, { key: 'guard_name', label: 'Guard' }, { key: 'time_in', label: 'In', fmt: v => new Date(v).toLocaleString() }, { key: 'time_out', label: 'Out', fmt: v => v ? new Date(v).toLocaleString() : '-' }] },
-      { title: `Key Logs (${(keyLogs || []).length})`, rows: keyLogs || [], columns: [{ key: 'key_name', label: 'Key' }, { key: 'issued_to', label: 'Issued To' }, { key: 'time_issued', label: 'Out', fmt: v => new Date(v).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) }, { key: 'time_returned', label: 'In', fmt: v => v ? new Date(v).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '-' }] },
-      { title: `GPS Clocking (${(dayClocking || []).length})`, rows: dayClocking || [], columns: [{ key: 'checkpoint_name', label: 'Checkpoint' }, { key: 'guard_name', label: 'Guard' }, { key: 'clocked_at', label: 'Time', fmt: v => new Date(v).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) }, { key: 'distance_meters', label: 'Distance', fmt: v => `${v}m` }, { key: 'remark', label: 'Remark' }] },
+      { title: `${t('audit.sec.visitorEntries')} (${(dayEntries || []).length})`, rows: dayEntries || [], columns: [{ key: 'category', label: t('audit.col.type'), fmt: catLabel }, { key: 'person_name', label: t('audit.col.name') }, { key: 'company', label: t('audit.col.company') }, { key: 'time_in', label: t('audit.col.in'), fmt: v => new Date(v).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) }, { key: 'time_out', label: t('audit.col.out'), fmt: v => v ? new Date(v).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '-' }] },
+      { title: `${t('audit.sec.postLogs')} (${(postLogs || []).length})`, rows: postLogs || [], columns: [{ key: 'post_name', label: t('audit.col.post') }, { key: 'guard_name', label: t('audit.col.guard') }, { key: 'time_in', label: t('audit.col.in'), fmt: v => new Date(v).toLocaleString() }, { key: 'time_out', label: t('audit.col.out'), fmt: v => v ? new Date(v).toLocaleString() : '-' }] },
+      { title: `${t('audit.sec.keyLogs')} (${(keyLogs || []).length})`, rows: keyLogs || [], columns: [{ key: 'key_name', label: t('audit.col.key') }, { key: 'issued_to', label: t('audit.col.issuedTo') }, { key: 'time_issued', label: t('audit.col.out'), fmt: v => new Date(v).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) }, { key: 'time_returned', label: t('audit.col.in'), fmt: v => v ? new Date(v).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '-' }] },
+      { title: `${t('audit.sec.gpsClocking')} (${(dayClocking || []).length})`, rows: dayClocking || [], columns: [{ key: 'checkpoint_name', label: t('audit.col.checkpoint') }, { key: 'guard_name', label: t('audit.col.guard') }, { key: 'clocked_at', label: t('audit.col.time'), fmt: v => new Date(v).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) }, { key: 'distance_meters', label: t('audit.col.distance'), fmt: v => `${v}m` }, { key: 'remark', label: t('audit.col.remark') }] },
     ])
 
     setGuardTimeline(buildTimelineRows(postLogs || [], 'guard_name', date))
@@ -136,7 +144,7 @@ export default function AuditPage() {
 
   function exportCSV() {
     if (!containerRef.current) return
-    let csv = `Report Date,${date}\n\n`
+    let csv = `${t('audit.export.reportDate')},${date}\n\n`
     containerRef.current.querySelectorAll('[data-audit-card]').forEach(card => {
       const title = card.querySelector('[data-audit-title]')?.textContent?.trim() || ''
       csv += `"${title.replace(/"/g, '""')}"\n`
@@ -169,7 +177,7 @@ export default function AuditPage() {
   // audit view above (which only covers `date`), and queried fresh rather
   // than reusing that day's already-loaded state.
   async function exportDateRange() {
-    if (!rangeFrom || !rangeTo || rangeFrom > rangeTo) { alert('Please pick a valid From/To date range.'); return }
+    if (!rangeFrom || !rangeTo || rangeFrom > rangeTo) { alert(t('audit.invalidRange')); return }
     setRangeExporting(true)
     try {
       const rangeStart = new Date(rangeFrom + 'T00:00:00').toISOString()
@@ -187,60 +195,61 @@ export default function AuditPage() {
         supabase.from('security_clocking_records').select('*').gte('clocked_at', rangeStart).lte('clocked_at', rangeEnd).order('clocked_at'),
       ])
 
-      let csv = csvRow(['Security Log Export'])
-      csv += csvRow(['Date Range', `${rangeFrom} to ${rangeTo}`])
-      csv += csvRow(['Generated', new Date().toLocaleString()])
+      const catLabel = (v: string) => t(`category.${v}`)
+
+      let csv = csvRow([t('audit.export.title')])
+      csv += csvRow([t('audit.export.dateRange'), `${rangeFrom} to ${rangeTo}`])
+      csv += csvRow([t('audit.export.generated'), new Date().toLocaleString()])
       csv += '\n'
 
-      const CAT_LABEL: Record<string, string> = { visitor: 'Visitor', delivery: 'Delivery / Lorry', inhouse: 'In-House' }
-      csv += csvRow([`Visitor / Delivery (Lorry) / In-House Entries (${(entries || []).length})`])
-      csv += csvRow(['Type', 'Name', 'Company', 'Purpose', 'Looking For', 'Vehicle No', 'Badge No', 'Ref/DO No', 'Status', 'Time In', 'Time Out', 'Attended By', 'Abnormal?', 'Abnormal Reason', 'Notes'])
+      csv += csvRow([`${t('audit.export.entries')} (${(entries || []).length})`])
+      csv += csvRow([t('audit.col.type'), t('audit.col.name'), t('audit.col.company'), t('common.purpose'), t('entries.lookingFor'), t('entries.vehicleNo'), t('entries.badgeNo'), t('entries.referenceNo'), t('common.status'), t('audit.col.timeIn'), t('audit.col.timeOut'), t('audit.col.attendedBy'), 'Abnormal?', 'Abnormal Reason', t('common.notes')])
       for (const e of entries || []) {
         csv += csvRow([
-          CAT_LABEL[e.category] || e.category, e.person_name, e.company, e.purpose, e.looking_for, e.vehicle_no, e.badge_no, e.reference_no,
+          catLabel(e.category) || e.category, e.person_name, e.company, e.purpose, e.looking_for, e.vehicle_no, e.badge_no, e.reference_no,
           e.status, new Date(e.time_in).toLocaleString(), e.time_out ? new Date(e.time_out).toLocaleString() : null,
           e.created_by, e.abnormal_flag ? 'Yes' : 'No', e.abnormal_reason, e.notes,
         ])
       }
       csv += '\n'
 
-      csv += csvRow([`Guard Post Logs (${(postLogs || []).length})`])
-      csv += csvRow(['Post', 'Guard', 'Time In', 'Time Out', 'Notes', 'Logged By'])
+      csv += csvRow([`${t('audit.sec.postLogs')} (${(postLogs || []).length})`])
+      csv += csvRow([t('audit.col.post'), t('audit.col.guard'), t('audit.col.timeIn'), t('audit.col.timeOut'), t('common.notes'), 'Logged By'])
       for (const p of postLogs || []) {
         csv += csvRow([p.post_name, p.guard_name, new Date(p.time_in).toLocaleString(), p.time_out ? new Date(p.time_out).toLocaleString() : null, p.notes, p.created_by])
       }
       csv += '\n'
 
-      csv += csvRow([`Gate Events (${(gateEvents || []).length})`])
-      csv += csvRow(['Gate', 'Action', 'By', 'Time'])
+      csv += csvRow([`${t('audit.export.gateEvents')} (${(gateEvents || []).length})`])
+      csv += csvRow(['Gate', 'Action', 'By', t('audit.col.time')])
       for (const g of gateEvents || []) {
         csv += csvRow([g.gate_name, g.action, g.username, new Date(g.created_at).toLocaleString()])
       }
       csv += '\n'
 
-      csv += csvRow([`Key Logs (${(keyLogs || []).length})`])
-      csv += csvRow(['Key', 'Issued To', 'Issued By', 'Purpose', 'Time Out', 'Time In', 'Status', 'Returned By'])
+      csv += csvRow([`${t('audit.sec.keyLogs')} (${(keyLogs || []).length})`])
+      csv += csvRow([t('audit.col.key'), t('audit.col.issuedTo'), t('audit.col.issuedBy'), t('common.purpose'), t('audit.col.timeOut'), t('audit.col.timeIn'), t('common.status'), 'Returned By'])
       for (const k of keyLogs || []) {
         csv += csvRow([k.key_name, k.issued_to, k.issued_by, k.purpose, new Date(k.time_issued).toLocaleString(), k.time_returned ? new Date(k.time_returned).toLocaleString() : null, k.status, k.returned_by])
       }
       csv += '\n'
 
-      csv += csvRow([`Incident Reports (${(incidents || []).length})`])
-      csv += csvRow(['Type', 'Severity', 'Description', 'Location', 'Reported By', 'Status', 'Time'])
+      csv += csvRow([`${t('audit.export.incidentReports')} (${(incidents || []).length})`])
+      csv += csvRow([t('audit.col.type'), t('audit.col.severity'), t('audit.col.description'), t('common.location'), t('audit.col.reporter'), t('common.status'), t('audit.col.time')])
       for (const i of incidents || []) {
         csv += csvRow([i.type, i.severity, i.description, i.location, i.reported_by, i.status, new Date(i.created_at).toLocaleString()])
       }
       csv += '\n'
 
-      csv += csvRow([`Panic Alarms (${(panics || []).length})`])
-      csv += csvRow(['Triggered By', 'Remark', 'Time'])
+      csv += csvRow([`${t('audit.export.panicAlarms')} (${(panics || []).length})`])
+      csv += csvRow([t('audit.col.triggeredBy'), t('audit.col.remark'), t('audit.col.time')])
       for (const p of panics || []) {
         csv += csvRow([p.triggered_by, p.remark, new Date(p.created_at).toLocaleString()])
       }
       csv += '\n'
 
-      csv += csvRow([`GPS Clocking (${(clocking || []).length})`])
-      csv += csvRow(['Checkpoint', 'Guard', 'Distance (m)', 'Remark', 'Time'])
+      csv += csvRow([`${t('audit.export.gpsClocking')} (${(clocking || []).length})`])
+      csv += csvRow([t('audit.col.checkpoint'), t('audit.col.guard'), t('audit.col.distance'), t('audit.col.remark'), t('audit.col.time')])
       for (const c of clocking || []) {
         csv += csvRow([c.checkpoint_name, c.guard_name, c.distance_meters, c.remark, new Date(c.clocked_at).toLocaleString()])
       }
@@ -306,10 +315,11 @@ export default function AuditPage() {
   return (
     <div className="p-4 md:p-8 max-w-6xl mx-auto" ref={containerRef}>
       <div className="flex items-center justify-between flex-wrap gap-3 mb-6">
-        <h1 className="text-3xl font-bold flex items-center gap-2"><ClipboardList className="w-7 h-7 text-blue-600" /> Audit &amp; History</h1>
-        <div className="flex items-center gap-2">
-          <button onClick={exportCSV} className="flex items-center gap-1.5 bg-gray-100 text-gray-700 text-sm font-medium px-3 py-2 rounded-lg hover:bg-gray-200" title="Export just this day's audit view"><Download className="w-4 h-4" /> Export Today</button>
-          <button onClick={() => setShowRangeExport(s => !s)} className={`flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg ${showRangeExport ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}><Download className="w-4 h-4" /> Export by Date Range</button>
+        <h1 className="text-3xl font-bold flex items-center gap-2"><ClipboardList className="w-7 h-7 text-blue-600" /> {t('audit.title')}</h1>
+        <div className="flex items-center gap-2 flex-wrap">
+          <LanguageSwitcher lang={lang} onChange={setLang} />
+          <button onClick={exportCSV} className="flex items-center gap-1.5 bg-gray-100 text-gray-700 text-sm font-medium px-3 py-2 rounded-lg hover:bg-gray-200" title={t('audit.exportTodayTitle')}><Download className="w-4 h-4" /> {t('audit.exportToday')}</button>
+          <button onClick={() => setShowRangeExport(s => !s)} className={`flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg ${showRangeExport ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}><Download className="w-4 h-4" /> {t('audit.exportByRange')}</button>
           <button onClick={() => setDate(d => addDays(d, -1))} className="p-2 bg-gray-100 rounded-lg hover:bg-gray-200"><ChevronLeft className="w-4 h-4" /></button>
           <input type="date" value={date} onChange={e => setDate(e.target.value)} className="border rounded-md px-3 py-2 text-sm" />
           <button onClick={() => setDate(d => addDays(d, 1))} disabled={isToday} className="p-2 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-40"><ChevronRight className="w-4 h-4" /></button>
@@ -319,26 +329,26 @@ export default function AuditPage() {
       {showRangeExport && (
         <div className="bg-blue-50 border border-blue-200 rounded-xl shadow-sm p-5 mb-6 flex flex-wrap items-end gap-3">
           <div>
-            <label className="block text-xs font-semibold text-blue-800 mb-1">From</label>
+            <label className="block text-xs font-semibold text-blue-800 mb-1">{t('audit.from')}</label>
             <input type="date" value={rangeFrom} onChange={e => setRangeFrom(e.target.value)} max={isoToday()} className="border rounded-md px-3 py-2 text-sm bg-white" />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-blue-800 mb-1">To</label>
+            <label className="block text-xs font-semibold text-blue-800 mb-1">{t('audit.to')}</label>
             <input type="date" value={rangeTo} onChange={e => setRangeTo(e.target.value)} max={isoToday()} className="border rounded-md px-3 py-2 text-sm bg-white" />
           </div>
           <button onClick={exportDateRange} disabled={rangeExporting} className="flex items-center gap-1.5 bg-blue-600 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-blue-700">
-            <Download className="w-4 h-4" /> {rangeExporting ? 'Exporting...' : 'Download Excel/CSV'}
+            <Download className="w-4 h-4" /> {rangeExporting ? t('audit.exporting') : t('audit.downloadExcel')}
           </button>
-          <p className="text-xs text-blue-700 basis-full">Includes visitor / delivery (lorry) / in-house entries, guard post logs, gate events, key logs, incidents and panic alarms for the selected range, in one file.</p>
+          <p className="text-xs text-blue-700 basis-full">{t('audit.rangeHint')}</p>
         </div>
       )}
 
       <div className="bg-white border rounded-xl shadow-sm p-5 mb-6" data-audit-card>
-        <h2 className="text-sm font-bold text-slate-700 mb-3" data-audit-title>🚨 {isToday ? "Today's Anomalies & Incidents" : `Anomalies & Incidents for ${date}`}</h2>
+        <h2 className="text-sm font-bold text-slate-700 mb-3" data-audit-title>🚨 {isToday ? t('audit.todayAnomalies') : `${t('audit.anomaliesFor')} ${date}`}</h2>
         {!loading && totalFlags === 0 ? (
-          <div className="bg-green-50 border border-green-200 text-green-800 rounded-xl px-5 py-4 text-sm font-medium">✅ No Anomalies Detected — all systems operating within acceptable parameters.</div>
+          <div className="bg-green-50 border border-green-200 text-green-800 rounded-xl px-5 py-4 text-sm font-medium">✅ {t('audit.noAnomalies')}</div>
         ) : (
-          <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-5 py-4 text-sm font-bold flex items-center gap-2">⚠️ {totalFlags} Issues Detected</div>
+          <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-5 py-4 text-sm font-bold flex items-center gap-2">⚠️ {totalFlags} {t('audit.issuesDetected')}</div>
         )}
       </div>
 
@@ -357,18 +367,18 @@ export default function AuditPage() {
 
       <div className="bg-white border rounded-xl shadow-sm overflow-hidden mb-6" data-audit-card>
         <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
-          <h2 className="text-sm font-bold text-slate-700 flex items-center gap-2" data-audit-title><Activity className="w-4 h-4 text-indigo-500" /> Activity Log for {date}</h2>
+          <h2 className="text-sm font-bold text-slate-700 flex items-center gap-2" data-audit-title><Activity className="w-4 h-4 text-indigo-500" /> {t('audit.activityLogFor')} {date}</h2>
           <span className="text-xs bg-indigo-50 text-indigo-700 rounded-full px-2.5 py-1 font-semibold">{activity.length}</span>
         </div>
-        <ActivityLogFeed events={activity} emptyLabel="No activity recorded for this date." />
+        <ActivityLogFeed events={activity} emptyLabel={t('audit.noActivityForDate')} />
       </div>
 
       <div className="bg-white border rounded-xl shadow-sm p-5" data-audit-card>
-        <h2 className="text-sm font-bold text-slate-700 mb-4" data-audit-title>📖 Full History for {date}</h2>
+        <h2 className="text-sm font-bold text-slate-700 mb-4" data-audit-title>📖 {t('audit.fullHistoryFor')} {date}</h2>
 
         {photoEntries.length > 0 && (
           <div className="mb-6">
-            <h3 className="text-xs font-bold text-blue-600 uppercase mb-2">📸 Visitor / Delivery Photos</h3>
+            <h3 className="text-xs font-bold text-blue-600 uppercase mb-2">📸 {t('audit.visitorPhotos')}</h3>
             <div className="flex flex-wrap gap-3">
               {photoEntries.map(e => (
                 <button key={e.id} onClick={() => setEntryDetail(e)} title="View check-in / check-out details" className="w-28 border rounded-lg overflow-hidden bg-white shadow-sm hover:shadow-md hover:-translate-y-0.5 transition text-left flex-shrink-0">
@@ -385,17 +395,17 @@ export default function AuditPage() {
 
         {guardTimeline.length > 0 && (
           <div className="mb-6" data-audit-card>
-            <h3 className="text-xs font-bold text-slate-500 uppercase mb-2" data-audit-title>⏱️ Guard Movements Timeline</h3>
-            <p className="text-[11px] text-gray-400 mb-2">Which post each guard was on, by hour.</p>
-            {renderTimeline(guardTimeline, 'Guard')}
+            <h3 className="text-xs font-bold text-slate-500 uppercase mb-2" data-audit-title>⏱️ {t('audit.guardMovements')}</h3>
+            <p className="text-[11px] text-gray-400 mb-2">{t('audit.guardMovementsHint')}</p>
+            {renderTimeline(guardTimeline, t('audit.guardCol'))}
           </div>
         )}
 
         {postTimeline.length > 0 && (
           <div className="mb-6" data-audit-card>
-            <h3 className="text-xs font-bold text-slate-500 uppercase mb-2" data-audit-title>⏱️ Post Duty Timeline</h3>
-            <p className="text-[11px] text-gray-400 mb-2">Who was manning each post, by hour.</p>
-            {renderTimeline(postTimeline, 'Post')}
+            <h3 className="text-xs font-bold text-slate-500 uppercase mb-2" data-audit-title>⏱️ {t('audit.postDuty')}</h3>
+            <p className="text-[11px] text-gray-400 mb-2">{t('audit.postDutyHint')}</p>
+            {renderTimeline(postTimeline, t('audit.postCol'))}
           </div>
         )}
 
@@ -407,7 +417,7 @@ export default function AuditPage() {
         ))}
 
         {!loading && historySections.every(s => s.rows.length === 0) && photoEntries.length === 0 && (
-          <p className="text-sm text-gray-400 text-center py-8">No records found for this date.</p>
+          <p className="text-sm text-gray-400 text-center py-8">{t('audit.noRecordsForDate')}</p>
         )}
       </div>
 
@@ -427,21 +437,21 @@ export default function AuditPage() {
                 />
               )}
               <div className="flex-1 min-w-[160px] text-sm">
-                <span className="inline-block bg-blue-50 text-blue-700 text-xs font-bold uppercase rounded-full px-2.5 py-1 mb-2">{entryDetail.category}</span>
+                <span className="inline-block bg-blue-50 text-blue-700 text-xs font-bold uppercase rounded-full px-2.5 py-1 mb-2">{t(`category.${entryDetail.category}`)}</span>
                 <div className="space-y-1">
-                  <div><strong>Company:</strong> {entryDetail.company || '-'}</div>
-                  <div><strong>Vehicle:</strong> {entryDetail.vehicle_no || '-'}</div>
-                  <div><strong>Badge:</strong> {entryDetail.badge_no || '-'}</div>
-                  <div><strong>Ref/DO:</strong> {entryDetail.reference_no || '-'}</div>
-                  <div><strong>In:</strong> {new Date(entryDetail.time_in).toLocaleString()}</div>
-                  <div><strong>Out:</strong> {entryDetail.time_out ? new Date(entryDetail.time_out).toLocaleString() : '-'}</div>
+                  <div><strong>{t('common.company')}:</strong> {entryDetail.company || '-'}</div>
+                  <div><strong>{t('audit.detail.vehicle')}:</strong> {entryDetail.vehicle_no || '-'}</div>
+                  <div><strong>{t('audit.detail.badge')}:</strong> {entryDetail.badge_no || '-'}</div>
+                  <div><strong>{t('audit.detail.refDo')}:</strong> {entryDetail.reference_no || '-'}</div>
+                  <div><strong>{t('audit.detail.in')}:</strong> {new Date(entryDetail.time_in).toLocaleString()}</div>
+                  <div><strong>{t('audit.detail.out')}:</strong> {entryDetail.time_out ? new Date(entryDetail.time_out).toLocaleString() : '-'}</div>
                 </div>
               </div>
             </div>
-            {entryDetail.purpose && <div className="text-sm mb-2"><strong>Purpose:</strong> {entryDetail.purpose}</div>}
-            {entryDetail.looking_for && <div className="text-sm mb-2"><strong>Looking for:</strong> {entryDetail.looking_for}</div>}
-            {entryDetail.notes && <div className="text-sm bg-gray-50 border rounded-lg px-3 py-2 mb-3"><strong>Notes:</strong> {entryDetail.notes}</div>}
-            <div className="text-xs text-gray-400 pt-2 border-t">Attended by: {entryDetail.created_by || '-'}</div>
+            {entryDetail.purpose && <div className="text-sm mb-2"><strong>{t('audit.detail.purpose')}:</strong> {entryDetail.purpose}</div>}
+            {entryDetail.looking_for && <div className="text-sm mb-2"><strong>{t('audit.detail.lookingFor')}:</strong> {entryDetail.looking_for}</div>}
+            {entryDetail.notes && <div className="text-sm bg-gray-50 border rounded-lg px-3 py-2 mb-3"><strong>{t('audit.detail.notes')}:</strong> {entryDetail.notes}</div>}
+            <div className="text-xs text-gray-400 pt-2 border-t">{t('audit.detail.attendedBy')}: {entryDetail.created_by || '-'}</div>
           </div>
         </div>
       )}
