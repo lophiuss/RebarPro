@@ -7,6 +7,10 @@ import PhotoLightbox from '@/components/PhotoLightbox'
 import ActivityLogFeed from '@/components/ActivityLogFeed'
 import ShoutoutBoard from '@/components/ShoutoutBoard'
 import { buildActivityLog, ActivityEvent } from '@/lib/security/activityLog'
+import { useLang } from '@/lib/i18n/useLang'
+import { makeT } from '@/lib/i18n/languages'
+import { securityDict } from '@/lib/i18n/dict/security'
+import LanguageSwitcher from '@/components/LanguageSwitcher'
 
 type Category = 'visitor' | 'delivery' | 'inhouse'
 type Entry = {
@@ -18,7 +22,6 @@ type Gate = { id: number; name: string; pos_x: number; pos_y: number; status: 'l
 type Post = { id: number; name: string }
 type Shift = { post_name: string; guard_name: string; time_in: string }
 
-const CATEGORY_LABEL: Record<Category, string> = { visitor: 'Visitor', delivery: 'Delivery', inhouse: 'In-House' }
 const CATEGORY_ICON: Record<Category, string> = { visitor: '🧑', delivery: '🚚', inhouse: '🏭' }
 
 export default function SecurityDashboardPage() {
@@ -33,6 +36,9 @@ export default function SecurityDashboardPage() {
   const [mapCollapsed, setMapCollapsed] = useState(false)
   const [zoomSrc, setZoomSrc] = useState<string | null>(null)
   const [activity, setActivity] = useState<ActivityEvent[]>([])
+  const [lang, setLang] = useLang()
+  const t = makeT(securityDict, lang)
+  const categoryLabel = (c: Category) => t(`category.${c}`)
 
   useEffect(() => { load() }, [])
 
@@ -107,7 +113,7 @@ export default function SecurityDashboardPage() {
       }))
       setActivity(prev => [{
         id: `entry-out-${id}`, time: now,
-        icon: CATEGORY_ICON[entry.category], label: `${CATEGORY_LABEL[entry.category]} Out: ${entry.person_name}`,
+        icon: CATEGORY_ICON[entry.category], label: `${categoryLabel(entry.category)} Out: ${entry.person_name}`,
         detail: entry.company || entry.vehicle_no || '', tone: 'default',
       }, ...prev])
     }
@@ -130,35 +136,38 @@ export default function SecurityDashboardPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8">
-      <h1 className="text-3xl font-bold flex items-center gap-2"><ShieldCheck className="w-7 h-7 text-blue-600" /> Security Dashboard</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-3xl font-bold flex items-center gap-2"><ShieldCheck className="w-7 h-7 text-blue-600" /> {t('dashboard.title')}</h1>
+        <LanguageSwitcher lang={lang} onChange={setLang} />
+      </div>
 
       <ShoutoutBoard department="security" />
 
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
         <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase mb-1"><Users className="w-3.5 h-3.5" /> Visitors Inside</div>
+          <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase mb-1"><Users className="w-3.5 h-3.5" /> {t('dashboard.visitorsInside')}</div>
           <div className="text-2xl font-extrabold">{counts.visitors}</div>
         </div>
         <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase mb-1"><Truck className="w-3.5 h-3.5" /> Deliveries In</div>
+          <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase mb-1"><Truck className="w-3.5 h-3.5" /> {t('dashboard.deliveriesIn')}</div>
           <div className="text-2xl font-extrabold">{counts.deliveries}</div>
         </div>
         <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase mb-1"><Building2 className="w-3.5 h-3.5" /> In-House In</div>
+          <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase mb-1"><Building2 className="w-3.5 h-3.5" /> {t('dashboard.inhouseIn')}</div>
           <div className="text-2xl font-extrabold">{counts.inhouse}</div>
         </div>
         <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-xs font-semibold text-gray-500 uppercase mb-1">Trailers / Total In</div>
+          <div className="text-xs font-semibold text-gray-500 uppercase mb-1">{t('dashboard.totalIn')}</div>
           <div className="text-2xl font-extrabold">{counts.deliveries + counts.inhouse}</div>
         </div>
         <div className="bg-white border rounded-xl p-4 shadow-sm">
-          <div className="text-xs font-semibold text-gray-500 uppercase mb-1">Today Total</div>
+          <div className="text-xs font-semibold text-gray-500 uppercase mb-1">{t('dashboard.todayTotal')}</div>
           <div className="text-2xl font-extrabold">{counts.today}</div>
         </div>
       </div>
 
       <div className="bg-white border rounded-xl shadow-sm p-5">
-        <h2 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><ShieldCheck className="w-4 h-4" /> Live Post Status</h2>
+        <h2 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><ShieldCheck className="w-4 h-4" /> {t('dashboard.livePostStatus')}</h2>
         <div className="flex flex-wrap gap-3">
           {posts.map(p => {
             const shift = shiftByPost.get(p.name.trim().toLowerCase())
@@ -172,22 +181,22 @@ export default function SecurityDashboardPage() {
                 <div className="flex items-center gap-2 font-semibold text-sm text-slate-800">
                   <span className={`w-2.5 h-2.5 rounded-full ${!shift ? 'bg-red-500' : overdue ? 'bg-amber-500' : 'bg-green-500'}`} />
                   {p.name}
-                  {overdue && <span className="text-[10px] font-bold bg-amber-500 text-white rounded px-1.5 py-0.5">OVERDUE</span>}
+                  {overdue && <span className="text-[10px] font-bold bg-amber-500 text-white rounded px-1.5 py-0.5">{t('dashboard.overdue')}</span>}
                 </div>
                 <div className="text-xs text-gray-500 pl-4.5 mt-1">
-                  {shift ? <>🧑 {shift.guard_name}<br />🕐 Since {new Date(shift.time_in).toLocaleString()} <span className={`font-semibold ${overdue ? 'text-amber-600' : 'text-blue-600'}`}>({hrs.toFixed(1)} hrs)</span></> : <em>Vacant</em>}
+                  {shift ? <>🧑 {shift.guard_name}<br />🕐 {t('dashboard.since')} {new Date(shift.time_in).toLocaleString()} <span className={`font-semibold ${overdue ? 'text-amber-600' : 'text-blue-600'}`}>({hrs.toFixed(1)} hrs)</span></> : <em>{t('dashboard.vacant')}</em>}
                 </div>
               </div>
             )
           })}
-          {posts.length === 0 && <p className="text-sm text-gray-400">No posts configured. Go to Settings to add them.</p>}
+          {posts.length === 0 && <p className="text-sm text-gray-400">{t('dashboard.noPosts')}</p>}
         </div>
       </div>
 
       <div className="bg-white border rounded-xl shadow-sm p-5">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-bold text-slate-700">🗺️ Site Layout</h2>
-          <button onClick={() => setMapCollapsed(c => !c)} className="text-xs text-blue-600 hover:underline">{mapCollapsed ? 'Expand' : 'Collapse'}</button>
+          <h2 className="text-sm font-bold text-slate-700">🗺️ {t('dashboard.siteLayout')}</h2>
+          <button onClick={() => setMapCollapsed(c => !c)} className="text-xs text-blue-600 hover:underline">{mapCollapsed ? t('dashboard.expand') : t('dashboard.collapse')}</button>
         </div>
         {!mapCollapsed && (
           <div className="relative w-full aspect-video bg-gray-100 border rounded-xl overflow-hidden">
@@ -196,7 +205,7 @@ export default function SecurityDashboardPage() {
               return src ? (
                 <img src={src} className="w-full h-full object-contain cursor-zoom-in" onClick={() => setZoomSrc(src)} />
               ) : (
-                <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">No site layout uploaded yet</div>
+                <div className="w-full h-full flex items-center justify-center text-gray-400 text-sm">{t('dashboard.noLayout')}</div>
               )
             })()}
             {gates.map(g => (
@@ -219,7 +228,7 @@ export default function SecurityDashboardPage() {
 
       <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
-          <h2 className="text-sm font-bold text-slate-700">🔴 Currently Inside</h2>
+          <h2 className="text-sm font-bold text-slate-700">🔴 {t('dashboard.currentlyInside')}</h2>
           <span className="text-xs bg-blue-50 text-blue-700 rounded-full px-2.5 py-1 font-semibold">{active.length}</span>
         </div>
         {active.length > 0 && (
@@ -240,7 +249,7 @@ export default function SecurityDashboardPage() {
                   ) : (
                     <div className="w-full h-[85px] bg-gray-100 flex items-center justify-center text-3xl text-gray-300">{CATEGORY_ICON[e.category]}</div>
                   )}
-                  <span className="absolute top-1 right-1 bg-black/55 text-white text-[9px] px-1.5 py-0.5 rounded">{CATEGORY_LABEL[e.category]} {CATEGORY_ICON[e.category]}</span>
+                  <span className="absolute top-1 right-1 bg-black/55 text-white text-[9px] px-1.5 py-0.5 rounded">{categoryLabel(e.category)} {CATEGORY_ICON[e.category]}</span>
                 </div>
                 <div className="px-2 py-1.5">
                   <div className="text-xs font-bold text-slate-800 truncate" title={e.person_name}>{e.person_name}</div>
@@ -254,22 +263,22 @@ export default function SecurityDashboardPage() {
           {active.map(e => (
             <div key={e.id} className="px-4 py-3 flex items-center justify-between text-sm">
               <div className="min-w-0">
-                <div className="font-medium truncate">{e.person_name} <span className="text-xs text-gray-400">({CATEGORY_LABEL[e.category]})</span></div>
+                <div className="font-medium truncate">{e.person_name} <span className="text-xs text-gray-400">({categoryLabel(e.category)})</span></div>
                 <div className="text-xs text-gray-500 truncate">{e.company || e.vehicle_no || '-'}</div>
               </div>
               <span className="text-xs text-gray-400 flex-shrink-0 ml-3">{new Date(e.time_in).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</span>
             </div>
           ))}
-          {active.length === 0 && <p className="px-4 py-8 text-center text-sm text-gray-400">Nobody currently on site.</p>}
+          {active.length === 0 && <p className="px-4 py-8 text-center text-sm text-gray-400">{t('dashboard.nobodyInside')}</p>}
         </div>
       </div>
 
       <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
-          <h2 className="text-sm font-bold text-slate-700 flex items-center gap-2"><Activity className="w-4 h-4 text-indigo-500" /> Today's Activity Log</h2>
+          <h2 className="text-sm font-bold text-slate-700 flex items-center gap-2"><Activity className="w-4 h-4 text-indigo-500" /> {t('dashboard.activityLog')}</h2>
           <span className="text-xs bg-indigo-50 text-indigo-700 rounded-full px-2.5 py-1 font-semibold">{activity.length}</span>
         </div>
-        <ActivityLogFeed events={activity} emptyLabel="No activity yet today." />
+        <ActivityLogFeed events={activity} emptyLabel={t('dashboard.noActivity')} />
       </div>
 
       {detail && (
@@ -290,21 +299,21 @@ export default function SecurityDashboardPage() {
                 <div className="w-32 h-32 rounded-xl bg-gray-100 flex items-center justify-center text-4xl flex-shrink-0">{CATEGORY_ICON[detail.category]}</div>
               )}
               <div className="flex-1 min-w-[180px] text-sm">
-                <span className="inline-block bg-blue-50 text-blue-700 text-xs font-bold uppercase rounded-full px-2.5 py-1 mb-2">{CATEGORY_LABEL[detail.category]}</span>
+                <span className="inline-block bg-blue-50 text-blue-700 text-xs font-bold uppercase rounded-full px-2.5 py-1 mb-2">{categoryLabel(detail.category)}</span>
                 <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
-                  <div><strong>Company:</strong> {detail.company || '-'}</div>
-                  <div><strong>Purpose:</strong> {detail.purpose || '-'}</div>
-                  <div><strong>Vehicle:</strong> {detail.vehicle_no || '-'}</div>
-                  <div><strong>Badge:</strong> {detail.badge_no || '-'}</div>
-                  <div><strong>Ref/DO:</strong> {detail.reference_no || '-'}</div>
-                  <div><strong>In:</strong> {new Date(detail.time_in).toLocaleString()}</div>
+                  <div><strong>{t('common.company')}:</strong> {detail.company || '-'}</div>
+                  <div><strong>{t('common.purpose')}:</strong> {detail.purpose || '-'}</div>
+                  <div><strong>{t('dashboard.vehicle')}:</strong> {detail.vehicle_no || '-'}</div>
+                  <div><strong>{t('dashboard.badge')}:</strong> {detail.badge_no || '-'}</div>
+                  <div><strong>{t('dashboard.refDo')}:</strong> {detail.reference_no || '-'}</div>
+                  <div><strong>{t('common.timeIn')}:</strong> {new Date(detail.time_in).toLocaleString()}</div>
                 </div>
               </div>
             </div>
-            {detail.notes && <div className="text-sm bg-gray-50 border rounded-lg px-3 py-2 mb-4"><strong>Notes:</strong> {detail.notes}</div>}
+            {detail.notes && <div className="text-sm bg-gray-50 border rounded-lg px-3 py-2 mb-4"><strong>{t('common.notes')}:</strong> {detail.notes}</div>}
             <div className="flex items-center justify-between text-xs text-gray-400">
-              <span>Attended by: {detail.created_by || '-'}</span>
-              <button onClick={() => checkout(detail.id)} className="flex items-center gap-1.5 bg-green-600 text-white text-sm font-medium px-3 py-1.5 rounded-lg hover:bg-green-700"><LogOut className="w-3.5 h-3.5" /> Check-out</button>
+              <span>{t('dashboard.attendedBy')}: {detail.created_by || '-'}</span>
+              <button onClick={() => checkout(detail.id)} className="flex items-center gap-1.5 bg-green-600 text-white text-sm font-medium px-3 py-1.5 rounded-lg hover:bg-green-700"><LogOut className="w-3.5 h-3.5" /> {t('dashboard.checkout')}</button>
             </div>
           </div>
         </div>

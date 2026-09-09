@@ -6,6 +6,10 @@ import { uploadSecurityPhoto } from '../actions'
 import { ClipboardEdit, LogOut, AlertTriangle, UserCheck, X } from 'lucide-react'
 import PhotoLightbox from '@/components/PhotoLightbox'
 import PhotoPicker from '@/components/PhotoPicker'
+import { useLang } from '@/lib/i18n/useLang'
+import { makeT } from '@/lib/i18n/languages'
+import { securityDict } from '@/lib/i18n/dict/security'
+import LanguageSwitcher from '@/components/LanguageSwitcher'
 
 type Category = 'visitor' | 'delivery' | 'inhouse'
 
@@ -30,8 +34,6 @@ type Entry = {
   abnormal_flag: boolean
   abnormal_reason: string | null
 }
-
-const CATEGORY_LABEL: Record<Category, string> = { visitor: 'Visitor', delivery: 'Delivery', inhouse: 'In-House' }
 
 async function compressImage(file: File): Promise<Blob> {
   if (!file.type.startsWith('image/')) return file
@@ -79,6 +81,9 @@ export default function EntriesPage() {
 
   const [form, setForm] = useState({ person_name: '', company: '', purpose: '', looking_for: '', vehicle_no: '', badge_no: '', reference_no: '', notes: '' })
   const [photoFile, setPhotoFile] = useState<File | null>(null)
+  const [lang, setLang] = useLang()
+  const t = makeT(securityDict, lang)
+  const categoryLabel = (c: Category) => t(`category.${c}`)
 
   useEffect(() => { load() }, [category])
 
@@ -211,7 +216,10 @@ export default function EntriesPage() {
 
   return (
     <div className="p-4 md:p-8 max-w-6xl mx-auto">
-      <h1 className="text-3xl font-bold mb-6 flex items-center gap-2"><ClipboardEdit className="w-7 h-7 text-blue-600" /> Entries</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <h1 className="text-3xl font-bold flex items-center gap-2"><ClipboardEdit className="w-7 h-7 text-blue-600" /> {t('entries.title')}</h1>
+        <LanguageSwitcher lang={lang} onChange={setLang} />
+      </div>
 
       <div className="flex gap-1 bg-gray-100 rounded-lg p-1 mb-6 w-fit">
         {(['visitor', 'delivery', 'inhouse'] as Category[]).map(c => (
@@ -220,7 +228,7 @@ export default function EntriesPage() {
             onClick={() => setCategory(c)}
             className={`text-sm font-medium px-4 py-2 rounded-md transition ${category === c ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
           >
-            {CATEGORY_LABEL[c]}
+            {categoryLabel(c)}
           </button>
         ))}
       </div>
@@ -228,21 +236,21 @@ export default function EntriesPage() {
       {pending.length > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl shadow-sm overflow-hidden mb-6">
           <div className="px-4 py-3 border-b border-amber-200">
-            <h2 className="text-sm font-bold text-amber-800 flex items-center gap-2"><UserCheck className="w-4 h-4" /> Pending Self Check-Ins ({pending.length})</h2>
-            <p className="text-xs text-amber-700 mt-0.5">Submitted from the QR kiosk by a visitor, driver, or in-house staff — review, complete/correct the details, pick their group, take their photo, and approve to let them in.</p>
+            <h2 className="text-sm font-bold text-amber-800 flex items-center gap-2"><UserCheck className="w-4 h-4" /> {t('entries.pendingCheckins')} ({pending.length})</h2>
+            <p className="text-xs text-amber-700 mt-0.5">{t('entries.pendingHint')}</p>
           </div>
           <div className="divide-y divide-amber-100">
             {pending.map(p => (
               <div key={p.id} className="px-4 py-3 flex items-center justify-between gap-3 bg-white">
                 <div className="min-w-0">
                   <div className="font-medium text-sm">{p.person_name}</div>
-                  <div className="text-xs text-gray-500">{[p.company, p.purpose, p.vehicle_no].filter(Boolean).join(' · ') || '-'}{p.looking_for ? ` · Looking for: ${p.looking_for}` : ''}</div>
+                  <div className="text-xs text-gray-500">{[p.company, p.purpose, p.vehicle_no].filter(Boolean).join(' · ') || '-'}{p.looking_for ? ` · ${t('entries.lookingFor')}: ${p.looking_for}` : ''}</div>
                   {p.notes && <div className="text-xs text-gray-400 italic">"{p.notes}"</div>}
-                  <div className="text-xs text-gray-400">Submitted {new Date(p.time_in).toLocaleString()}</div>
+                  <div className="text-xs text-gray-400">{t('entries.submitted')} {new Date(p.time_in).toLocaleString()}</div>
                 </div>
                 <div className="flex gap-2 flex-shrink-0">
-                  <button onClick={() => openApprove(p)} className="text-xs bg-green-600 text-white font-medium px-3 py-1.5 rounded-lg hover:bg-green-700">Review &amp; Approve</button>
-                  <button onClick={() => rejectVisitor(p.id)} className="text-xs bg-gray-100 text-gray-600 px-2.5 py-1.5 rounded-lg hover:bg-gray-200">Reject</button>
+                  <button onClick={() => openApprove(p)} className="text-xs bg-green-600 text-white font-medium px-3 py-1.5 rounded-lg hover:bg-green-700">{t('entries.reviewApprove')}</button>
+                  <button onClick={() => rejectVisitor(p.id)} className="text-xs bg-gray-100 text-gray-600 px-2.5 py-1.5 rounded-lg hover:bg-gray-200">{t('entries.reject')}</button>
                 </div>
               </div>
             ))}
@@ -252,49 +260,49 @@ export default function EntriesPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.3fr] gap-6">
         <form onSubmit={submit} className="bg-white border rounded-xl shadow-sm p-6 space-y-3 h-fit">
-          <h2 className="text-sm font-bold text-slate-700 mb-1">Log {CATEGORY_LABEL[category]} In</h2>
+          <h2 className="text-sm font-bold text-slate-700 mb-1">{t('entries.logIn')} {categoryLabel(category)} {t('entries.in')}</h2>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Name</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1">{t('common.name')}</label>
             <input required value={form.person_name} onChange={e => setForm({ ...form, person_name: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Company</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1">{t('common.company')}</label>
             <input value={form.company} onChange={e => setForm({ ...form, company: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Purpose</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1">{t('common.purpose')}</label>
             <input value={form.purpose} onChange={e => setForm({ ...form, purpose: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Who Are They Looking For?</label>
-            <input value={form.looking_for} onChange={e => setForm({ ...form, looking_for: e.target.value })} placeholder="Name or department" className="w-full border rounded-md px-3 py-2 text-sm" />
+            <label className="block text-xs font-medium text-gray-500 mb-1">{t('entries.whoLookingFor')}</label>
+            <input value={form.looking_for} onChange={e => setForm({ ...form, looking_for: e.target.value })} placeholder={t('entries.whoLookingForPlaceholder')} className="w-full border rounded-md px-3 py-2 text-sm" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Vehicle No</label>
+              <label className="block text-xs font-medium text-gray-500 mb-1">{t('entries.vehicleNo')}</label>
               <input value={form.vehicle_no} onChange={e => setForm({ ...form, vehicle_no: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1">Badge No</label>
+              <label className="block text-xs font-medium text-gray-500 mb-1">{t('entries.badgeNo')}</label>
               <input value={form.badge_no} onChange={e => setForm({ ...form, badge_no: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
             </div>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Reference No</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1">{t('entries.referenceNo')}</label>
             <input value={form.reference_no} onChange={e => setForm({ ...form, reference_no: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Notes</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1">{t('common.notes')}</label>
             <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" rows={2} />
           </div>
           <PhotoPicker file={photoFile} onChange={setPhotoFile} />
           <button type="submit" disabled={submitting} className="w-full bg-blue-600 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2.5 rounded-lg hover:bg-blue-700 mt-2">
-            {submitting ? 'Saving...' : `Check In`}
+            {submitting ? t('common.saving') : t('entries.checkIn')}
           </button>
         </form>
 
         <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b bg-gray-50"><h2 className="text-sm font-bold text-slate-700">Currently In ({active.length})</h2></div>
+          <div className="px-4 py-3 border-b bg-gray-50"><h2 className="text-sm font-bold text-slate-700">{t('entries.currentlyIn')} ({active.length})</h2></div>
           <div className="divide-y divide-gray-100 max-h-[640px] overflow-y-auto">
             {active.map(e => (
               <div key={e.id} className="px-4 py-3 flex items-start gap-3">
@@ -312,18 +320,18 @@ export default function EntriesPage() {
                     {e.person_name}
                     {e.abnormal_flag && <span title="Flagged abnormal"><AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" /></span>}
                   </div>
-                  <div className="text-xs text-gray-500 truncate">{[e.company, e.vehicle_no, e.purpose].filter(Boolean).join(' · ') || '-'}{e.looking_for ? ` · Looking for: ${e.looking_for}` : ''}</div>
-                  <div className="text-xs text-gray-400">In: {new Date(e.time_in).toLocaleString()}</div>
+                  <div className="text-xs text-gray-500 truncate">{[e.company, e.vehicle_no, e.purpose].filter(Boolean).join(' · ') || '-'}{e.looking_for ? ` · ${t('entries.lookingFor')}: ${e.looking_for}` : ''}</div>
+                  <div className="text-xs text-gray-400">{t('common.timeIn')}: {new Date(e.time_in).toLocaleString()}</div>
                 </button>
                 <div className="flex flex-col gap-1 flex-shrink-0">
-                  <button onClick={() => checkout(e.id)} className="flex items-center gap-1 text-xs bg-green-50 text-green-700 px-2.5 py-1.5 rounded-lg hover:bg-green-100"><LogOut className="w-3.5 h-3.5" /> Out</button>
+                  <button onClick={() => checkout(e.id)} className="flex items-center gap-1 text-xs bg-green-50 text-green-700 px-2.5 py-1.5 rounded-lg hover:bg-green-100"><LogOut className="w-3.5 h-3.5" /> {t('entries.out')}</button>
                   {!e.abnormal_flag && (
-                    <button onClick={() => { setAbnormalTarget(e); setAbnormalReason('') }} className="flex items-center gap-1 text-xs bg-amber-50 text-amber-700 px-2.5 py-1.5 rounded-lg hover:bg-amber-100"><AlertTriangle className="w-3.5 h-3.5" /> Flag</button>
+                    <button onClick={() => { setAbnormalTarget(e); setAbnormalReason('') }} className="flex items-center gap-1 text-xs bg-amber-50 text-amber-700 px-2.5 py-1.5 rounded-lg hover:bg-amber-100"><AlertTriangle className="w-3.5 h-3.5" /> {t('entries.flag')}</button>
                   )}
                 </div>
               </div>
             ))}
-            {!loading && active.length === 0 && <p className="px-4 py-8 text-center text-sm text-gray-400">Nobody checked in for this category.</p>}
+            {!loading && active.length === 0 && <p className="px-4 py-8 text-center text-sm text-gray-400">{t('entries.nobodyCheckedIn')}</p>}
           </div>
         </div>
       </div>
@@ -331,12 +339,12 @@ export default function EntriesPage() {
       {abnormalTarget && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6">
-            <h2 className="text-lg font-bold mb-3">Flag Abnormal — {abnormalTarget.person_name}</h2>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Reason</label>
+            <h2 className="text-lg font-bold mb-3">{t('entries.flagAbnormal')} — {abnormalTarget.person_name}</h2>
+            <label className="block text-xs font-medium text-gray-500 mb-1">{t('entries.reason')}</label>
             <textarea value={abnormalReason} onChange={e => setAbnormalReason(e.target.value)} className="w-full border rounded-md px-3 py-2 text-sm mb-4" rows={3} autoFocus />
             <div className="flex justify-end gap-3">
-              <button onClick={() => setAbnormalTarget(null)} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-200">Cancel</button>
-              <button onClick={saveAbnormal} disabled={!abnormalReason.trim()} className="bg-amber-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-amber-700">Save Flag</button>
+              <button onClick={() => setAbnormalTarget(null)} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-200">{t('common.cancel')}</button>
+              <button onClick={saveAbnormal} disabled={!abnormalReason.trim()} className="bg-amber-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-amber-700">{t('entries.saveFlag')}</button>
             </div>
           </div>
         </div>
@@ -346,11 +354,11 @@ export default function EntriesPage() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto py-8">
           <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold">Review Self Check-In</h2>
+              <h2 className="text-lg font-bold">{t('entries.reviewSelfCheckin')}</h2>
               <button onClick={() => setApproving(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>
 
-            <label className="block text-xs font-medium text-gray-500 mb-1.5">Which group are they? *</label>
+            <label className="block text-xs font-medium text-gray-500 mb-1.5">{t('entries.whichGroup')}</label>
             <div className="flex gap-1 bg-gray-100 rounded-lg p-1 mb-4 w-fit">
               {(['visitor', 'delivery', 'inhouse'] as Category[]).map(c => (
                 <button
@@ -359,51 +367,51 @@ export default function EntriesPage() {
                   onClick={() => setApproveForm({ ...approveForm, category: c })}
                   className={`text-sm font-medium px-3.5 py-1.5 rounded-md transition ${approveForm.category === c ? 'bg-white text-blue-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
                 >
-                  {CATEGORY_LABEL[c]}
+                  {categoryLabel(c)}
                 </button>
               ))}
             </div>
 
             <div className="grid grid-cols-2 gap-3 mb-3">
               <div className="col-span-2">
-                <label className="block text-xs font-medium text-gray-500 mb-1">Name</label>
+                <label className="block text-xs font-medium text-gray-500 mb-1">{t('common.name')}</label>
                 <input value={approveForm.person_name} onChange={e => setApproveForm({ ...approveForm, person_name: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Company</label>
+                <label className="block text-xs font-medium text-gray-500 mb-1">{t('common.company')}</label>
                 <input value={approveForm.company} onChange={e => setApproveForm({ ...approveForm, company: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Purpose</label>
+                <label className="block text-xs font-medium text-gray-500 mb-1">{t('common.purpose')}</label>
                 <input value={approveForm.purpose} onChange={e => setApproveForm({ ...approveForm, purpose: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
               </div>
               <div className="col-span-2">
-                <label className="block text-xs font-medium text-gray-500 mb-1">Who Are They Looking For?</label>
+                <label className="block text-xs font-medium text-gray-500 mb-1">{t('entries.whoLookingFor')}</label>
                 <input value={approveForm.looking_for} onChange={e => setApproveForm({ ...approveForm, looking_for: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Vehicle No</label>
+                <label className="block text-xs font-medium text-gray-500 mb-1">{t('entries.vehicleNo')}</label>
                 <input value={approveForm.vehicle_no} onChange={e => setApproveForm({ ...approveForm, vehicle_no: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Badge No</label>
+                <label className="block text-xs font-medium text-gray-500 mb-1">{t('entries.badgeNo')}</label>
                 <input value={approveForm.badge_no} onChange={e => setApproveForm({ ...approveForm, badge_no: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
               </div>
               <div className="col-span-2">
-                <label className="block text-xs font-medium text-gray-500 mb-1">Reference/DO No</label>
+                <label className="block text-xs font-medium text-gray-500 mb-1">{t('entries.referenceDoNo')}</label>
                 <input value={approveForm.reference_no} onChange={e => setApproveForm({ ...approveForm, reference_no: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
               </div>
               <div className="col-span-2">
-                <label className="block text-xs font-medium text-gray-500 mb-1">Notes</label>
+                <label className="block text-xs font-medium text-gray-500 mb-1">{t('common.notes')}</label>
                 <textarea value={approveForm.notes} onChange={e => setApproveForm({ ...approveForm, notes: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" rows={2} />
               </div>
             </div>
 
             <div className="mb-4"><PhotoPicker file={approvePhoto} onChange={setApprovePhoto} /></div>
             <div className="flex justify-end gap-3">
-              <button onClick={() => setApproving(null)} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-200">Cancel</button>
+              <button onClick={() => setApproving(null)} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-200">{t('common.cancel')}</button>
               <button onClick={approveVisitor} disabled={approving2} className="bg-green-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-green-700">
-                {approving2 ? 'Approving...' : 'Approve & Let In'}
+                {approving2 ? t('entries.approving') : t('entries.approveLetIn')}
               </button>
             </div>
           </div>
@@ -428,25 +436,25 @@ export default function EntriesPage() {
                 <div className="w-32 h-32 rounded-xl bg-gray-100 flex-shrink-0" />
               )}
               <div className="flex-1 min-w-[180px] text-sm">
-                <span className="inline-block bg-blue-50 text-blue-700 text-xs font-bold uppercase rounded-full px-2.5 py-1 mb-2">{detail.category ? CATEGORY_LABEL[detail.category] : '-'}</span>
+                <span className="inline-block bg-blue-50 text-blue-700 text-xs font-bold uppercase rounded-full px-2.5 py-1 mb-2">{detail.category ? categoryLabel(detail.category) : '-'}</span>
                 <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
-                  <div><strong>Company:</strong> {detail.company || '-'}</div>
-                  <div><strong>Purpose:</strong> {detail.purpose || '-'}</div>
-                  <div><strong>Vehicle:</strong> {detail.vehicle_no || '-'}</div>
-                  <div><strong>Badge:</strong> {detail.badge_no || '-'}</div>
-                  <div><strong>Ref/DO:</strong> {detail.reference_no || '-'}</div>
-                  <div><strong>In:</strong> {new Date(detail.time_in).toLocaleString()}</div>
+                  <div><strong>{t('common.company')}:</strong> {detail.company || '-'}</div>
+                  <div><strong>{t('common.purpose')}:</strong> {detail.purpose || '-'}</div>
+                  <div><strong>{t('dashboard.vehicle')}:</strong> {detail.vehicle_no || '-'}</div>
+                  <div><strong>{t('dashboard.badge')}:</strong> {detail.badge_no || '-'}</div>
+                  <div><strong>{t('dashboard.refDo')}:</strong> {detail.reference_no || '-'}</div>
+                  <div><strong>{t('common.timeIn')}:</strong> {new Date(detail.time_in).toLocaleString()}</div>
                 </div>
-                {detail.looking_for && <div className="text-sm mt-1.5"><strong>Looking for:</strong> {detail.looking_for}</div>}
+                {detail.looking_for && <div className="text-sm mt-1.5"><strong>{t('entries.lookingFor')}:</strong> {detail.looking_for}</div>}
               </div>
             </div>
-            {detail.notes && <div className="text-sm bg-gray-50 border rounded-lg px-3 py-2 mb-4"><strong>Notes:</strong> {detail.notes}</div>}
+            {detail.notes && <div className="text-sm bg-gray-50 border rounded-lg px-3 py-2 mb-4"><strong>{t('common.notes')}:</strong> {detail.notes}</div>}
             {detail.abnormal_flag && detail.abnormal_reason && (
-              <div className="text-sm bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4 text-amber-800"><strong>Flagged:</strong> {detail.abnormal_reason}</div>
+              <div className="text-sm bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4 text-amber-800"><strong>{t('entries.flagged')}:</strong> {detail.abnormal_reason}</div>
             )}
             <div className="flex items-center justify-between text-xs text-gray-400">
-              <span>Attended by: {detail.created_by || '-'}</span>
-              <button onClick={() => { checkout(detail.id); setDetail(null) }} className="flex items-center gap-1.5 bg-green-600 text-white text-sm font-medium px-3 py-1.5 rounded-lg hover:bg-green-700"><LogOut className="w-3.5 h-3.5" /> Check-out</button>
+              <span>{t('dashboard.attendedBy')}: {detail.created_by || '-'}</span>
+              <button onClick={() => { checkout(detail.id); setDetail(null) }} className="flex items-center gap-1.5 bg-green-600 text-white text-sm font-medium px-3 py-1.5 rounded-lg hover:bg-green-700"><LogOut className="w-3.5 h-3.5" /> {t('dashboard.checkout')}</button>
             </div>
           </div>
         </div>
