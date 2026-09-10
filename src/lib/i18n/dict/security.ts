@@ -123,8 +123,9 @@ export const securityDict: Record<Lang, Dict> = {
     'settings.noCheckpointsYet': 'No checkpoints configured yet — click the map above to add one.',
     'settings.enterNameFirst': 'Click a point on the map and enter a name first.',
     'settings.confirmDeleteCheckpoint': "Delete this checkpoint? Past clocking records against it are kept (they store their own snapshot of the name), but it will no longer be clockable.",
-    'settings.renamePrompt': 'Rename checkpoint:',
     'settings.confirmDeletePost': 'Delete this guard post?',
+    'settings.mapEditHint': 'Drag a point to reposition it, or click it to edit name/radius/sequence.',
+    'settings.moveUp': 'Move up', 'settings.moveDown': 'Move down',
     'settings.layoutUpdated': 'Site layout updated — visible on the Dashboard and Gates page.',
 
     // Audit
@@ -270,8 +271,9 @@ export const securityDict: Record<Lang, Dict> = {
     'settings.noCheckpointsYet': '尚未设置检查点 —— 点击上方地图以添加。',
     'settings.enterNameFirst': '请先在地图上点击一个位置并输入名称。',
     'settings.confirmDeleteCheckpoint': '确定删除此检查点？相关的历史打卡记录会保留（记录中已保存名称快照），但此检查点将无法再用于打卡。',
-    'settings.renamePrompt': '重命名检查点：',
     'settings.confirmDeletePost': '确定删除此岗位？',
+    'settings.mapEditHint': '拖动检查点可移动其位置，点击可编辑名称/半径/顺序。',
+    'settings.moveUp': '上移', 'settings.moveDown': '下移',
     'settings.layoutUpdated': '厂区平面图已更新 —— 可在仪表板与闸门页面查看。',
 
     // Audit
@@ -415,8 +417,9 @@ export const securityDict: Record<Lang, Dict> = {
     'settings.noCheckpointsYet': 'Tiada titik semak ditetapkan lagi — klik peta di atas untuk menambah satu.',
     'settings.enterNameFirst': 'Klik satu titik pada peta dan masukkan nama dahulu.',
     'settings.confirmDeleteCheckpoint': 'Padam titik semak ini? Rekod pendaftaran lalu terhadapnya dikekalkan (ia menyimpan salinan nama sendiri), tetapi ia tidak akan boleh didaftar masuk lagi.',
-    'settings.renamePrompt': 'Namakan semula titik semak:',
     'settings.confirmDeletePost': 'Padam pos pengawal ini?',
+    'settings.mapEditHint': 'Seret satu titik untuk mengubah kedudukannya, atau klik untuk edit nama/jejari/turutan.',
+    'settings.moveUp': 'Naik', 'settings.moveDown': 'Turun',
     'settings.layoutUpdated': 'Pelan tapak dikemaskini — kelihatan pada halaman Papan Pemuka dan Pintu Pagar.',
 
     // Audit

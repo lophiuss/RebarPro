@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import QRCode from 'qrcode'
-import { Settings as SettingsIcon, Plus, Trash2, Pencil, Image as ImageIcon, QrCode, Copy, Check, MapPin, X } from 'lucide-react'
+import { Settings as SettingsIcon, Plus, Trash2, Pencil, Image as ImageIcon, QrCode, Copy, Check, MapPin, X, ChevronUp, ChevronDown } from 'lucide-react'
 import CheckpointMap from '@/components/CheckpointMap'
 import { useLang } from '@/lib/i18n/useLang'
 import { makeT } from '@/lib/i18n/languages'
@@ -62,11 +62,43 @@ export default function SecuritySettingsPage() {
     setCpForm({ name: '', radiusMeters: '50', sequenceOrder: String(checkpoints.length + 1) })
   }
 
-  function startEditCheckpoint(cp: Checkpoint) {
+  // overrideCoords lets a map drag stage a new position without touching
+  // the checkpoint's actual row until "Save Changes" is clicked — same
+  // confirm-before-persist pattern as placing a brand new point.
+  function startEditCheckpoint(cp: Checkpoint, overrideCoords?: { lat: number; lng: number }) {
     if (!canManage) return
     setEditingCp(cp)
-    setPendingPoint({ lat: cp.latitude, lng: cp.longitude })
+    setPendingPoint({ lat: overrideCoords?.lat ?? cp.latitude, lng: overrideCoords?.lng ?? cp.longitude })
     setCpForm({ name: cp.name, radiusMeters: String(cp.radius_meters), sequenceOrder: String(cp.sequence_order) })
+  }
+
+  function handleMapSelect(id: number | string) {
+    const cp = checkpoints.find(c => c.id === id)
+    if (cp) startEditCheckpoint(cp)
+  }
+
+  function handleMapMove(id: number | string, lat: number, lng: number) {
+    const cp = checkpoints.find(c => c.id === id)
+    if (cp) startEditCheckpoint(cp, { lat, lng })
+  }
+
+  // Swaps this checkpoint's sequence number with its neighbor above/below
+  // in the (already sequence_order-sorted) list — a lightweight reorder
+  // that doesn't need a drag-and-drop library.
+  async function moveCheckpointOrder(index: number, direction: -1 | 1) {
+    const target = index + direction
+    if (target < 0 || target >= checkpoints.length) return
+    const a = checkpoints[index]
+    const b = checkpoints[target]
+    try {
+      const { error: e1 } = await supabase.from('security_checkpoints').update({ sequence_order: b.sequence_order }).eq('id', a.id)
+      if (e1) throw e1
+      const { error: e2 } = await supabase.from('security_checkpoints').update({ sequence_order: a.sequence_order }).eq('id', b.id)
+      if (e2) throw e2
+      await load()
+    } catch (err: any) {
+      alert('Error: ' + err.message)
+    }
   }
 
   function cancelCheckpointEdit() {
@@ -108,17 +140,6 @@ export default function SecuritySettingsPage() {
     const { error } = await supabase.from('security_checkpoints').delete().eq('id', id)
     if (error) { alert('Error: ' + error.message); return }
     if (editingCp?.id === id) cancelCheckpointEdit()
-    load()
-  }
-
-  // Quick rename straight from the map label, as an alternative to opening
-  // the full edit form below (which also requires re-clicking the point).
-  async function renameCheckpointFromMap(id: number | string, currentName: string) {
-    if (!canManage) return
-    const next = window.prompt(t('settings.renamePrompt'), currentName)
-    if (next === null || !next.trim() || next.trim() === currentName) return
-    const { error } = await supabase.from('security_checkpoints').update({ name: next.trim() }).eq('id', id)
-    if (error) { alert('Error: ' + error.message); return }
     load()
   }
 
@@ -246,9 +267,11 @@ export default function SecuritySettingsPage() {
           markers={checkpoints.map(c => ({ id: c.id, name: c.name, lat: c.latitude, lng: c.longitude, radiusMeters: c.radius_meters, active: c.is_active }))}
           pendingPoint={pendingPoint ? { lat: pendingPoint.lat, lng: pendingPoint.lng, radiusMeters: Math.max(5, Number(cpForm.radiusMeters) || 50) } : null}
           onPick={canManage ? startAddCheckpoint : undefined}
-          onRename={canManage ? renameCheckpointFromMap : undefined}
+          onSelect={canManage ? handleMapSelect : undefined}
+          onMove={canManage ? handleMapMove : undefined}
           center={pendingPoint || (checkpoints[0] ? { lat: checkpoints[0].latitude, lng: checkpoints[0].longitude } : undefined)}
         />
+        {canManage && <p className="text-[11px] text-gray-400 mt-2">{t('settings.mapEditHint')}</p>}
 
         {canManage && pendingPoint && (
           <div className="mt-4 bg-blue-50 border border-blue-100 rounded-lg p-4">
@@ -279,7 +302,7 @@ export default function SecuritySettingsPage() {
         )}
 
         <div className="divide-y divide-gray-100 mt-4">
-          {checkpoints.map(cp => (
+          {checkpoints.map((cp, i) => (
             <div key={cp.id} className="py-2.5 flex items-center justify-between text-sm gap-2">
               <div className="min-w-0">
                 <span className="font-medium">#{cp.sequence_order} {cp.name}</span>
@@ -288,6 +311,8 @@ export default function SecuritySettingsPage() {
               </div>
               {canManage && (
                 <div className="flex gap-1 flex-shrink-0">
+                  <button onClick={() => moveCheckpointOrder(i, -1)} disabled={i === 0} title={t('settings.moveUp')} className="text-gray-400 hover:text-blue-600 disabled:opacity-25 disabled:hover:text-gray-400 p-1"><ChevronUp className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => moveCheckpointOrder(i, 1)} disabled={i === checkpoints.length - 1} title={t('settings.moveDown')} className="text-gray-400 hover:text-blue-600 disabled:opacity-25 disabled:hover:text-gray-400 p-1"><ChevronDown className="w-3.5 h-3.5" /></button>
                   <button onClick={() => toggleCheckpointActive(cp)} className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1">{cp.is_active ? t('settings.deactivate') : t('settings.activate')}</button>
                   <button onClick={() => startEditCheckpoint(cp)} className="text-gray-400 hover:text-blue-600 p-1"><Pencil className="w-3.5 h-3.5" /></button>
                   <button onClick={() => deleteCheckpoint(cp.id)} className="text-red-500 hover:text-red-700 p-1"><Trash2 className="w-3.5 h-3.5" /></button>

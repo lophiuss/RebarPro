@@ -17,7 +17,7 @@ export type CheckpointMarker = { id: number | string; name: string; lat: number;
 // dependency to pin and the map instance is easy to keep across re-renders
 // without fighting React's render cycle for a library that owns its own DOM.
 export default function CheckpointMap({
-  markers, pendingPoint, onPick, center, height = 360, userLocation, onRename,
+  markers, pendingPoint, onPick, center, height = 360, userLocation, onSelect, onMove,
 }: {
   markers: CheckpointMarker[]
   pendingPoint?: { lat: number; lng: number; radiusMeters: number } | null
@@ -27,10 +27,13 @@ export default function CheckpointMap({
   // The viewer's own live GPS position — a "you are here" dot, distinct
   // from checkpoint markers (no geofence circle, different color/style).
   userLocation?: { lat: number; lng: number; accuracyMeters?: number } | null
-  // When provided, each checkpoint's on-map label becomes clickable and
-  // asks for a new name via this callback — lets a manager rename a point
-  // right from the map instead of only from the list below it.
-  onRename?: (id: number | string, currentName: string) => void
+  // When provided, clicking a checkpoint marker opens it for editing (name,
+  // radius, sequence) instead of doing nothing.
+  onSelect?: (id: number | string) => void
+  // When provided, checkpoint markers become draggable — dropping one calls
+  // this with its new coordinates so the caller can persist (or stage for
+  // confirmation) the move.
+  onMove?: (id: number | string, lat: number, lng: number) => void
 }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<L.Map | null>(null)
@@ -45,8 +48,10 @@ export default function CheckpointMap({
   // ref sidesteps that: the listener always reads whatever onPick is now.
   const onPickRef = useRef(onPick)
   onPickRef.current = onPick
-  const onRenameRef = useRef(onRename)
-  onRenameRef.current = onRename
+  const onSelectRef = useRef(onSelect)
+  onSelectRef.current = onSelect
+  const onMoveRef = useRef(onMove)
+  onMoveRef.current = onMove
   // Tracks what the view was last auto-fitted to, so "dynamic zoom to the
   // coverage area" only re-fits when that coverage actually changes
   // (a checkpoint added/moved/removed, or the user's location arriving for
@@ -81,15 +86,33 @@ export default function CheckpointMap({
 
     for (const m of markers) {
       const color = m.active === false ? '#9ca3af' : '#f97316'
-      const marker = L.circleMarker([m.lat, m.lng], { radius: 6, color, fillColor: color, fillOpacity: 1 }).addTo(layer)
+      const draggable = !!onMoveRef.current
+      // A div icon (not L.circleMarker) so it can be draggable — Leaflet's
+      // vector layers (circleMarker/circle) don't support dragging at all,
+      // only actual Marker instances do.
+      const icon = L.divIcon({
+        className: 'checkpoint-marker-icon',
+        html: `<span style="display:block;width:12px;height:12px;border-radius:50%;background:${color};box-shadow:0 0 0 2px #fff;${draggable ? 'cursor:grab;' : ''}"></span>`,
+        iconSize: [12, 12],
+        iconAnchor: [6, 6],
+      })
+      const marker = L.marker([m.lat, m.lng], { icon, draggable }).addTo(layer)
       // Permanent (always-on, not hover-only) label so every point's name
-      // is readable straight off the map, plus a hint once it's editable.
-      marker.bindTooltip(onRenameRef.current ? `${m.name} ✎` : m.name, { permanent: true, direction: 'top', offset: [0, -6], className: 'checkpoint-label' })
-      if (onRenameRef.current) {
-        marker.on('click', () => onRenameRef.current?.(m.id, m.name))
-        marker.getTooltip()?.getElement()?.addEventListener('click', () => onRenameRef.current?.(m.id, m.name))
+      // is readable straight off the map.
+      marker.bindTooltip(m.name, { permanent: true, direction: 'top', offset: [0, -6], className: 'checkpoint-label' })
+      if (onSelectRef.current) marker.on('click', () => onSelectRef.current?.(m.id))
+
+      const circle = L.circle([m.lat, m.lng], { radius: m.radiusMeters, color, fillColor: color, fillOpacity: 0.08, weight: 1 }).addTo(layer)
+      if (draggable) {
+        // Geofence circle follows the marker live while dragging, then the
+        // actual position is only reported (for the caller to persist) once
+        // the drag ends.
+        marker.on('drag', () => circle.setLatLng(marker.getLatLng()))
+        marker.on('dragend', () => {
+          const ll = marker.getLatLng()
+          onMoveRef.current?.(m.id, ll.lat, ll.lng)
+        })
       }
-      L.circle([m.lat, m.lng], { radius: m.radiusMeters, color, fillColor: color, fillOpacity: 0.08, weight: 1 }).addTo(layer)
     }
     if (pendingPoint) {
       L.circleMarker([pendingPoint.lat, pendingPoint.lng], { radius: 7, color: '#2563eb', fillColor: '#2563eb', fillOpacity: 1 }).addTo(layer).bindTooltip('New point')
