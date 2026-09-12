@@ -27,6 +27,14 @@ function hoursBetween(a: string, b: string) {
   return ((new Date(b).getTime() - new Date(a).getTime()) / 3600000).toFixed(1)
 }
 
+// The PDF export below builds its HTML by string concatenation (not by
+// serializing already-React-rendered DOM), so job text — issue
+// descriptions, names — must be escaped before going in. Some of that text
+// originates from the unauthenticated public /maintenance-request form.
+function escapeHtml(s: string) {
+  return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
+}
+
 // Same repair-time definition as the Dashboard's breakdown KPIs — the gap
 // between a request being picked up (accepted, or assigned/filed if never
 // explicitly accepted) and completed.
@@ -304,7 +312,7 @@ export default function JobHistoryPage() {
       const rows = (await fetchAllFiltered()).sort((a, b) => (b.completed_at || '').localeCompare(a.completed_at || '')).map(exportRow)
       const w = window.open('', '_blank', 'width=1100,height=800')
       if (!w) { alert('Please allow pop-ups for this site to export a PDF.'); return }
-      const tableRows = rows.map(r => `<tr><td>${r.jobNo}</td><td>${r.completed}</td><td>${r.doneBy}</td><td>${r.equipment}</td><td>${r.category}</td><td>${r.location}</td><td>${r.requestedBy}</td><td>${r.issue}</td><td>${r.timeTaken}</td><td>${r.status}</td><td>${r.approvedBy}</td></tr>`).join('')
+      const tableRows = rows.map(r => `<tr><td>${escapeHtml(r.jobNo)}</td><td>${escapeHtml(r.completed)}</td><td>${escapeHtml(r.doneBy)}</td><td>${escapeHtml(r.equipment)}</td><td>${escapeHtml(r.category)}</td><td>${escapeHtml(r.location)}</td><td>${escapeHtml(r.requestedBy)}</td><td>${escapeHtml(r.issue)}</td><td>${escapeHtml(r.timeTaken)}</td><td>${escapeHtml(r.status)}</td><td>${escapeHtml(r.approvedBy)}</td></tr>`).join('')
       w.document.write(`<!doctype html><html><head><title>Job History</title><style>
         body{font-family:Arial,sans-serif;padding:16px;color:#111;}
         h1{font-size:16px;margin:0 0 12px;}
