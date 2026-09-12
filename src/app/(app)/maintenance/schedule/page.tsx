@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { listMaintenanceStaff, uploadMaintenanceFile, type StaffMember } from '../actions'
 import { CalendarClock, ClipboardList, X, Plus, Trash2, ChevronLeft, ChevronRight, Bell, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react'
@@ -114,6 +114,12 @@ export default function SchedulePage() {
   const [viewYear, setViewYear] = useState(realYear)
   const [viewMode, setViewMode] = useState<'day' | 'week' | 'month'>('week')
   const [viewDay, setViewDay] = useState(today)
+  // The Week grid's 2nd sticky header row needs its `top` to exactly equal
+  // the 1st row's rendered height, or it overlaps/gaps against it — that
+  // height isn't a fixed constant (font rendering/zoom can shift it), so
+  // it's measured live instead of hardcoded.
+  const monthHeaderRowRef = useRef<HTMLTableRowElement>(null)
+  const [monthHeaderHeight, setMonthHeaderHeight] = useState(22)
   const [equipment, setEquipment] = useState<Equipment[]>([])
   const [pmRows, setPmRows] = useState<PmRow[]>([])
   const [templates, setTemplates] = useState<Template[]>([])
@@ -178,6 +184,19 @@ export default function SchedulePage() {
   useEffect(() => {
     if (viewMode === 'day' && dayYear !== viewYear) setViewYear(dayYear)
   }, [viewDay, viewMode])
+
+  // Re-measure the month header row's real height whenever it's visible or
+  // its content could change size (view switched to Week, month groups
+  // recomputed after data loads, window resized/zoomed).
+  useEffect(() => {
+    if (viewMode !== 'week' || !monthHeaderRowRef.current) return
+    const el = monthHeaderRowRef.current
+    const measure = () => setMonthHeaderHeight(el.getBoundingClientRect().height)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [viewMode, viewYear, loading])
 
   async function load() {
     setLoading(true)
@@ -910,21 +929,22 @@ export default function SchedulePage() {
                 higher z-index to stay above the plain top-sticky cells that
                 scroll underneath it horizontally. Two stacked sticky rows
                 (month, then date/week) — the second row's `top` has to equal
-                the first row's rendered height or it scrolls out from under it. */}
-            <tr>
+                the first row's rendered height, measured live via
+                monthHeaderHeight above, or it overlaps/gaps against it. */}
+            <tr ref={monthHeaderRowRef}>
               <th colSpan={3} className="sticky left-0 top-0 z-20 bg-gray-100 border-r"></th>
               {monthGroups.map((g, i) => (
                 <th key={i} colSpan={g.span} className="sticky top-0 z-10 bg-gray-100 text-gray-500 text-[10px] font-semibold uppercase border-r py-1">{g.month}</th>
               ))}
             </tr>
             <tr>
-              <th className="sticky left-0 top-[22px] z-20 bg-gray-50 px-3 py-2 text-left font-medium text-gray-500 uppercase border-r">Equipment</th>
-              <th className="sticky top-[22px] z-10 bg-gray-50 px-2 py-2 text-left font-medium text-gray-500 uppercase border-r">Frequency</th>
-              <th className="sticky top-[22px] z-10 bg-gray-50 px-2 py-2 text-left font-medium text-gray-500 uppercase border-r">PIC</th>
+              <th style={{ top: monthHeaderHeight }} className="sticky left-0 z-20 bg-gray-50 px-3 py-2 text-left font-medium text-gray-500 uppercase border-r">Equipment</th>
+              <th style={{ top: monthHeaderHeight }} className="sticky z-10 bg-gray-50 px-2 py-2 text-left font-medium text-gray-500 uppercase border-r">Frequency</th>
+              <th style={{ top: monthHeaderHeight }} className="sticky z-10 bg-gray-50 px-2 py-2 text-left font-medium text-gray-500 uppercase border-r">PIC</th>
               {weeks.map(wk => {
                 const isCurrent = viewYear === realYear && wk === realWeek
                 return (
-                  <th key={wk} className={`sticky top-[22px] z-10 px-1 py-1 font-normal border-r leading-tight ${isCurrent ? 'bg-blue-50 text-blue-700 font-bold' : 'bg-gray-50 text-gray-400'}`}>
+                  <th key={wk} style={{ top: monthHeaderHeight }} className={`sticky z-10 px-1 py-1 font-normal border-r leading-tight ${isCurrent ? 'bg-blue-50 text-blue-700 font-bold' : 'bg-gray-50 text-gray-400'}`}>
                     <div>{fmtShort(mondayOfIsoWeek(viewYear, wk))}</div>
                     <div className="text-[9px]">Wk{wk}</div>
                   </th>

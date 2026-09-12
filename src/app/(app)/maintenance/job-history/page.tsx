@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { History, ChevronLeft, ChevronRight, Image as ImageIcon, X, Pencil, Trash2 } from 'lucide-react'
 import PhotoLightbox from '@/components/PhotoLightbox'
+import { jobNo } from '@/lib/utils/jobNo'
 
 type DoneRequest = {
   id: number; requester_name: string; location: string | null; issue_description: string
@@ -259,7 +260,7 @@ export default function JobHistoryPage() {
 
   function exportRow(r: any) {
     return {
-      completed: r.completed_at ? new Date(r.completed_at).toLocaleString() : '',
+      jobNo: jobNo(r.id), completed: r.completed_at ? new Date(r.completed_at).toLocaleString() : '',
       doneBy: r.assigned_to || '', equipment: r.maintenance_equipment?.name || '', category: r.maintenance_equipment?.category || '',
       location: r.location || '', requestedBy: r.requester_name || '', issue: r.issue_description || '',
       timeTaken: r.completed_at && r.accepted_at ? `${hoursBetween(r.accepted_at, r.completed_at)} h` : '',
@@ -271,10 +272,10 @@ export default function JobHistoryPage() {
     setExporting('csv')
     try {
       const rows = (await fetchAllFiltered()).sort((a, b) => (b.completed_at || '').localeCompare(a.completed_at || '')).map(exportRow)
-      const header = ['Completed', 'Done By', 'Equipment', 'Category', 'Location', 'Requested By', 'Issue', 'Time Taken', 'Status', 'Approved By']
+      const header = ['Job No.', 'Completed', 'Done By', 'Equipment', 'Category', 'Location', 'Requested By', 'Issue', 'Time Taken', 'Status', 'Approved By']
       const lines = [header.map(h => `"${h}"`).join(',')]
       for (const r of rows) {
-        lines.push([r.completed, r.doneBy, r.equipment, r.category, r.location, r.requestedBy, r.issue, r.timeTaken, r.status, r.approvedBy]
+        lines.push([r.jobNo, r.completed, r.doneBy, r.equipment, r.category, r.location, r.requestedBy, r.issue, r.timeTaken, r.status, r.approvedBy]
           .map(v => `"${String(v).replace(/"/g, '""')}"`).join(','))
       }
       const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
@@ -303,7 +304,7 @@ export default function JobHistoryPage() {
       const rows = (await fetchAllFiltered()).sort((a, b) => (b.completed_at || '').localeCompare(a.completed_at || '')).map(exportRow)
       const w = window.open('', '_blank', 'width=1100,height=800')
       if (!w) { alert('Please allow pop-ups for this site to export a PDF.'); return }
-      const tableRows = rows.map(r => `<tr><td>${r.completed}</td><td>${r.doneBy}</td><td>${r.equipment}</td><td>${r.category}</td><td>${r.location}</td><td>${r.requestedBy}</td><td>${r.issue}</td><td>${r.timeTaken}</td><td>${r.status}</td><td>${r.approvedBy}</td></tr>`).join('')
+      const tableRows = rows.map(r => `<tr><td>${r.jobNo}</td><td>${r.completed}</td><td>${r.doneBy}</td><td>${r.equipment}</td><td>${r.category}</td><td>${r.location}</td><td>${r.requestedBy}</td><td>${r.issue}</td><td>${r.timeTaken}</td><td>${r.status}</td><td>${r.approvedBy}</td></tr>`).join('')
       w.document.write(`<!doctype html><html><head><title>Job History</title><style>
         body{font-family:Arial,sans-serif;padding:16px;color:#111;}
         h1{font-size:16px;margin:0 0 12px;}
@@ -311,7 +312,7 @@ export default function JobHistoryPage() {
         th,td{border:1px solid #ddd;padding:3px 5px;text-align:left;}
         th{background:#f3f4f6;}
       </style></head><body><h1>Job History (${rows.length} record${rows.length === 1 ? '' : 's'})</h1>
-      <table><thead><tr><th>Completed</th><th>Done By</th><th>Equipment</th><th>Category</th><th>Location</th><th>Requested By</th><th>Issue</th><th>Time Taken</th><th>Status</th><th>Approved By</th></tr></thead>
+      <table><thead><tr><th>Job No.</th><th>Completed</th><th>Done By</th><th>Equipment</th><th>Category</th><th>Location</th><th>Requested By</th><th>Issue</th><th>Time Taken</th><th>Status</th><th>Approved By</th></tr></thead>
       <tbody>${tableRows}</tbody></table></body></html>`)
       w.document.close()
       w.focus()
@@ -533,6 +534,7 @@ export default function JobHistoryPage() {
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Job No.</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Completed</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Done By</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Equipment</th>
@@ -545,6 +547,7 @@ export default function JobHistoryPage() {
           <tbody className="bg-white divide-y divide-gray-200">
             {requests.map(r => (
               <tr key={r.id} className="hover:bg-gray-50 cursor-pointer" onClick={() => setDetailRow(r)}>
+                <td className="px-4 py-3 text-xs font-mono text-gray-500 whitespace-nowrap">{jobNo(r.id)}</td>
                 <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">{r.completed_at ? new Date(r.completed_at).toLocaleString() : '-'}</td>
                 <td className="px-4 py-3 text-sm font-medium whitespace-nowrap">{r.assigned_to || '-'}</td>
                 <td className="px-4 py-3 text-sm whitespace-nowrap">{r.maintenance_equipment?.name || r.location || '-'}</td>
@@ -562,7 +565,7 @@ export default function JobHistoryPage() {
               </tr>
             ))}
             {!loading && requests.length === 0 && (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">{totalCount === 0 ? 'No completed jobs yet.' : 'No jobs match these filters.'}</td></tr>
+              <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-500">{totalCount === 0 ? 'No completed jobs yet.' : 'No jobs match these filters.'}</td></tr>
             )}
           </tbody>
         </table>
@@ -596,7 +599,7 @@ export default function JobHistoryPage() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setDetailRow(null)}>
           <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold">{editingDetail ? 'Edit Job' : 'Job Detail'}</h2>
+              <h2 className="text-lg font-bold">{editingDetail ? 'Edit Job' : `Job Detail — ${jobNo(detailRow.id)}`}</h2>
               <div className="flex items-center gap-1">
                 {canManage && !editingDetail && (
                   <>
