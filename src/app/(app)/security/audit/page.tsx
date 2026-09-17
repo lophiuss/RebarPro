@@ -67,6 +67,10 @@ export default function AuditPage() {
   const [photoEntries, setPhotoEntries] = useState<Entry[]>([])
   const [entryDetail, setEntryDetail] = useState<Entry | null>(null)
   const [zoomSrc, setZoomSrc] = useState<string | null>(null)
+  // Set only when the lightbox was opened from the session matrix — drives
+  // the prev/next arrows and caption; left null for every other photo click
+  // on this page (plain single-photo view, no sequence to browse).
+  const [zoomIndex, setZoomIndex] = useState<number | null>(null)
   const [guardTimeline, setGuardTimeline] = useState<{ name: string; cells: (string | null)[] }[]>([])
   const [postTimeline, setPostTimeline] = useState<{ name: string; cells: (string | null)[] }[]>([])
   const [activity, setActivity] = useState<ActivityEvent[]>([])
@@ -316,6 +320,25 @@ export default function AuditPage() {
     return matches.reduce((latest, r) => (new Date(r.clocked_at) > new Date(latest.clocked_at) ? r : latest))
   }
 
+  // Flat, reading-order (row by row, left to right) list of every photo
+  // currently showing in the session matrix — lets the lightbox's
+  // prev/next arrows step through the grid the same way your eye would.
+  const sessionPhotoList = sessionGuards.flatMap(guard =>
+    sessionColumns.map(name => sessionCell(guard, name)).filter((r): r is ClockRecord => !!r)
+  )
+
+  function openMatrixZoom(rec: ClockRecord) {
+    const idx = sessionPhotoList.findIndex(r => r.id === rec.id)
+    setZoomIndex(idx)
+    setZoomSrc(`/api/security/photo/${rec.photo_drive_id}`)
+  }
+  function stepMatrixZoom(delta: number) {
+    if (zoomIndex === null) return
+    const next = Math.min(Math.max(zoomIndex + delta, 0), sessionPhotoList.length - 1)
+    setZoomIndex(next)
+    setZoomSrc(`/api/security/photo/${sessionPhotoList[next].photo_drive_id}`)
+  }
+
   function renderTable(section: Section) {
     return (
       <table className="min-w-full divide-y divide-gray-200 text-sm">
@@ -499,7 +522,7 @@ export default function AuditPage() {
                             <td key={name} className="px-2 py-2 text-center">
                               {rec ? (
                                 <div className="flex flex-col items-center gap-0.5">
-                                  <img src={`/api/security/photo/${rec.photo_drive_id}`} className="w-10 h-10 rounded object-cover cursor-zoom-in" onClick={() => setZoomSrc(`/api/security/photo/${rec.photo_drive_id}`)} />
+                                  <img src={`/api/security/photo/${rec.photo_drive_id}`} className="w-10 h-10 rounded object-cover cursor-zoom-in" onClick={() => openMatrixZoom(rec)} />
                                   <span className="text-[10px] text-gray-400">{new Date(rec.clocked_at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</span>
                                 </div>
                               ) : (
@@ -541,7 +564,7 @@ export default function AuditPage() {
                 <img
                   src={`/api/security/photo/${entryDetail.photo_drive_id}`}
                   className="w-28 h-28 rounded-xl object-cover border flex-shrink-0 cursor-zoom-in"
-                  onClick={() => setZoomSrc(`/api/security/photo/${entryDetail.photo_drive_id}`)}
+                  onClick={() => { setZoomIndex(null); setZoomSrc(`/api/security/photo/${entryDetail.photo_drive_id}`) }}
                 />
               )}
               <div className="flex-1 min-w-[160px] text-sm">
@@ -564,7 +587,24 @@ export default function AuditPage() {
         </div>
       )}
 
-      <PhotoLightbox src={zoomSrc} onClose={() => setZoomSrc(null)} />
+      <PhotoLightbox
+        src={zoomSrc}
+        onClose={() => { setZoomSrc(null); setZoomIndex(null) }}
+        onPrev={zoomIndex !== null && zoomIndex > 0 ? () => stepMatrixZoom(-1) : undefined}
+        onNext={zoomIndex !== null && zoomIndex < sessionPhotoList.length - 1 ? () => stepMatrixZoom(1) : undefined}
+        caption={zoomIndex !== null && sessionPhotoList[zoomIndex] ? (() => {
+          const rec = sessionPhotoList[zoomIndex]
+          return (
+            <>
+              <div className="font-semibold">{rec.guard_name} — {rec.checkpoint_name}</div>
+              <div className="text-white/70">
+                {new Date(rec.clocked_at).toLocaleString()} · {rec.distance_meters}m{rec.remark ? ` · ${rec.remark}` : ''}
+              </div>
+              <div className="text-white/50 text-xs mt-1">{zoomIndex + 1} / {sessionPhotoList.length}</div>
+            </>
+          )
+        })() : undefined}
+      />
     </div>
   )
 }
