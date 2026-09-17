@@ -67,9 +67,11 @@ export default function AuditPage() {
   const [photoEntries, setPhotoEntries] = useState<Entry[]>([])
   const [entryDetail, setEntryDetail] = useState<Entry | null>(null)
   const [zoomSrc, setZoomSrc] = useState<string | null>(null)
-  // Set only when the lightbox was opened from the session matrix — drives
-  // the prev/next arrows and caption; left null for every other photo click
-  // on this page (plain single-photo view, no sequence to browse).
+  // zoomList/zoomIndex are set only when the lightbox was opened from a
+  // browsable gallery (session matrix or the Visitor/Delivery Photos grid)
+  // — drives the prev/next arrows and caption. Left null for every other
+  // photo click on this page (plain single-photo view, no sequence).
+  const [zoomList, setZoomList] = useState<'matrix' | 'entries' | null>(null)
   const [zoomIndex, setZoomIndex] = useState<number | null>(null)
   const [guardTimeline, setGuardTimeline] = useState<{ name: string; cells: (string | null)[] }[]>([])
   const [postTimeline, setPostTimeline] = useState<{ name: string; cells: (string | null)[] }[]>([])
@@ -79,6 +81,7 @@ export default function AuditPage() {
   const [rangeFrom, setRangeFrom] = useState(isoToday())
   const [rangeTo, setRangeTo] = useState(isoToday())
   const [rangeExporting, setRangeExporting] = useState(false)
+  const [rangeExportProgress, setRangeExportProgress] = useState<string | null>(null)
   const [lang, setLang] = useLang()
   const t = makeT(securityDict, lang)
   // Long, rarely-needed history tables/timelines stay collapsed by default
@@ -130,8 +133,14 @@ export default function AuditPage() {
     })
     // A still-pending self check-in (not yet reviewed/approved by a guard)
     // has no category/company/purpose yet by design — that's not the same
-    // thing as an "incomplete" approved entry, so exclude it here.
-    const incompleteEntries = (dayEntries || []).filter(e => e.status !== 'pending' && (!e.company || !e.purpose))
+    // thing as an "incomplete" approved entry, so exclude it here. "Company"
+    // is also not a meaningful field for in-house staff (they don't have an
+    // external company), so only require it for Visitor/Delivery — flagging
+    // every in-house entry over a field that doesn't apply to them was pure
+    // noise, not a real anomaly.
+    const incompleteEntries = (dayEntries || []).filter(e =>
+      e.status !== 'pending' && (!e.purpose || (e.category !== 'inhouse' && !e.company))
+    )
 
     const catLabel = (v: string) => t(`category.${v}`)
 
@@ -210,10 +219,13 @@ export default function AuditPage() {
 
   // Full log export for an arbitrary date range — separate from the daily
   // audit view above (which only covers `date`), and queried fresh rather
-  // than reusing that day's already-loaded state.
+  // than reusing that day's already-loaded state. A real, styled .xlsx
+  // (via ExcelJS) with embedded photos, not a plain CSV — one sheet per
+  // log type plus a cover sheet.
   async function exportDateRange() {
     if (!rangeFrom || !rangeTo || rangeFrom > rangeTo) { alert(t('audit.invalidRange')); return }
     setRangeExporting(true)
+    setRangeExportProgress(null)
     try {
       const rangeStart = new Date(rangeFrom + 'T00:00:00').toISOString()
       const rangeEnd = new Date(rangeTo + 'T23:59:59.999').toISOString()
@@ -231,73 +243,183 @@ export default function AuditPage() {
       ])
 
       const catLabel = (v: string) => t(`category.${v}`)
+      const ExcelJS = (await import('exceljs')).default
+      const workbook = new ExcelJS.Workbook()
+      workbook.creator = 'AlphaVision'
+      workbook.created = new Date()
 
-      let csv = csvRow([t('audit.export.title')])
-      csv += csvRow([t('audit.export.dateRange'), `${rangeFrom} to ${rangeTo}`])
-      csv += csvRow([t('audit.export.generated'), new Date().toLocaleString()])
-      csv += '\n'
+      const HEADER_FILL = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FF1D4ED8' } }
+      const HEADER_FONT = { bold: true, color: { argb: 'FFFFFFFF' } }
+      const THIN_BORDER = { top: { style: 'thin' as const, color: { argb: 'FFE5E7EB' } }, bottom: { style: 'thin' as const, color: { argb: 'FFE5E7EB' } } }
 
-      csv += csvRow([`${t('audit.export.entries')} (${(entries || []).length})`])
-      csv += csvRow([t('audit.col.type'), t('audit.col.name'), t('audit.col.company'), t('common.purpose'), t('entries.lookingFor'), t('entries.vehicleNo'), t('entries.badgeNo'), t('entries.referenceNo'), t('common.status'), t('audit.col.timeIn'), t('audit.col.timeOut'), t('audit.col.attendedBy'), 'Abnormal?', 'Abnormal Reason', t('common.notes')])
-      for (const e of entries || []) {
-        csv += csvRow([
-          catLabel(e.category) || e.category, e.person_name, e.company, e.purpose, e.looking_for, e.vehicle_no, e.badge_no, e.reference_no,
-          e.status, new Date(e.time_in).toLocaleString(), e.time_out ? new Date(e.time_out).toLocaleString() : null,
-          e.created_by, e.abnormal_flag ? 'Yes' : 'No', e.abnormal_reason, e.notes,
-        ])
+      // Cover sheet
+      const cover = workbook.addWorksheet('Report')
+      cover.columns = [{ width: 26 }, { width: 40 }]
+      cover.mergeCells('A1:B1')
+      cover.getCell('A1').value = 'AlphaVision — Security Log Export'
+      cover.getCell('A1').font = { bold: true, size: 16, color: { argb: 'FF1D4ED8' } }
+      cover.addRow([])
+      cover.addRow(['Date Range', `${rangeFrom} to ${rangeTo}`])
+      cover.addRow(['Generated', new Date().toLocaleString()])
+      cover.addRow([])
+      const summaryHeaderRow = cover.addRow(['Section', 'Records'])
+      summaryHeaderRow.font = HEADER_FONT
+      summaryHeaderRow.fill = HEADER_FILL
+      const sectionCounts: [string, number][] = [
+        [t('audit.export.entries'), (entries || []).length],
+        [t('audit.sec.postLogs'), (postLogs || []).length],
+        [t('audit.export.gateEvents'), (gateEvents || []).length],
+        [t('audit.sec.keyLogs'), (keyLogs || []).length],
+        [t('audit.export.incidentReports'), (incidents || []).length],
+        [t('audit.export.panicAlarms'), (panics || []).length],
+        [t('audit.export.gpsClocking'), (clocking || []).length],
+      ]
+      sectionCounts.forEach(([name, count]) => cover.addRow([name, count]))
+      cover.getColumn(1).font = { bold: true }
+
+      // Photos are fetched from our own authenticated proxy route (same
+      // origin, session cookies included automatically) and embedded as
+      // floating images anchored to each row. Capped across the whole
+      // export so a huge date range doesn't take minutes / a huge file —
+      // rows beyond the cap still export fully, just without a thumbnail.
+      const PHOTO_CAP = 250
+      let photoBudget = PHOTO_CAP
+      let photosOmitted = 0
+      let photosProcessed = 0
+      const totalCandidatePhotos = (entries || []).filter(e => e.photo_drive_id).length
+        + (incidents || []).filter(i => i.photo_drive_id).length
+        + (clocking || []).filter(c => c.photo_drive_id).length
+
+      async function fetchImageBuffer(fileId: string): Promise<ArrayBuffer | null> {
+        try {
+          const res = await fetch(`/api/security/photo/${fileId}`)
+          if (!res.ok) return null
+          return await res.arrayBuffer()
+        } catch {
+          return null
+        }
       }
-      csv += '\n'
 
-      csv += csvRow([`${t('audit.sec.postLogs')} (${(postLogs || []).length})`])
-      csv += csvRow([t('audit.col.post'), t('audit.col.guard'), t('audit.col.timeIn'), t('audit.col.timeOut'), t('common.notes'), 'Logged By'])
-      for (const p of postLogs || []) {
-        csv += csvRow([p.post_name, p.guard_name, new Date(p.time_in).toLocaleString(), p.time_out ? new Date(p.time_out).toLocaleString() : null, p.notes, p.created_by])
-      }
-      csv += '\n'
-
-      csv += csvRow([`${t('audit.export.gateEvents')} (${(gateEvents || []).length})`])
-      csv += csvRow(['Gate', 'Action', 'By', t('audit.col.time')])
-      for (const g of gateEvents || []) {
-        csv += csvRow([g.gate_name, g.action, g.username, new Date(g.created_at).toLocaleString()])
-      }
-      csv += '\n'
-
-      csv += csvRow([`${t('audit.sec.keyLogs')} (${(keyLogs || []).length})`])
-      csv += csvRow([t('audit.col.key'), t('audit.col.issuedTo'), t('audit.col.issuedBy'), t('common.purpose'), t('audit.col.timeOut'), t('audit.col.timeIn'), t('common.status'), 'Returned By'])
-      for (const k of keyLogs || []) {
-        csv += csvRow([k.key_name, k.issued_to, k.issued_by, k.purpose, new Date(k.time_issued).toLocaleString(), k.time_returned ? new Date(k.time_returned).toLocaleString() : null, k.status, k.returned_by])
-      }
-      csv += '\n'
-
-      csv += csvRow([`${t('audit.export.incidentReports')} (${(incidents || []).length})`])
-      csv += csvRow([t('audit.col.type'), t('audit.col.severity'), t('audit.col.description'), t('common.location'), t('audit.col.reporter'), t('common.status'), t('audit.col.time')])
-      for (const i of incidents || []) {
-        csv += csvRow([i.type, i.severity, i.description, i.location, i.reported_by, i.status, new Date(i.created_at).toLocaleString()])
-      }
-      csv += '\n'
-
-      csv += csvRow([`${t('audit.export.panicAlarms')} (${(panics || []).length})`])
-      csv += csvRow([t('audit.col.triggeredBy'), t('audit.col.remark'), t('audit.col.time')])
-      for (const p of panics || []) {
-        csv += csvRow([p.triggered_by, p.remark, new Date(p.created_at).toLocaleString()])
-      }
-      csv += '\n'
-
-      csv += csvRow([`${t('audit.export.gpsClocking')} (${(clocking || []).length})`])
-      csv += csvRow([t('audit.col.checkpoint'), t('audit.col.guard'), t('audit.col.distance'), t('audit.col.remark'), t('audit.col.time')])
-      for (const c of clocking || []) {
-        csv += csvRow([c.checkpoint_name, c.guard_name, c.distance_meters, c.remark, new Date(c.clocked_at).toLocaleString()])
+      // Simple bounded-concurrency map so photo fetches overlap (faster)
+      // without firing dozens of requests at once.
+      async function withConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+        const results: R[] = new Array(items.length)
+        let next = 0
+        async function worker() {
+          while (next < items.length) {
+            const i = next++
+            results[i] = await fn(items[i])
+            photosProcessed++
+            if (totalCandidatePhotos > 0) setRangeExportProgress(`${t('audit.exportingPhotos')} ${photosProcessed}/${totalCandidatePhotos}`)
+          }
+        }
+        await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+        return results
       }
 
-      const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+      async function addSection<T>(
+        sheetName: string,
+        headers: string[],
+        rows: T[],
+        cellsOf: (row: T) => any[],
+        photoIdOf?: (row: T) => string | null,
+      ) {
+        const ws = workbook.addWorksheet(sheetName)
+        const hasPhoto = !!photoIdOf
+        const cols = hasPhoto ? ['Photo', ...headers] : headers
+        ws.columns = cols.map((h, i) => ({ header: h, width: hasPhoto && i === 0 ? 9 : Math.min(Math.max(h.length + 4, 12), 28) }))
+        const headerRow = ws.getRow(1)
+        headerRow.font = HEADER_FONT
+        headerRow.fill = HEADER_FILL
+        headerRow.height = 20
+        ws.views = [{ state: 'frozen', ySplit: 1 }]
+
+        if (rows.length === 0) {
+          ws.addRow(hasPhoto ? ['', 'No records for this range'] : ['No records for this range'])
+          return
+        }
+
+        const buffers = hasPhoto
+          ? await withConcurrency(rows, 4, async row => {
+              const fileId = photoIdOf!(row)
+              if (!fileId || photoBudget <= 0) { if (fileId) photosOmitted++; return null }
+              photoBudget--
+              return fetchImageBuffer(fileId)
+            })
+          : []
+
+        rows.forEach((row, i) => {
+          const cells = cellsOf(row)
+          const r = ws.addRow(hasPhoto ? ['', ...cells] : cells)
+          r.alignment = { vertical: 'middle', wrapText: true }
+          r.border = THIN_BORDER
+          if (hasPhoto) {
+            r.height = 42
+            const buf = buffers[i]
+            if (buf) {
+              const imageId = workbook.addImage({ buffer: buf as any, extension: 'jpeg' })
+              ws.addImage(imageId, { tl: { col: 0.1, row: r.number - 1 + 0.08 }, ext: { width: 40, height: 40 } })
+            }
+          }
+        })
+      }
+
+      await addSection(
+        'Entries', [t('audit.col.type'), t('audit.col.name'), t('audit.col.company'), t('common.purpose'), t('entries.lookingFor'), t('entries.vehicleNo'), t('entries.badgeNo'), t('entries.referenceNo'), t('common.status'), t('audit.col.timeIn'), t('audit.col.timeOut'), t('audit.col.attendedBy'), 'Abnormal?', 'Abnormal Reason', t('common.notes')],
+        entries || [],
+        e => [catLabel(e.category) || e.category, e.person_name, e.company, e.purpose, e.looking_for, e.vehicle_no, e.badge_no, e.reference_no, e.status, new Date(e.time_in).toLocaleString(), e.time_out ? new Date(e.time_out).toLocaleString() : '-', e.created_by, e.abnormal_flag ? 'Yes' : 'No', e.abnormal_reason, e.notes],
+        e => e.photo_drive_id,
+      )
+      await addSection(
+        'Post Logs', [t('audit.col.post'), t('audit.col.guard'), t('audit.col.timeIn'), t('audit.col.timeOut'), t('common.notes'), 'Logged By'],
+        postLogs || [],
+        p => [p.post_name, p.guard_name, new Date(p.time_in).toLocaleString(), p.time_out ? new Date(p.time_out).toLocaleString() : '-', p.notes, p.created_by],
+      )
+      await addSection(
+        'Gate Events', ['Gate', 'Action', 'By', t('audit.col.time')],
+        gateEvents || [],
+        g => [g.gate_name, g.action, g.username, new Date(g.created_at).toLocaleString()],
+      )
+      await addSection(
+        'Key Logs', [t('audit.col.key'), t('audit.col.issuedTo'), t('audit.col.issuedBy'), t('common.purpose'), t('audit.col.timeOut'), t('audit.col.timeIn'), t('common.status'), 'Returned By'],
+        keyLogs || [],
+        k => [k.key_name, k.issued_to, k.issued_by, k.purpose, new Date(k.time_issued).toLocaleString(), k.time_returned ? new Date(k.time_returned).toLocaleString() : '-', k.status, k.returned_by],
+      )
+      await addSection(
+        'Incidents', [t('audit.col.type'), t('audit.col.severity'), t('audit.col.description'), t('common.location'), t('audit.col.reporter'), t('common.status'), t('audit.col.time')],
+        incidents || [],
+        i => [i.type, i.severity, i.description, i.location, i.reported_by, i.status, new Date(i.created_at).toLocaleString()],
+        i => i.photo_drive_id,
+      )
+      await addSection(
+        'Panic Alarms', [t('audit.col.triggeredBy'), t('audit.col.remark'), t('audit.col.time')],
+        panics || [],
+        p => [p.triggered_by, p.remark, new Date(p.created_at).toLocaleString()],
+      )
+      await addSection(
+        'GPS Clocking', [t('audit.col.checkpoint'), t('audit.col.guard'), t('audit.col.distance'), t('audit.col.remark'), t('audit.col.time')],
+        clocking || [],
+        c => [c.checkpoint_name, c.guard_name, `${c.distance_meters}m`, c.remark, new Date(c.clocked_at).toLocaleString()],
+        c => c.photo_drive_id,
+      )
+
+      if (photosOmitted > 0) {
+        cover.addRow([])
+        cover.addRow(['Note', `${photosOmitted} photo(s) omitted — this export embeds up to ${PHOTO_CAP} photos per file. Narrow the date range to include more.`])
+      }
+
+      setRangeExportProgress(t('audit.exportingFinalizing'))
+      const arrayBuffer = await workbook.xlsx.writeBuffer()
+      const blob = new Blob([arrayBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `Security_Log_Export_${rangeFrom}_to_${rangeTo}.csv`
+      a.download = `Security_Log_Export_${rangeFrom}_to_${rangeTo}.xlsx`
       a.click()
       URL.revokeObjectURL(url)
     } finally {
       setRangeExporting(false)
+      setRangeExportProgress(null)
     }
   }
 
@@ -329,14 +451,22 @@ export default function AuditPage() {
 
   function openMatrixZoom(rec: ClockRecord) {
     const idx = sessionPhotoList.findIndex(r => r.id === rec.id)
+    setZoomList('matrix')
     setZoomIndex(idx)
     setZoomSrc(`/api/security/photo/${rec.photo_drive_id}`)
   }
-  function stepMatrixZoom(delta: number) {
-    if (zoomIndex === null) return
-    const next = Math.min(Math.max(zoomIndex + delta, 0), sessionPhotoList.length - 1)
+  function openEntryZoom(entry: Entry) {
+    const idx = photoEntries.findIndex(e => e.id === entry.id)
+    setZoomList('entries')
+    setZoomIndex(idx)
+    setZoomSrc(`/api/security/photo/${entry.photo_drive_id}`)
+  }
+  function stepZoom(delta: number) {
+    if (zoomIndex === null || !zoomList) return
+    const list = zoomList === 'matrix' ? sessionPhotoList : photoEntries
+    const next = Math.min(Math.max(zoomIndex + delta, 0), list.length - 1)
     setZoomIndex(next)
-    setZoomSrc(`/api/security/photo/${sessionPhotoList[next].photo_drive_id}`)
+    setZoomSrc(`/api/security/photo/${(list[next] as any).photo_drive_id}`)
   }
 
   function renderTable(section: Section) {
@@ -423,7 +553,7 @@ export default function AuditPage() {
             <input type="date" value={rangeTo} onChange={e => setRangeTo(e.target.value)} max={isoToday()} className="border rounded-md px-3 py-2 text-sm bg-white" />
           </div>
           <button onClick={exportDateRange} disabled={rangeExporting} className="flex items-center gap-1.5 bg-blue-600 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-blue-700">
-            <Download className="w-4 h-4" /> {rangeExporting ? t('audit.exporting') : t('audit.downloadExcel')}
+            <Download className="w-4 h-4" /> {rangeExporting ? (rangeExportProgress || t('audit.exporting')) : t('audit.downloadExcel')}
           </button>
           <p className="text-xs text-blue-700 basis-full">{t('audit.rangeHint')}</p>
         </div>
@@ -564,7 +694,7 @@ export default function AuditPage() {
                 <img
                   src={`/api/security/photo/${entryDetail.photo_drive_id}`}
                   className="w-28 h-28 rounded-xl object-cover border flex-shrink-0 cursor-zoom-in"
-                  onClick={() => { setZoomIndex(null); setZoomSrc(`/api/security/photo/${entryDetail.photo_drive_id}`) }}
+                  onClick={() => openEntryZoom(entryDetail)}
                 />
               )}
               <div className="flex-1 min-w-[160px] text-sm">
@@ -589,10 +719,10 @@ export default function AuditPage() {
 
       <PhotoLightbox
         src={zoomSrc}
-        onClose={() => { setZoomSrc(null); setZoomIndex(null) }}
-        onPrev={zoomIndex !== null && zoomIndex > 0 ? () => stepMatrixZoom(-1) : undefined}
-        onNext={zoomIndex !== null && zoomIndex < sessionPhotoList.length - 1 ? () => stepMatrixZoom(1) : undefined}
-        caption={zoomIndex !== null && sessionPhotoList[zoomIndex] ? (() => {
+        onClose={() => { setZoomSrc(null); setZoomIndex(null); setZoomList(null) }}
+        onPrev={zoomIndex !== null && zoomIndex > 0 ? () => stepZoom(-1) : undefined}
+        onNext={zoomIndex !== null && zoomList && zoomIndex < (zoomList === 'matrix' ? sessionPhotoList.length : photoEntries.length) - 1 ? () => stepZoom(1) : undefined}
+        caption={zoomIndex !== null && zoomList === 'matrix' && sessionPhotoList[zoomIndex] ? (() => {
           const rec = sessionPhotoList[zoomIndex]
           return (
             <>
@@ -601,6 +731,18 @@ export default function AuditPage() {
                 {new Date(rec.clocked_at).toLocaleString()} · {rec.distance_meters}m{rec.remark ? ` · ${rec.remark}` : ''}
               </div>
               <div className="text-white/50 text-xs mt-1">{zoomIndex + 1} / {sessionPhotoList.length}</div>
+            </>
+          )
+        })() : zoomIndex !== null && zoomList === 'entries' && photoEntries[zoomIndex] ? (() => {
+          const entry = photoEntries[zoomIndex]
+          return (
+            <>
+              <div className="font-semibold">{entry.person_name}{entry.company ? ` — ${entry.company}` : ''}</div>
+              <div className="text-white/70">
+                {t(`category.${entry.category}`)} · {new Date(entry.time_in).toLocaleString()}
+                {entry.time_out ? ` → ${new Date(entry.time_out).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}` : ''}
+              </div>
+              <div className="text-white/50 text-xs mt-1">{zoomIndex + 1} / {photoEntries.length}</div>
             </>
           )
         })() : undefined}
