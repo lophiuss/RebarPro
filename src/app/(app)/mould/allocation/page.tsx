@@ -12,8 +12,14 @@ export default async function MouldAllocationPage({ searchParams }: { searchPara
   const workDate = date || new Date().toISOString().slice(0, 10)
   const supabase = await createClient()
 
+  // Mould department workers aren't tagged as such anywhere in the migrated
+  // PlantPro data (the "line" field is free-text timecard department/task
+  // text, not a clean category) — the mould supervisor is the reliable
+  // signal instead: only LEONG's workers show up in the allocation dropdown.
+  const { data: mouldSupervisor } = await supabase.from('plantpro_supervisors').select('id').eq('name', 'LEONG').maybeSingle()
+
   const [{ data: workers }, { data: activities }, { data: openJobs }, { data: projects }, { data: entries }, { data: lock }] = await Promise.all([
-    supabase.from('plantpro_workers').select('id, worker_no, name').eq('status', 'Active').order('name'),
+    supabase.from('plantpro_workers').select('id, worker_no, name').eq('status', 'Active').eq('supervisor_id', mouldSupervisor?.id ?? -1).order('name'),
     supabase.from('mould_activities').select('code, label, cost_target').eq('is_active', true).order('sort_order'),
     supabase.from('mould_jobs').select('id, job_type, mould:mould_assets(name)').neq('status', 'completed').neq('status', 'cancelled').order('id', { ascending: false }),
     supabase.from('plantpro_projects').select('id, name').eq('status', 'Active').order('name'),
