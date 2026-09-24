@@ -963,3 +963,64 @@ export async function commitPlantproImport(workers: ImportPreviewWorker[], month
   revalidatePath('/plantpro/documents')
   return totals
 }
+
+// ---------------------------------------------------------------------------
+// Targets & Claims — ported from PMS's TargetSettingsClient/ClaimsReportsClient.
+// PMS keyed both tables off the project's name string; here they key off
+// plantpro_projects.id like every other table in this department.
+// ---------------------------------------------------------------------------
+
+export async function updateMonthlyTarget(projectId: number, month: string, field: 'production_target' | 'delivery_target' | 'general_target', value: number) {
+  const { supabase } = await requirePlantproAccess()
+  const { data: existing } = await supabase.from('plantpro_monthly_targets').select('id').eq('project_id', projectId).eq('month', month).maybeSingle()
+  if (existing) {
+    const { error } = await supabase.from('plantpro_monthly_targets').update({ [field]: value }).eq('id', existing.id)
+    if (error) throw error
+  } else {
+    const { error } = await supabase.from('plantpro_monthly_targets').insert({ project_id: projectId, month, [field]: value })
+    if (error) throw error
+  }
+  revalidatePath('/plantpro/targets')
+}
+
+export async function copyTargetsFromMonth(fromMonth: string, toMonth: string) {
+  const { supabase } = await requirePlantproAccess()
+  const { data: fromRows, error: fetchErr } = await supabase.from('plantpro_monthly_targets').select('project_id, production_target, delivery_target, general_target').eq('month', fromMonth)
+  if (fetchErr) throw fetchErr
+  for (const row of fromRows || []) {
+    const { data: existing } = await supabase.from('plantpro_monthly_targets').select('id').eq('project_id', row.project_id).eq('month', toMonth).maybeSingle()
+    const data = { production_target: row.production_target, delivery_target: row.delivery_target, general_target: row.general_target }
+    if (existing) {
+      const { error } = await supabase.from('plantpro_monthly_targets').update(data).eq('id', existing.id)
+      if (error) throw error
+    } else {
+      const { error } = await supabase.from('plantpro_monthly_targets').insert({ project_id: row.project_id, month: toMonth, ...data })
+      if (error) throw error
+    }
+  }
+  revalidatePath('/plantpro/targets')
+}
+
+export async function createClaim(input: { project_id: number; type: 'Production' | 'Delivery' | 'General'; volume_or_trips: number; amount: number; remarks: string; date: string }) {
+  const { supabase } = await requirePlantproAccess()
+  const { error } = await supabase.from('plantpro_claims').insert(input)
+  if (error) throw error
+  revalidatePath('/plantpro/claims')
+  revalidatePath('/plantpro/targets')
+}
+
+export async function updateClaimField(id: number, field: 'project_id' | 'type' | 'volume_or_trips' | 'amount' | 'remarks' | 'date', value: unknown) {
+  const { supabase } = await requirePlantproAccess()
+  const { error } = await supabase.from('plantpro_claims').update({ [field]: value }).eq('id', id)
+  if (error) throw error
+  revalidatePath('/plantpro/claims')
+  revalidatePath('/plantpro/targets')
+}
+
+export async function deleteClaim(id: number) {
+  const { supabase } = await requirePlantproAccess()
+  const { error } = await supabase.from('plantpro_claims').delete().eq('id', id)
+  if (error) throw error
+  revalidatePath('/plantpro/claims')
+  revalidatePath('/plantpro/targets')
+}
