@@ -43,6 +43,10 @@ yarn-error.log*
 # supabase CLI local state
 supabase/.temp
 
+# raw PMS data extract — real worker PII (salaries, passport numbers, DOB,
+# hostel addresses); this repo is public, so this stays local-only
+scripts/plantpro-migration/migration_data.json
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

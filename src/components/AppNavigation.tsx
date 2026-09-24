@@ -9,10 +9,10 @@ import {
   ArrowLeftRight, ClipboardList, AlertTriangle, Factory, DoorClosed, KeyRound,
   Radio, Siren, ClipboardEdit, User, Sparkles, Wrench, CalendarClock,
   PackageSearch, Inbox, History, HelpCircle, Navigation, Hammer,
-  Users, Lock, FileBarChart
+  Users, Lock, FileBarChart, Clock, BedDouble, FileText, Upload, Target, Receipt, DollarSign
 } from 'lucide-react'
 
-export type Department = 'rebar' | 'cement' | 'security' | 'maintenance' | 'mould'
+export type Department = 'rebar' | 'cement' | 'security' | 'maintenance' | 'mould' | 'plantpro'
 export type DepartmentAccess = { department: Department; role: string }
 export type NavPermission = { department: Department; role: string; nav_key: string }
 
@@ -40,6 +40,7 @@ const DEPARTMENT_LABEL: Record<Department, string> = {
   security: 'Security',
   maintenance: 'Maintenance',
   mould: 'Mould',
+  plantpro: 'HR',
 }
 
 const DEPARTMENT_HOME: Record<Department, string> = {
@@ -48,6 +49,7 @@ const DEPARTMENT_HOME: Record<Department, string> = {
   security: '/security',
   maintenance: '/maintenance',
   mould: '/mould',
+  plantpro: '/plantpro/ot',
 }
 
 const SETTINGS_HREF: Record<Department, string> = {
@@ -56,6 +58,7 @@ const SETTINGS_HREF: Record<Department, string> = {
   security: '/security/settings',
   maintenance: '/maintenance/settings',
   mould: '/mould/settings',
+  plantpro: '/plantpro/config',
 }
 
 // Cement's real pages land here module-by-module (see the merge plan's build order).
@@ -117,6 +120,17 @@ export const NAV_ITEMS: Record<Department, NavItem[]> = {
     { href: '/mould/month-lock', label: 'Month Lock', icon: Lock },
     { href: '/mould/settings', label: 'Settings', icon: Settings },
   ],
+  plantpro: [
+    { href: '/plantpro/ot', label: 'OT & Allocation', icon: Clock },
+    { href: '/plantpro/timesheet', label: 'Timesheet', icon: ClipboardCheck },
+    { href: '/plantpro/hr', label: 'HR Pay Input', icon: DollarSign },
+    { href: '/plantpro/hostel', label: 'Hostel', icon: BedDouble },
+    { href: '/plantpro/documents', label: 'Documents', icon: FileText },
+    { href: '/plantpro/import', label: 'Import', icon: Upload },
+    { href: '/plantpro/targets', label: 'Targets', icon: Target },
+    { href: '/plantpro/claims', label: 'Claims & Reports', icon: Receipt },
+    { href: '/plantpro/config', label: 'Config', icon: Settings },
+  ],
 }
 
 export default function AppNavigation({ userEmail, fullName, departments, navPermissions, canUseAiHelper, children }: Props) {
@@ -134,6 +148,8 @@ export default function AppNavigation({ userEmail, fullName, departments, navPer
     ? 'maintenance'
     : pathname.startsWith('/mould')
     ? 'mould'
+    : pathname.startsWith('/plantpro')
+    ? 'plantpro'
     : departments[0]?.department ?? null
 
   const activeRole = departments.find(d => d.department === activeDept)?.role

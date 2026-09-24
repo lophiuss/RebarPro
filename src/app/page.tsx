@@ -31,6 +31,9 @@ export default async function Home() {
   if (departments.includes('mould')) {
     redirect('/mould')
   }
+  if (departments.includes('plantpro')) {
+    redirect('/plantpro/ot')
+  }
 
   // No department access yet — (app)/layout.tsx shows the "no access" message.
   redirect('/rebar/dashboard')

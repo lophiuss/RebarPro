@@ -53,7 +53,7 @@ async function getOrCreateSubfolder(name: string): Promise<string> {
   return folderId
 }
 
-export type DriveSubfolder = 'entries' | 'incidents' | 'layout' | 'avatars' | 'maintenance' | 'clocking'
+export type DriveSubfolder = 'entries' | 'incidents' | 'layout' | 'avatars' | 'maintenance' | 'clocking' | 'hr'
 
 // Uploads a file into the given subfolder of the security photos root and
 // returns its Drive file id. The file is left at Drive's default sharing
@@ -78,4 +78,17 @@ export async function streamFromDrive(fileId: string): Promise<{ stream: NodeJS.
   const meta = await drive.files.get({ fileId, fields: 'mimeType' })
   const res = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'stream' })
   return { stream: res.data as unknown as NodeJS.ReadableStream, mimeType: meta.data.mimeType || 'application/octet-stream' }
+}
+
+// Deletes a file from Drive outright (not just unlinking the DB row) —
+// used when a document record is deleted, mirroring PMS's on-disk delete
+// (DELETE /api/documents/[id] "removes row + unlinks file"). Swallows a
+// 404 (already gone) so a stale reference never blocks the DB delete.
+export async function deleteFromDrive(fileId: string): Promise<void> {
+  const drive = getDriveClient()
+  try {
+    await drive.files.delete({ fileId })
+  } catch (err: any) {
+    if (err?.code !== 404) throw err
+  }
 }
