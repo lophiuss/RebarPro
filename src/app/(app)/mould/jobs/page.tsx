@@ -11,7 +11,7 @@ export default async function MouldJobsPage() {
   const [{ data: jobs }, { data: moulds }] = await Promise.all([
     supabase
       .from('mould_jobs')
-      .select('id, job_no, job_type, cost_center, status, started_on, completed_on, added_steel_kg, material_cost_snapshot, mould:mould_assets(id, name), project:mould_projects(name)')
+      .select('id, job_no, job_type, cost_center, status, started_on, completed_on, added_steel_kg, material_cost_snapshot, mould:mould_assets(id, name), project:plantpro_projects(name)')
       .order('created_at', { ascending: false })
       .limit(200),
     supabase.from('mould_assets').select('id, name, status').neq('status', 'eol').order('name'),

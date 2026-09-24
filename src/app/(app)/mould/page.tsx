@@ -37,7 +37,7 @@ export default async function MouldReportPage() {
       .from('mould_time_entries')
       .select('work_date, cost_target, labour_cost, project_id, job:mould_jobs(job_type, project_id, cost_center)')
       .gte('work_date', `${earliestMonth}-01`),
-    supabase.from('mould_projects').select('id, name').order('name'),
+    supabase.from('plantpro_projects').select('id, name').order('name'),
   ])
 
   const projectName = new Map((projects || []).map(p => [p.id, p.name]))

@@ -11,9 +11,9 @@ export default async function MouldAssetsPage() {
   const [{ data: assets }, { data: projects }] = await Promise.all([
     supabase
       .from('mould_assets')
-      .select('id, mould_code, name, mould_type, status, product_weight_kg, steel_weight_kg, owning_project_id, current_project_id, owning:mould_projects!mould_assets_owning_project_id_fkey(name), current:mould_projects!mould_assets_current_project_id_fkey(name)')
+      .select('id, mould_code, name, mould_type, status, product_weight_kg, steel_weight_kg, owning_project_id, current_project_id, owning:plantpro_projects!mould_assets_owning_project_id_fkey(name), current:plantpro_projects!mould_assets_current_project_id_fkey(name)')
       .order('name'),
-    supabase.from('mould_projects').select('id, name').eq('status', 'active').order('name'),
+    supabase.from('plantpro_projects').select('id, name').eq('status', 'Active').order('name'),
   ])
 
   return (

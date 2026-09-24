@@ -13,13 +13,13 @@ export default async function MouldAllocationPage({ searchParams }: { searchPara
   const supabase = await createClient()
 
   const [{ data: workers }, { data: activities }, { data: openJobs }, { data: projects }, { data: entries }, { data: lock }] = await Promise.all([
-    supabase.from('mould_workers').select('id, worker_no, name').eq('is_active', true).order('name'),
+    supabase.from('plantpro_workers').select('id, worker_no, name').eq('status', 'Active').order('name'),
     supabase.from('mould_activities').select('code, label, cost_target').eq('is_active', true).order('sort_order'),
     supabase.from('mould_jobs').select('id, job_type, mould:mould_assets(name)').neq('status', 'completed').neq('status', 'cancelled').order('id', { ascending: false }),
-    supabase.from('mould_projects').select('id, name').eq('status', 'active').order('name'),
+    supabase.from('plantpro_projects').select('id, name').eq('status', 'Active').order('name'),
     supabase
       .from('mould_time_entries')
-      .select('id, worker_id, hours, activity_code, cost_target, labour_cost, worker:mould_workers(name), job:mould_jobs(mould:mould_assets(name)), project:mould_projects(name)')
+      .select('id, worker_id, hours, activity_code, cost_target, labour_cost, worker:plantpro_workers(name), job:mould_jobs(mould:mould_assets(name)), project:plantpro_projects(name)')
       .eq('work_date', workDate)
       .order('id', { ascending: false }),
     supabase.from('mould_month_locks').select('status').eq('period', workDate.slice(0, 7)).maybeSingle(),

@@ -1,13 +1,14 @@
-// One-off migration: migration_data.json (produced by
-// plant-management-system's scripts/extract-for-mould-module.mjs) ->
-// Supabase mould_projects / mould_workers tables.
-//
-// Run with:  node scripts/mould-migration/upload.mjs
-//
-// Idempotent: both tables are upserted on source_pms_id (unique). Safe to
-// re-run after PMS data changes -- existing rows are updated in place, never
-// duplicated. This only ever touches mould_projects / mould_workers; nothing
-// else in the mould schema depends on rerunning it.
+// ARCHIVED, DOES NOT RUN ANYMORE: this one-off migration synced
+// migration_data.json (produced by plant-management-system's
+// scripts/extract-for-mould-module.mjs) into Supabase mould_projects /
+// mould_workers -- two sync-snapshot tables the mould module used before
+// the full PlantPro merge. The v40 migration
+// (supabase_migration_v40_mould_plantpro_repoint.sql) repointed
+// mould_assets/mould_jobs/mould_time_entries onto the real
+// plantpro_projects/plantpro_workers tables and DROPPED mould_projects/
+// mould_workers, so running this script now would fail (tables no longer
+// exist). Kept purely as a historical record of how that data first got
+// into Supabase.
 //
 // Needs (from .env.local): NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SECRET_KEY
 
@@ -16,7 +17,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
-const ROOT = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))))
+const ROOT = path.dirname(path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url)))))
 
 function loadEnv(file) {
   const out = {}
@@ -35,7 +36,7 @@ const sb = createClient(env.NEXT_PUBLIC_SUPABASE_URL, env.SUPABASE_SECRET_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
 })
 
-const data = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'mould-migration', 'migration_data.json'), 'utf8'))
+const data = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'archive', 'mould-migration', 'migration_data.json'), 'utf8'))
 
 function chunk(arr, size) {
   const out = []
