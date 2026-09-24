@@ -78,7 +78,7 @@ export async function proxy(request: NextRequest) {
   // nav — this was reported for a security-only account landing on Rebar.
   if (user) {
     const deptSegment = request.nextUrl.pathname.split('/')[1]
-    if (deptSegment === 'rebar' || deptSegment === 'cement' || deptSegment === 'security' || deptSegment === 'maintenance') {
+    if (deptSegment === 'rebar' || deptSegment === 'cement' || deptSegment === 'security' || deptSegment === 'maintenance' || deptSegment === 'mould') {
       const { data: access } = await supabase
         .from('user_department_access')
         .select('department')

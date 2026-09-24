@@ -36,13 +36,16 @@ async function compressImage(file: File): Promise<Blob> {
 type AccessRow = { user_id: string; department: Department; role: string }
 type NavPermRow = { department: Department; role: string; nav_key: string }
 
-const DEPT_LABEL: Record<Department, string> = { rebar: 'Rebar', cement: 'Cement', security: 'Security', maintenance: 'Maintenance' }
+const DEPT_LABEL: Record<Department, string> = { rebar: 'Rebar', cement: 'Cement', security: 'Security', maintenance: 'Maintenance', mould: 'Mould' }
 
 const ROLES: Record<Department, string[]> = {
   rebar: ['admin', 'manager', 'user'],
   cement: ['admin', 'manager', 'supervisor', 'technician'],
   security: ['admin', 'manager', 'security'],
   maintenance: ['admin', 'manager', 'technician'],
+  // admin: locks/unlocks months, manages mould_settings (standard rates).
+  // supervisor: creates jobs, allocates worker hours — the day-to-day role.
+  mould: ['admin', 'manager', 'supervisor'],
 }
 
 // Every department's top role is stored as 'admin' (so is_dept_admin() works
@@ -58,6 +61,7 @@ function roleLabel(dept: Department, role: string) {
 // isn't exported (same reasoning as this page's own DEPT_LABEL/ROLES above).
 const SETTINGS_HREF: Record<Department, string> = {
   rebar: '/rebar/settings', cement: '/cement/settings', security: '/security/settings', maintenance: '/maintenance/settings',
+  mould: '/mould/settings',
 }
 
 export default function AccessControlPage() {

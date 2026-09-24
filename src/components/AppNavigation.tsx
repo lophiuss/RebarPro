@@ -8,10 +8,11 @@ import {
   ShieldCheck, Building2, Boxes, Scale, PackageOpen, ScrollText, BarChart3,
   ArrowLeftRight, ClipboardList, AlertTriangle, Factory, DoorClosed, KeyRound,
   Radio, Siren, ClipboardEdit, User, Sparkles, Wrench, CalendarClock,
-  PackageSearch, Inbox, History, HelpCircle, Navigation
+  PackageSearch, Inbox, History, HelpCircle, Navigation, Hammer,
+  Users, Lock, FileBarChart
 } from 'lucide-react'
 
-export type Department = 'rebar' | 'cement' | 'security' | 'maintenance'
+export type Department = 'rebar' | 'cement' | 'security' | 'maintenance' | 'mould'
 export type DepartmentAccess = { department: Department; role: string }
 export type NavPermission = { department: Department; role: string; nav_key: string }
 
@@ -38,6 +39,7 @@ const DEPARTMENT_LABEL: Record<Department, string> = {
   cement: 'BPlant',
   security: 'Security',
   maintenance: 'Maintenance',
+  mould: 'Mould',
 }
 
 const DEPARTMENT_HOME: Record<Department, string> = {
@@ -45,6 +47,7 @@ const DEPARTMENT_HOME: Record<Department, string> = {
   cement: '/cement',
   security: '/security',
   maintenance: '/maintenance',
+  mould: '/mould',
 }
 
 const SETTINGS_HREF: Record<Department, string> = {
@@ -52,6 +55,7 @@ const SETTINGS_HREF: Record<Department, string> = {
   cement: '/cement/settings',
   security: '/security/settings',
   maintenance: '/maintenance/settings',
+  mould: '/mould/settings',
 }
 
 // Cement's real pages land here module-by-module (see the merge plan's build order).
@@ -105,6 +109,14 @@ export const NAV_ITEMS: Record<Department, NavItem[]> = {
     { href: '/maintenance/critical-issues', label: 'Critical Issues', icon: AlertTriangle },
     { href: '/maintenance/settings', label: 'Settings', icon: Settings },
   ],
+  mould: [
+    { href: '/mould', label: 'Monthly Cost Report', icon: FileBarChart },
+    { href: '/mould/assets', label: 'Moulds', icon: Hammer },
+    { href: '/mould/jobs', label: 'Jobs', icon: ClipboardEdit },
+    { href: '/mould/allocation', label: 'Time Allocation', icon: Users },
+    { href: '/mould/month-lock', label: 'Month Lock', icon: Lock },
+    { href: '/mould/settings', label: 'Settings', icon: Settings },
+  ],
 }
 
 export default function AppNavigation({ userEmail, fullName, departments, navPermissions, canUseAiHelper, children }: Props) {
@@ -120,6 +132,8 @@ export default function AppNavigation({ userEmail, fullName, departments, navPer
     ? 'security'
     : pathname.startsWith('/maintenance')
     ? 'maintenance'
+    : pathname.startsWith('/mould')
+    ? 'mould'
     : departments[0]?.department ?? null
 
   const activeRole = departments.find(d => d.department === activeDept)?.role
