@@ -106,58 +106,58 @@ export default function HRClient({ workers, supervisors, projects, payColumns, a
         </form>
       )}
 
-      <div className="bg-white border rounded-xl shadow-sm overflow-auto max-h-[75vh]">
-        <table className="text-sm border-collapse w-full">
+      <div className="bg-white border rounded-xl shadow-sm overflow-auto max-h-[calc(100vh-11rem)]">
+        <table className="text-xs border-collapse w-full">
           <thead>
             <tr className="bg-gray-50">
-              <th className="sticky left-0 bg-gray-50 px-2 py-2 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('name')}>Name <SortIcon col="name" /></th>
-              <th className="px-2 py-2 text-left whitespace-nowrap">ID</th>
-              <th className="px-2 py-2 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('line')}>Line <SortIcon col="line" /></th>
-              <th className="px-2 py-2 text-left whitespace-nowrap">Position</th>
-              <th className="px-2 py-2 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('supervisor')}>Supervisor <SortIcon col="supervisor" /></th>
-              <th className="px-2 py-2 text-left whitespace-nowrap">Status</th>
-              {payColumns.map(c => <th key={c.id} className={`px-1 py-2 text-center whitespace-nowrap ${c.type === 'DEDUCT' ? 'text-red-600' : ''}`}>{c.label}</th>)}
-              <th className="px-2 py-2 text-center whitespace-nowrap bg-green-50 cursor-pointer" onClick={() => requestSort('grossPay')}>Gross <SortIcon col="grossPay" /></th>
-              <th className="px-2 py-2 text-center whitespace-nowrap bg-indigo-50 cursor-pointer" onClick={() => requestSort('netPay')}>Net <SortIcon col="netPay" /></th>
-              {projects.map(p => <th key={p.id} className="px-1 py-2 text-center text-xs w-16">{p.name} %</th>)}
-              <th className="px-2 py-2 text-left whitespace-nowrap">Remarks</th>
-              <th className="px-2 py-2 text-center whitespace-nowrap">Actions</th>
+              <th className="sticky left-0 top-0 z-30 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('name')}>Name <SortIcon col="name" /></th>
+              <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left whitespace-nowrap">ID</th>
+              <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('line')}>Line <SortIcon col="line" /></th>
+              <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left whitespace-nowrap">Position</th>
+              <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('supervisor')}>Supervisor <SortIcon col="supervisor" /></th>
+              <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left whitespace-nowrap">Status</th>
+              {payColumns.map(c => <th key={c.id} className={`sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-1 py-1.5 text-center whitespace-nowrap ${c.type === 'DEDUCT' ? 'text-red-600' : ''}`}>{c.label}</th>)}
+              <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-center whitespace-nowrap !bg-green-50 cursor-pointer" onClick={() => requestSort('grossPay')}>Gross <SortIcon col="grossPay" /></th>
+              <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-center whitespace-nowrap !bg-indigo-50 cursor-pointer" onClick={() => requestSort('netPay')}>Net <SortIcon col="netPay" /></th>
+              {projects.map(p => <th key={p.id} className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-1 py-1.5 text-center text-xs w-16">{p.name} %</th>)}
+              <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left whitespace-nowrap">Remarks</th>
+              <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-center whitespace-nowrap">Actions</th>
             </tr>
           </thead>
           <tbody>
             {sorted.map(w => (
               <tr key={w.id} className={`border-b border-gray-100 ${w.status === 'Inactive' ? 'opacity-50' : w.status === 'On Leave' ? 'bg-amber-50/40' : ''}`}>
-                <td className="sticky left-0 bg-white px-2 py-1.5 font-medium whitespace-nowrap"><input defaultValue={w.name} onBlur={e => e.target.value.trim() && e.target.value !== w.name && guard(() => updateWorkerField(w.id, 'name', e.target.value.trim()))} className="border rounded px-1.5 py-1 text-xs w-32" /></td>
-                <td className="px-1 py-1.5"><input defaultValue={w.worker_no || ''} onBlur={e => guard(() => updateWorkerField(w.id, 'worker_no', e.target.value))} className="border rounded px-1.5 py-1 text-xs w-20" /></td>
-                <td className="px-1 py-1.5"><input defaultValue={w.line || ''} onBlur={e => guard(() => updateWorkerField(w.id, 'line', e.target.value))} className="border rounded px-1.5 py-1 text-xs w-28" /></td>
-                <td className="px-1 py-1.5"><input defaultValue={w.designation || ''} onBlur={e => guard(() => updateWorkerField(w.id, 'designation', e.target.value))} className="border rounded px-1.5 py-1 text-xs w-24" /></td>
-                <td className="px-1 py-1.5">
-                  <select defaultValue={w.supervisor_id || ''} onChange={e => guard(() => updateWorkerField(w.id, 'supervisor_id', e.target.value ? Number(e.target.value) : null))} className="border rounded px-1.5 py-1 text-xs bg-white w-28">
+                <td className="sticky left-0 z-10 bg-white px-2 py-0.5 font-medium whitespace-nowrap"><input defaultValue={w.name} onBlur={e => e.target.value.trim() && e.target.value !== w.name && guard(() => updateWorkerField(w.id, 'name', e.target.value.trim()))} className="border rounded px-1 py-0.5 text-[11px] w-32" /></td>
+                <td className="px-1 py-0.5"><input defaultValue={w.worker_no || ''} onBlur={e => guard(() => updateWorkerField(w.id, 'worker_no', e.target.value))} className="border rounded px-1 py-0.5 text-[11px] w-20" /></td>
+                <td className="px-1 py-0.5"><input defaultValue={w.line || ''} onBlur={e => guard(() => updateWorkerField(w.id, 'line', e.target.value))} className="border rounded px-1 py-0.5 text-[11px] w-28" /></td>
+                <td className="px-1 py-0.5"><input defaultValue={w.designation || ''} onBlur={e => guard(() => updateWorkerField(w.id, 'designation', e.target.value))} className="border rounded px-1 py-0.5 text-[11px] w-24" /></td>
+                <td className="px-1 py-0.5">
+                  <select defaultValue={w.supervisor_id || ''} onChange={e => guard(() => updateWorkerField(w.id, 'supervisor_id', e.target.value ? Number(e.target.value) : null))} className="border rounded px-1 py-0.5 text-[11px] bg-white w-28">
                     <option value="">--</option>{supervisors.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
                 </td>
-                <td className="px-1 py-1.5">
-                  <select defaultValue={w.status} onChange={e => guard(() => updateWorkerField(w.id, 'status', e.target.value))} className="border rounded px-1.5 py-1 text-xs bg-white">
+                <td className="px-1 py-0.5">
+                  <select defaultValue={w.status} onChange={e => guard(() => updateWorkerField(w.id, 'status', e.target.value))} className="border rounded px-1 py-0.5 text-[11px] bg-white">
                     <option value="Active">Active</option><option value="Inactive">Inactive</option><option value="On Leave">On Leave</option>
                   </select>
                 </td>
                 {payColumns.map(c => (
-                  <td key={c.id} className="px-1 py-1.5">
+                  <td key={c.id} className="px-1 py-0.5">
                     <input type="number" step="0.01" defaultValue={payValueByWorker.get(w.id)?.get(c.id) || 0}
                       onBlur={e => guard(() => updateWorkerPayValue(w.id, c.id, Number(parseFloat(e.target.value || '0').toFixed(2))))}
-                      className={`border rounded px-1.5 py-1 text-xs w-20 ${c.type === 'DEDUCT' ? 'text-red-600' : ''}`} />
+                      className={`border rounded px-1 py-0.5 text-[11px] w-20 ${c.type === 'DEDUCT' ? 'text-red-600' : ''}`} />
                   </td>
                 ))}
-                <td className="px-2 py-1.5 text-center font-bold text-green-600 bg-green-50/50 whitespace-nowrap">{fmt(grossOf(w))}</td>
-                <td className="px-2 py-1.5 text-center font-bold text-indigo-600 bg-indigo-50/50 whitespace-nowrap">{fmt(netOf(w))}</td>
+                <td className="px-2 py-0.5 text-center font-bold text-green-600 bg-green-50/50 whitespace-nowrap">{fmt(grossOf(w))}</td>
+                <td className="px-2 py-0.5 text-center font-bold text-indigo-600 bg-indigo-50/50 whitespace-nowrap">{fmt(netOf(w))}</td>
                 {projects.map(p => (
-                  <td key={p.id} className="px-1 py-1.5">
+                  <td key={p.id} className="px-1 py-0.5">
                     <input type="number" step="0.01" min={0} max={100} placeholder="0" defaultValue={allocByWorker.get(w.id)?.get(p.id) ?? ''}
-                      onBlur={e => guard(() => updateWorkerAllocationPct(w.id, p.id, Number(e.target.value) || 0))} className="border rounded px-1 py-1 text-xs w-14" />
+                      onBlur={e => guard(() => updateWorkerAllocationPct(w.id, p.id, Number(e.target.value) || 0))} className="border rounded px-1 py-0.5 text-[11px] w-12" />
                   </td>
                 ))}
-                <td className="px-1 py-1.5"><input defaultValue={w.remarks || ''} onBlur={e => guard(() => updateWorkerField(w.id, 'remarks', e.target.value))} className="border rounded px-1.5 py-1 text-xs w-28" /></td>
-                <td className="px-1 py-1.5">
+                <td className="px-1 py-0.5"><input defaultValue={w.remarks || ''} onBlur={e => guard(() => updateWorkerField(w.id, 'remarks', e.target.value))} className="border rounded px-1 py-0.5 text-[11px] w-28" /></td>
+                <td className="px-1 py-0.5">
                   <div className="flex gap-1 justify-center">
                     <button onClick={() => guard(() => copyWorker(w.id))} title="Copy" className="text-gray-400 hover:text-indigo-600 p-1"><Copy className="w-3.5 h-3.5" /></button>
                     <button onClick={() => confirm(`Delete ${w.name}?`) && guard(() => deleteWorker(w.id))} title="Delete" className="text-red-400 hover:text-red-600 p-1"><Trash2 className="w-3.5 h-3.5" /></button>

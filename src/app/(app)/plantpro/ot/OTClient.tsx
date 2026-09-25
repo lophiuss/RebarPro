@@ -219,7 +219,7 @@ export default function OTClient({
         </div>
         <div className="flex items-center gap-2 text-sm">
           <label className="text-gray-500">Viewing as:</label>
-          <select value={currentSupervisor} onChange={e => setCurrentSupervisor(e.target.value)} className="border rounded-md px-2 py-1.5 text-sm bg-white">
+          <select value={currentSupervisor} onChange={e => setCurrentSupervisor(e.target.value)} className="border rounded-md px-2 py-0.5 text-sm bg-white">
             <option value="__ALL__">All Supervisors</option>
             {supervisors.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
           </select>
@@ -307,20 +307,20 @@ export default function OTClient({
           </div>
         )}
 
-        <div className="overflow-x-auto">
-          <table className="text-sm border-collapse w-full">
+        <div className="overflow-auto max-h-[calc(100vh-14rem)]">
+          <table className="text-xs border-collapse w-full">
             <thead>
               <tr className="bg-gray-50">
-                <th className="sticky left-0 bg-gray-50 px-2 py-2 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('name')}>Name <SortIcon col="name" /></th>
-                <th className="px-2 py-2 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('supervisor')}>Supervisor <SortIcon col="supervisor" /></th>
-                <th className="px-2 py-2 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('designation')}>Position <SortIcon col="designation" /></th>
-                <th className="px-2 py-2 text-left whitespace-nowrap">Mode</th>
-                <th className="px-2 py-2 text-left whitespace-nowrap">Remarks</th>
-                <th className="px-2 py-2 text-left whitespace-nowrap" title="Fills every weekday. Sundays/holidays skipped.">Bulk OT</th>
-                {!hideDates && daysArray.map(d => <th key={d} className={`px-1 py-2 text-center text-xs ${isSunday(month, d) ? 'bg-red-50 text-red-500' : ''}`}>{d}</th>)}
-                <th className="px-2 py-2 text-center cursor-pointer whitespace-nowrap" onClick={() => requestSort('totalOT')}>Total OT <SortIcon col="totalOT" /></th>
-                {!hideAllocations && sortedActiveProjects.map(p => <th key={p.id} className="px-1 py-2 text-center text-xs w-16">{p.name} (%)</th>)}
-                <th className="px-2 py-2 text-center whitespace-nowrap">Transfer</th>
+                <th className="sticky left-0 top-0 z-30 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('name')}>Name <SortIcon col="name" /></th>
+                <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('supervisor')}>Supervisor <SortIcon col="supervisor" /></th>
+                <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('designation')}>Position <SortIcon col="designation" /></th>
+                <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left whitespace-nowrap">Mode</th>
+                <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left whitespace-nowrap">Remarks</th>
+                <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left whitespace-nowrap" title="Fills every weekday. Sundays/holidays skipped.">Bulk OT</th>
+                {!hideDates && daysArray.map(d => <th key={d} className={`sticky top-0 z-20 shadow-[inset_0_-1px_0_#e5e7eb] px-0.5 py-1 text-center text-xs ${isSunday(month, d) ? 'bg-red-50 text-red-500' : 'bg-gray-50'}`}>{d}</th>)}
+                <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-center cursor-pointer whitespace-nowrap" onClick={() => requestSort('totalOT')}>Total OT <SortIcon col="totalOT" /></th>
+                {!hideAllocations && sortedActiveProjects.map(p => <th key={p.id} className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-1 py-1 text-center text-xs w-16">{p.name} (%)</th>)}
+                <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-center whitespace-nowrap">Transfer</th>
               </tr>
             </thead>
             <tbody>
@@ -329,16 +329,16 @@ export default function OTClient({
                 const om = otMonthByWorker.get(w.id)
                 return (
                   <tr key={w.id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="sticky left-0 bg-white px-2 py-1.5 font-medium whitespace-nowrap">{w.name}</td>
-                    <td className="px-2 py-1.5 text-xs text-gray-500 whitespace-nowrap">{w.supervisors?.name || '—'}</td>
-                    <td className="px-2 py-1.5 text-xs whitespace-nowrap">{w.designation || '-'}</td>
-                    <td className="px-1 py-1.5">
+                    <td className="sticky left-0 z-10 bg-white px-2 py-0.5 font-medium whitespace-nowrap">{w.name}</td>
+                    <td className="px-2 py-0.5 text-xs text-gray-500 whitespace-nowrap">{w.supervisors?.name || '—'}</td>
+                    <td className="px-2 py-0.5 text-xs whitespace-nowrap">{w.designation || '-'}</td>
+                    <td className="px-1 py-0.5">
                       <select defaultValue={om?.mode || 'General'} disabled={isLocked} onChange={e => guard(() => updateOtMonthMeta(w.id, month, 'mode', e.target.value))} className="text-xs border rounded px-1 py-1 bg-white disabled:opacity-50">
                         <option value="Production">Production</option><option value="Delivery">Delivery</option><option value="General">General</option>
                       </select>
                     </td>
-                    <td className="px-1 py-1.5"><input defaultValue={om?.remark || ''} disabled={isLocked} onBlur={e => guard(() => updateOtMonthMeta(w.id, month, 'remark', e.target.value))} className="text-xs border rounded px-1 py-1 w-24 disabled:opacity-50" /></td>
-                    <td className="px-1 py-1.5">
+                    <td className="px-1 py-0.5"><input defaultValue={om?.remark || ''} disabled={isLocked} onBlur={e => guard(() => updateOtMonthMeta(w.id, month, 'remark', e.target.value))} className="text-xs border rounded px-1 py-1 w-24 disabled:opacity-50" /></td>
+                    <td className="px-1 py-0.5">
                       <div className="flex gap-1">
                         <input type="number" value={bulkValues[w.id] || ''} disabled={isLocked} onChange={e => setBulkValues(prev => ({ ...prev, [w.id]: e.target.value }))} className="w-12 border rounded px-1 py-1 text-xs disabled:opacity-50" placeholder="hrs" />
                         <button disabled={isLocked} onClick={() => guard(() => bulkFillOt(w.id, month, bulkValues[w.id] || '0'))} className="text-xs bg-gray-100 px-1.5 rounded disabled:opacity-50"><Check className="w-3 h-3" /></button>
@@ -347,21 +347,21 @@ export default function OTClient({
                     {!hideDates && daysArray.map(day => {
                       const { basic, ot } = getDayHours(w.id, day)
                       return (
-                        <td key={day} className={`px-0.5 py-1.5 ${isSunday(month, day) ? 'bg-red-50/50' : ''}`}>
-                          <div className="flex flex-col gap-0.5 w-12">
-                            <input type="number" defaultValue={basic} disabled={isLocked} title="Basic" onBlur={e => guard(() => updateOtDayHours(w.id, month, day, 'basic', e.target.value))} className="border rounded px-1 py-0.5 text-xs w-full disabled:opacity-50" />
-                            <input type="number" defaultValue={ot || ''} disabled={isLocked} title="OT" placeholder="0" onBlur={e => guard(() => updateOtDayHours(w.id, month, day, 'ot', e.target.value))} className="border rounded px-1 py-0.5 text-xs w-full disabled:opacity-50" />
+                        <td key={day} className={`px-0.5 py-0.5 ${isSunday(month, day) ? 'bg-red-50/50' : ''}`}>
+                          <div className="flex flex-col w-10">
+                            <input type="number" defaultValue={basic} disabled={isLocked} title="Basic" onBlur={e => guard(() => updateOtDayHours(w.id, month, day, 'basic', e.target.value))} className="border rounded px-0.5 py-0 h-5 text-[11px] w-full disabled:opacity-50" />
+                            <input type="number" defaultValue={ot || ''} disabled={isLocked} title="OT" placeholder="0" onBlur={e => guard(() => updateOtDayHours(w.id, month, day, 'ot', e.target.value))} className="border rounded px-0.5 py-0 h-5 text-[11px] w-full disabled:opacity-50" />
                           </div>
                         </td>
                       )
                     })}
-                    <td className={`px-2 py-1.5 text-center font-bold ${totalOT > 104 ? 'text-red-600' : 'text-green-600'}`}>{fmt(totalOT)}</td>
+                    <td className={`px-2 py-0.5 text-center font-bold ${totalOT > 104 ? 'text-red-600' : 'text-green-600'}`}>{fmt(totalOT)}</td>
                     {!hideAllocations && sortedActiveProjects.map(p => (
-                      <td key={p.id} className="px-1 py-1.5">
+                      <td key={p.id} className="px-1 py-0.5">
                         <input type="number" defaultValue={getAllocation(w.id, p.id)} disabled={isLocked} min={0} max={100} placeholder="0" onBlur={e => guard(() => updateWorkerAllocationPct(w.id, p.id, Number(e.target.value) || 0))} className="w-14 border rounded px-1 py-1 text-xs disabled:opacity-50" />
                       </td>
                     ))}
-                    <td className="px-1 py-1.5 text-center">
+                    <td className="px-1 py-0.5 text-center">
                       <button disabled={isLocked} onClick={() => { setTransferModal({ workerId: w.id, workerName: w.name }); setTransferToSup(''); setTransferFromDay(String(new Date().getDate()).padStart(2, '0')) }} className="text-xs bg-amber-50 text-amber-700 px-2 py-1 rounded disabled:opacity-50 whitespace-nowrap"><ArrowRightLeft className="w-3 h-3 inline mr-0.5" /> Transfer</button>
                     </td>
                   </tr>

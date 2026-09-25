@@ -154,40 +154,40 @@ export default function TimesheetClient({ month, workers, timesheetDays, monthHo
               <option value="">All Departments</option>{distinctDepartments.map(d => <option key={d} value={d}>{d}</option>)}
             </select>
           </div>
-          <div className="overflow-auto max-h-[70vh]">
+          <div className="overflow-auto max-h-[calc(100vh-15rem)]">
             <table className="text-sm border-collapse w-full">
               <thead>
                 <tr className="bg-gray-50">
-                  <th className="sticky left-0 bg-gray-50 px-2 py-2 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('name')}>Name <SortIcon col="name" /></th>
-                  <th className="px-2 py-2 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('supervisor')}>Supervisor <SortIcon col="supervisor" /></th>
-                  <th className="px-2 py-2 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('line')}>Dept <SortIcon col="line" /></th>
+                  <th className="sticky left-0 top-0 z-30 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('name')}>Name <SortIcon col="name" /></th>
+                  <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('supervisor')}>Supervisor <SortIcon col="supervisor" /></th>
+                  <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('line')}>Dept <SortIcon col="line" /></th>
                   {daysArray.map(d => (
-                    <th key={d.day} className={`px-1 py-2 text-center text-xs ${dayBg(d)}`}>
+                    <th key={d.day} className={`sticky top-0 z-20 shadow-[inset_0_-1px_0_#e5e7eb] px-0.5 py-1 text-center text-xs ${dayBg(d) || 'bg-gray-50'}`}>
                       <div className="font-bold">{d.day}</div><div className="text-[10px] text-gray-400">{DAYS_OF_WEEK[d.dayOfWeek]}</div>
                     </th>
                   ))}
-                  <th className="px-2 py-2 text-center cursor-pointer whitespace-nowrap" onClick={() => requestSort('totalBasic')}>Basic <SortIcon col="totalBasic" /></th>
-                  <th className="px-2 py-2 text-center cursor-pointer whitespace-nowrap" onClick={() => requestSort('totalOT')}>OT <SortIcon col="totalOT" /></th>
-                  <th className="px-2 py-2 text-center cursor-pointer whitespace-nowrap" onClick={() => requestSort('totalPay')}>Est. Pay (RM) <SortIcon col="totalPay" /></th>
+                  <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-center cursor-pointer whitespace-nowrap" onClick={() => requestSort('totalBasic')}>Basic <SortIcon col="totalBasic" /></th>
+                  <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-center cursor-pointer whitespace-nowrap" onClick={() => requestSort('totalOT')}>OT <SortIcon col="totalOT" /></th>
+                  <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-center cursor-pointer whitespace-nowrap" onClick={() => requestSort('totalPay')}>Est. Pay (RM) <SortIcon col="totalPay" /></th>
                 </tr>
               </thead>
               <tbody>
                 {sortedRows.map(({ worker: w, totalBasic, totalOT, totalPay }) => (
                   <tr key={w.id} className="border-b border-gray-100">
-                    <td className="sticky left-0 bg-white px-2 py-1.5 font-medium whitespace-nowrap">{w.name}</td>
-                    <td className="px-2 py-1.5 text-xs text-gray-500 whitespace-nowrap">{w.supervisors?.name || '-'}</td>
-                    <td className="px-2 py-1.5 text-xs text-gray-500 whitespace-nowrap">{w.line || '-'}</td>
+                    <td className="sticky left-0 z-10 bg-white px-2 py-0.5 font-medium whitespace-nowrap">{w.name}</td>
+                    <td className="px-2 py-0.5 text-xs text-gray-500 whitespace-nowrap">{w.supervisors?.name || '-'}</td>
+                    <td className="px-2 py-0.5 text-xs text-gray-500 whitespace-nowrap">{w.line || '-'}</td>
                     {daysArray.map(d => (
-                      <td key={d.day} className={`px-0.5 py-1 ${dayBg(d)}`}>
-                        <div className="flex flex-col gap-0.5 w-11">
-                          <input type="number" defaultValue={getVal(w.id, d.day, 'basic')} title="Basic" onBlur={e => guard(() => updateTimesheetDay(w.id, month, d.day, 'basic', e.target.value))} className="border rounded px-1 py-0.5 text-xs w-full text-center" />
-                          <input type="number" defaultValue={getVal(w.id, d.day, 'ot') || ''} title="OT" placeholder="OT" onBlur={e => guard(() => updateTimesheetDay(w.id, month, d.day, 'ot', e.target.value))} className="border rounded px-1 py-0.5 text-xs w-full text-center bg-amber-50" />
+                      <td key={d.day} className={`px-0.5 py-0.5 ${dayBg(d)}`}>
+                        <div className="flex flex-col w-9">
+                          <input type="number" defaultValue={getVal(w.id, d.day, 'basic')} title="Basic" onBlur={e => guard(() => updateTimesheetDay(w.id, month, d.day, 'basic', e.target.value))} className="border rounded px-0.5 py-0 h-5 text-[11px] w-full text-center" />
+                          <input type="number" defaultValue={getVal(w.id, d.day, 'ot') || ''} title="OT" placeholder="OT" onBlur={e => guard(() => updateTimesheetDay(w.id, month, d.day, 'ot', e.target.value))} className="border rounded px-0.5 py-0 h-5 text-[11px] w-full text-center bg-amber-50" />
                         </div>
                       </td>
                     ))}
-                    <td className="px-2 py-1.5 text-center font-bold text-indigo-600">{fmt(totalBasic)}</td>
-                    <td className="px-2 py-1.5 text-center font-bold text-amber-600">{fmt(totalOT)}</td>
-                    <td className="px-2 py-1.5 text-center font-bold text-green-600">RM {fmt(totalPay)}</td>
+                    <td className="px-2 py-0.5 text-center font-bold text-indigo-600">{fmt(totalBasic)}</td>
+                    <td className="px-2 py-0.5 text-center font-bold text-amber-600">{fmt(totalOT)}</td>
+                    <td className="px-2 py-0.5 text-center font-bold text-green-600">RM {fmt(totalPay)}</td>
                   </tr>
                 ))}
                 {sortedRows.length === 0 && <tr><td colSpan={daysArray.length + 6} className="text-center text-gray-400 py-8">No workers match this filter.</td></tr>}

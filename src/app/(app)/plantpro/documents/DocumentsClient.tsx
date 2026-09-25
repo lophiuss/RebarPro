@@ -286,13 +286,13 @@ export default function DocumentsClient({ documentTypes, documents, workers, hos
         </div>
 
         {docsView === 'list' ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead><tr className="text-xs text-gray-500 uppercase text-left border-b"><th className="pb-2">ID</th><th>Owner</th><th>Type</th><th>Owner Type</th><th>Issue Date</th><th>Expiry Date</th><th>Status</th><th className="text-right">Actions</th></tr></thead>
+          <div className="overflow-auto max-h-[calc(100vh-12rem)]">
+            <table className="w-full text-xs">
+              <thead><tr className="text-[11px] text-gray-500 uppercase text-left [&>th]:sticky [&>th]:top-0 [&>th]:z-10 [&>th]:bg-white [&>th]:py-1.5 [&>th]:shadow-[inset_0_-1px_0_#e5e7eb]"><th>ID</th><th>Owner</th><th>Type</th><th>Owner Type</th><th>Issue Date</th><th>Expiry Date</th><th>Status</th><th className="text-right">Actions</th></tr></thead>
               <tbody>
                 {filteredDocs.map(d => (
                   <tr key={d.id} className="border-b border-gray-100">
-                    <td className="py-2 text-gray-500">{idFor(d) || <em className="text-gray-400">-</em>}</td>
+                    <td className="py-0.5 pr-3 text-gray-500">{idFor(d) || <em className="text-gray-400">-</em>}</td>
                     <td>{ownerName(d)}</td>
                     <td>{docTypeName(d)}</td>
                     <td>{d.owner_type === 'WORKER' ? 'Worker' : 'Hostel'}</td>
@@ -312,13 +312,13 @@ export default function DocumentsClient({ documentTypes, documents, workers, hos
             </table>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead><tr className="text-xs text-gray-500 uppercase text-left border-b"><th className="pb-2">ID</th><th>Name</th><th>Department</th><th>Passport Due</th><th>Permit Due</th></tr></thead>
+          <div className="overflow-auto max-h-[calc(100vh-12rem)]">
+            <table className="w-full text-xs">
+              <thead><tr className="text-[11px] text-gray-500 uppercase text-left [&>th]:sticky [&>th]:top-0 [&>th]:z-10 [&>th]:bg-white [&>th]:py-1.5 [&>th]:shadow-[inset_0_-1px_0_#e5e7eb]"><th>ID</th><th>Name</th><th>Department</th><th>Passport Due</th><th>Permit Due</th></tr></thead>
               <tbody>
                 {filteredWorkersForMatrix.map(w => (
                   <tr key={w.id} className="border-b border-gray-100">
-                    <td className="py-2 text-gray-500">{w.worker_no}</td>
+                    <td className="py-0.5 pr-3 text-gray-500">{w.worker_no}</td>
                     <td className="font-medium">{w.name}</td>
                     <td>{w.line || <em className="text-gray-400">-</em>}</td>
                     <td><DueCell doc={passportByWorker.get(w.id)} /></td>
