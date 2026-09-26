@@ -18,6 +18,17 @@ async function requirePlantproAccess() {
   return { supabase, user }
 }
 
+// Salary/wage data (pay values, salary Excel import) is HR + admin only.
+// RLS on plantpro_worker_pay_values already enforces it; this gives a clear
+// error up front and also stops non-wage roles from using actions that
+// touch the worker roster as a side effect of a salary import.
+async function requireWageAccess() {
+  const ctx = await requirePlantproAccess()
+  const { data: ok } = await ctx.supabase.rpc('plantpro_can_see_wages')
+  if (!ok) throw new Error('Salary data is restricted to HR and admin.')
+  return ctx
+}
+
 // slugify(), matching PMS's src/lib/db-helpers.ts exactly, so re-running
 // the same label always produces the same key.
 function slugify(label: string) {
@@ -456,7 +467,7 @@ export async function updateWorkerField(id: number, field: string, value: unknow
 // design), matching the fact that a supervisor never has a UI path to this
 // page at all (not in their nav permissions).
 export async function updateWorkerPayValue(workerId: number, payColumnId: number, value: number) {
-  const { supabase } = await requirePlantproAccess()
+  const { supabase } = await requireWageAccess()
   const { error } = await supabase.from('plantpro_worker_pay_values')
     .upsert({ worker_id: workerId, pay_column_id: payColumnId, value }, { onConflict: 'worker_id,pay_column_id' })
   if (error) throw error
@@ -813,7 +824,7 @@ export type ImportPreviewResult = {
 }
 
 export async function previewPlantproImport(formData: FormData): Promise<ImportPreviewResult> {
-  const { supabase } = await requirePlantproAccess()
+  const { supabase } = await requireWageAccess()
 
   const pdfFile = formData.get('pdf') as File | null
   const excelFile = formData.get('excel') as File | null
@@ -899,7 +910,7 @@ export type ImportCommitSummary = {
 }
 
 export async function commitPlantproImport(workers: ImportPreviewWorker[], month: string | null, excludeWorkerIds: string[]): Promise<ImportCommitSummary> {
-  const { supabase } = await requirePlantproAccess()
+  const { supabase } = await requireWageAccess()
   const exclude = new Set(excludeWorkerIds)
 
   const { data: payColumn } = await supabase.from('plantpro_pay_columns').select('id').eq('key', 'payrate').maybeSingle()

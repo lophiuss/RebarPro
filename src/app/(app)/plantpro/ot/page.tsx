@@ -25,6 +25,7 @@ export default async function PlantproOtPage({ searchParams }: { searchParams: P
     ? await supabase.from('plantpro_supervisors').select('id, name').eq('linked_user_id', user.id).maybeSingle()
     : { data: null }
 
+  const { data: canSeeWages } = await supabase.rpc('plantpro_can_see_wages')
   const [
     { data: workers }, { data: supervisors }, { data: projects }, { data: projectTypes },
     { data: otMonths }, { data: allocations }, { data: otApprovals },
@@ -48,6 +49,7 @@ export default async function PlantproOtPage({ searchParams }: { searchParams: P
     <div className="p-4 md:p-8 max-w-[1600px] mx-auto">
       <h1 className="text-3xl font-bold mb-6 flex items-center gap-2"><Clock className="w-7 h-7 text-indigo-600" /> OT & Allocation</h1>
       <OTClient
+        canSeeWages={!!canSeeWages}
         month={month}
         myRole={myRole}
         myUserId={user?.id || null}

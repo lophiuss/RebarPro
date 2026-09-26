@@ -61,13 +61,13 @@ const STATUS_STYLE: Record<string, string> = {
 
 
 export default function OTClient({
-  month, myRole, myUserId, mySupervisorName, workers, supervisors, projects, projectTypes,
+  canSeeWages, month, myRole, myUserId, mySupervisorName, workers, supervisors, projects, projectTypes,
   otMonths, allocations, otApprovals, targets, claims, payValues, payColumns,
 }: {
   month: string; myRole: string; myUserId: string | null; mySupervisorName: string | null
   workers: Worker[]; supervisors: Supervisor[]; projects: Project[]; projectTypes: ProjectType[]
   otMonths: OtMonthRow[]; allocations: Allocation[]; otApprovals: Approval[]
-  targets: Target[]; claims: Claim[]; payValues: PayValue[]; payColumns: PayColumn[]
+  targets: Target[]; claims: Claim[]; payValues: PayValue[]; payColumns: PayColumn[]; canSeeWages: boolean
 }) {
   const router = useRouter()
   const canApprove = myRole === 'admin' || myRole === 'manager'
@@ -215,9 +215,9 @@ export default function OTClient({
       type: projectTypes.find(t2 => t2.id === proj.type_id)?.name || '-',
       hours: fmt(projHours, 0),
       mhProd: per(projHours, t?.production_target || 0), mhDel: per(projHours, t?.delivery_target || 0), mhGen: per(projHours, t?.general_target || 0),
-      rmProd: per(projCost + claimSum('Production'), t?.production_target || 0),
-      rmDel: per(projCost + claimSum('Delivery'), t?.delivery_target || 0),
-      rmGen: per(projCost + claimSum('General'), t?.general_target || 0),
+      rmProd: canSeeWages ? per(projCost + claimSum('Production'), t?.production_target || 0) : '-',
+      rmDel: canSeeWages ? per(projCost + claimSum('Delivery'), t?.delivery_target || 0) : '-',
+      rmGen: canSeeWages ? per(projCost + claimSum('General'), t?.general_target || 0) : '-',
     }
   })
 
@@ -435,7 +435,7 @@ export default function OTClient({
               </tbody>
             </table>
           </div>
-          {!payrateId && <p className="text-xs text-gray-400 mt-2">RM figures show &apos;-&apos; if your role can&apos;t see wage data.</p>}
+          {!canSeeWages && <p className="text-xs text-gray-400 mt-2">RM figures show &apos;-&apos; if your role can&apos;t see wage data.</p>}
         </div>
       </div>
 

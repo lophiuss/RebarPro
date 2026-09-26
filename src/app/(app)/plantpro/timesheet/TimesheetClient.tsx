@@ -24,9 +24,9 @@ function shiftMonth(month: string, delta: number) { const [y, m] = month.split('
 function monthLabel(month: string) { const [y, m] = month.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) }
 
 
-export default function TimesheetClient({ month, workers, timesheetDays, monthHolidays, allHolidays, multiplier, payColumns, payValues, appliedOtByWorker }: {
+export default function TimesheetClient({ month, workers, timesheetDays, monthHolidays, allHolidays, multiplier, payColumns, payValues, appliedOtByWorker, canSeeWages }: {
   month: string; workers: Worker[]; timesheetDays: TimesheetDay[]; monthHolidays: Holiday[]; allHolidays: Holiday[]
-  multiplier: MultiplierRow; payColumns: PayColumn[]; payValues: PayValue[]; appliedOtByWorker: Record<number, number>
+  multiplier: MultiplierRow; payColumns: PayColumn[]; payValues: PayValue[]; appliedOtByWorker: Record<number, number>; canSeeWages: boolean
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -169,11 +169,11 @@ export default function TimesheetClient({ month, workers, timesheetDays, monthHo
             </select>
           </div>
           <div className={`overflow-auto max-h-[calc(100vh-15rem)] transition-opacity ${isPending ? 'opacity-50' : ''}`}>
-            <table className="text-xs border-collapse" style={{ tableLayout: 'fixed', width: colW.id + colW.name + colW.supervisor + colW.dept + daysArray.length * colW.day + colW.applied + colW.actual + colW.diff + colW.basic + colW.pay }}>
+            <table className="text-xs border-collapse" style={{ tableLayout: 'fixed', width: colW.id + colW.name + colW.supervisor + colW.dept + daysArray.length * colW.day + colW.applied + colW.actual + colW.diff + colW.basic + (canSeeWages ? colW.pay : 0) }}>
               <colgroup>
                 <col style={{ width: colW.id }} /><col style={{ width: colW.name }} /><col style={{ width: colW.supervisor }} /><col style={{ width: colW.dept }} />
                 {daysArray.map(d => <col key={d.day} style={{ width: colW.day }} />)}
-                <col style={{ width: colW.applied }} /><col style={{ width: colW.actual }} /><col style={{ width: colW.diff }} /><col style={{ width: colW.basic }} /><col style={{ width: colW.pay }} />
+                <col style={{ width: colW.applied }} /><col style={{ width: colW.actual }} /><col style={{ width: colW.diff }} /><col style={{ width: colW.basic }} />{canSeeWages && <col style={{ width: colW.pay }} />}
               </colgroup>
               <thead>
                 <tr>
@@ -190,7 +190,7 @@ export default function TimesheetClient({ month, workers, timesheetDays, monthHo
                   <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-center cursor-pointer whitespace-nowrap" title="OT hours actually keyed in this timesheet" onClick={() => requestSort('totalOT')}>Actual OT <SortIcon col="totalOT" />{grip('actual')}</th>
                   <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-center cursor-pointer whitespace-nowrap" title="Actual minus Applied" onClick={() => requestSort('diffOT')}>Diff <SortIcon col="diffOT" />{grip('diff')}</th>
                   <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-center cursor-pointer whitespace-nowrap" onClick={() => requestSort('totalBasic')}>Basic <SortIcon col="totalBasic" />{grip('basic')}</th>
-                  <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-center cursor-pointer whitespace-nowrap" onClick={() => requestSort('totalPay')}>Est. Pay (RM) <SortIcon col="totalPay" />{grip('pay')}</th>
+                  {canSeeWages && (<th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-center cursor-pointer whitespace-nowrap" onClick={() => requestSort('totalPay')}>Est. Pay (RM) <SortIcon col="totalPay" />{grip('pay')}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -212,10 +212,10 @@ export default function TimesheetClient({ month, workers, timesheetDays, monthHo
                     <td className="px-2 py-0.5 text-center font-bold text-amber-600">{fmt(totalOT)}</td>
                     <td className={`px-2 py-0.5 text-center font-bold ${diffOT > 0 ? 'text-red-600' : diffOT < 0 ? 'text-blue-600' : 'text-gray-400'}`} title={diffOT > 0 ? 'More OT worked than applied for' : diffOT < 0 ? 'Less OT worked than applied for' : 'Matches'}>{diffOT > 0 ? '+' : ''}{fmt(diffOT)}</td>
                     <td className="px-2 py-0.5 text-center font-bold text-indigo-600">{fmt(totalBasic)}</td>
-                    <td className="px-2 py-0.5 text-center font-bold text-green-600">RM {fmt(totalPay)}</td>
+                    {canSeeWages && <td className="px-2 py-0.5 text-center font-bold text-green-600">RM {fmt(totalPay)}</td>}
                   </tr>
                 ))}
-                {sortedRows.length === 0 && <tr><td colSpan={daysArray.length + 10} className="text-center text-gray-400 py-8">No workers match this filter.</td></tr>}
+                {sortedRows.length === 0 && <tr><td colSpan={daysArray.length + (canSeeWages ? 10 : 9)} className="text-center text-gray-400 py-8">No workers match this filter.</td></tr>}
               </tbody>
             </table>
           </div>

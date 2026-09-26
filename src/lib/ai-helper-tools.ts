@@ -49,7 +49,7 @@ const ALLOWED_TABLES: Record<string, string> = {
   plantpro_projects: 'id, name, type_id, status (Active|Inactive) — the master project list, also used by the mould department',
   plantpro_supervisors: 'id, name, status, linked_user_id (-> the supervisor\'s real login account, when they have one)',
   plantpro_pay_columns: 'Pay/deduction column definitions — id, key, label, type (ADD|DEDUCT), include_in_gross, include_in_net_deduct, compute_mode (MANUAL|MULTIPLIER), multiplier_percent',
-  plantpro_worker_pay_values: 'Wage amounts per worker per pay column — worker_id, pay_column_id, value. RLS-restricted: only admin/manager/hr roles can read these; supervisors get no rows back',
+  plantpro_worker_pay_values: 'Wage amounts per worker per pay column — worker_id, pay_column_id, value. SALARY DATA — RLS-restricted to the PlantPro admin and hr roles only; everyone else (incl. managers and supervisors) gets no rows and the tool refuses',
   plantpro_timesheet_days: 'HR-recorded ACTUAL attendance — worker_id, month (YYYY-MM), day (DD), basic, ot (hours)',
   plantpro_ot_months: 'Supervisor OT planning header — worker_id, month (YYYY-MM), mode, remark. Join to plantpro_ot_days via its id',
   plantpro_ot_days: 'Supervisor-PLANNED daily hours — ot_month_id (-> plantpro_ot_months), day (DD), basic, ot. Deliberately a separate ledger from plantpro_timesheet_days; the two are not reconciled',
@@ -111,12 +111,19 @@ export function queryDatabaseToolDeclaration() {
   }
 }
 
-export async function executeQueryDatabase(supabase: SupabaseClient, args: any) {
+const WAGE_TABLES = ['plantpro_worker_pay_values']
+const WAGE_DENIED = { error: 'Restricted: salary/wage data is only available to HR and admin users. This user does not have that access, so do not attempt to look it up or estimate it — tell them it is restricted.' }
+
+export async function executeQueryDatabase(supabase: SupabaseClient, args: any, opts: { canSeeWages?: boolean } = {}) {
   const table = String(args?.table || '')
   if (!Object.prototype.hasOwnProperty.call(ALLOWED_TABLES, table)) {
     return { error: `Table "${table}" is not queryable. Allowed tables: ${Object.keys(ALLOWED_TABLES).join(', ')}` }
   }
   const select = typeof args?.select === 'string' && args.select.trim() ? args.select : '*'
+  // Belt and braces on top of RLS: refuse outright (rather than return zero
+  // rows the model might read as "no data") when a non-HR/admin user asks
+  // for salary data directly or via an embedded select.
+  if (!opts.canSeeWages && (WAGE_TABLES.includes(table) || WAGE_TABLES.some(t => select.includes(t)))) return WAGE_DENIED
   const limit = Math.min(Math.max(Number(args?.limit) || 50, 1), 200)
 
   let query: any = supabase.from(table).select(select).limit(limit)

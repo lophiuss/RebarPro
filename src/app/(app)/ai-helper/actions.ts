@@ -31,6 +31,8 @@ Hard rules — never break these:
   rather than guessing.
 - Simple reasoning ON TOP of real queried numbers (e.g. "at this rate, X days of stock remain")
   is fine — the inputs just have to be real.
+- Salary, wage, pay-rate and deduction data is confidential to HR and admin. Follow the access
+  statement below about this user exactly; never work backwards to an individual's pay from other figures.
 - Keep answers concise and operational — this is read by managers deciding what to act on today.
 
 SCHEMA REFERENCE (only these tables are queryable):
@@ -148,11 +150,16 @@ export async function askAiHelper(messages: ChatMessage[]): Promise<string> {
     getSettings(),
   ])
   const myDepartments = (access || []).map(a => a.department)
+  const { data: canSeeWagesRaw } = await supabase.rpc('plantpro_can_see_wages')
+  const canSeeWages = !!canSeeWagesRaw
 
   const systemInstruction = [
     BASE_INSTRUCTIONS,
     `\nToday's date is ${new Date().toISOString().split('T')[0]}.`,
     `This user has access to these departments: ${myDepartments.join(', ') || '(none)'}.`,
+    canSeeWages
+      ? `This user is HR/admin and MAY see salary/wage data. Still treat it as confidential: only state what was directly asked, and don't volunteer individual salaries.`
+      : `This user may NOT see salary/wage data (only HR and admin can). Never state, estimate, rank or infer any individual's pay, salary, wage, rate or deductions — not from the wage table, and not by working backwards from other figures. If asked, say it is restricted to HR and admin.`,
     settings.system_instructions?.trim() ? `\nAdditional instructions from this organization's admin:\n${settings.system_instructions.trim()}` : '',
   ].join('\n')
 
@@ -168,7 +175,7 @@ export async function askAiHelper(messages: ChatMessage[]): Promise<string> {
       messages,
       tools: [queryDatabaseToolDeclaration()],
       executeTool: async (name, args) => {
-        if (name === 'query_database') return executeQueryDatabase(supabase, args)
+        if (name === 'query_database') return executeQueryDatabase(supabase, args, { canSeeWages })
         return { error: `Unknown tool: ${name}` }
       },
     })

@@ -16,6 +16,7 @@ export default async function PlantproTimesheetPage({ searchParams }: { searchPa
   const month = monthParam || currentMonthDefault()
   const supabase = await createClient()
 
+  const { data: canSeeWages } = await supabase.rpc('plantpro_can_see_wages')
   const [
     { data: workers }, { data: timesheetDays }, { data: holidays }, { data: allHolidays },
     { data: multiplier }, { data: payColumns }, { data: payValues }, { data: otMonths },
@@ -48,6 +49,7 @@ export default async function PlantproTimesheetPage({ searchParams }: { searchPa
         payColumns={payColumns || []}
         payValues={payValues || []}
         appliedOtByWorker={appliedOtByWorker}
+        canSeeWages={!!canSeeWages}
       />
     </div>
   )

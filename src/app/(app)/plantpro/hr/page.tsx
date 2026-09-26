@@ -4,9 +4,12 @@ export const revalidate = 0
 import { createClient } from '@/lib/supabase/server'
 import { Users } from 'lucide-react'
 import HRClient from './HRClient'
+import RestrictedNotice from '../RestrictedNotice'
 
 export default async function PlantproHrPage() {
   const supabase = await createClient()
+  const { data: canSeeWages } = await supabase.rpc('plantpro_can_see_wages')
+  if (!canSeeWages) return <RestrictedNotice what="This page" />
 
   const [
     { data: workers }, { data: supervisors }, { data: projects },
