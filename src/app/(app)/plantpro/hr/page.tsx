@@ -11,6 +11,7 @@ export default async function PlantproHrPage() {
   const [
     { data: workers }, { data: supervisors }, { data: projects },
     { data: payColumns }, { data: allocations }, { data: payValues },
+    { data: movements }, { data: allSupervisors },
   ] = await Promise.all([
     supabase.from('plantpro_workers').select('id, worker_no, name, line, designation, supervisor_id, status, remarks, nationality, date_of_birth, date_joined').order('name'),
     supabase.from('plantpro_supervisors').select('id, name').eq('status', 'Active').order('name'),
@@ -20,6 +21,8 @@ export default async function PlantproHrPage() {
     // RLS-gated: empty for a supervisor-tier viewer, by design (this page
     // isn't even in a supervisor's nav, but the guard is enforced here too).
     supabase.from('plantpro_worker_pay_values').select('worker_id, pay_column_id, value'),
+    supabase.from('plantpro_worker_movements').select('id, worker_id, effective_date, from_supervisor_id, to_supervisor_id, from_line, to_line, changed_by, created_at').order('effective_date'),
+    supabase.from('plantpro_supervisors').select('id, name'),
   ])
 
   return (
@@ -32,6 +35,8 @@ export default async function PlantproHrPage() {
         payColumns={payColumns || []}
         allocations={allocations || []}
         payValues={payValues || []}
+        movements={movements || []}
+        supervisorNames={Object.fromEntries((allSupervisors || []).map(s => [s.id, s.name]))}
       />
     </div>
   )

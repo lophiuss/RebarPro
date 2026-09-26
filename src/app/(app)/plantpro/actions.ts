@@ -352,12 +352,34 @@ export async function updateWorkerAllocationPct(workerId: number, projectId: num
 // plan §5's "preserved even where PMS's own design is a little unusual").
 export async function transferWorker(workerId: number, month: string, day: string, toSupervisorId: number) {
   const { supabase } = await requirePlantproAccess()
+  const { data: before } = await supabase.from('plantpro_workers').select('supervisor_id, line').eq('id', workerId).single()
   const { error: transferErr } = await supabase.from('plantpro_worker_transfers')
     .upsert({ worker_id: workerId, month, day, to_supervisor_id: toSupervisorId }, { onConflict: 'worker_id,month,day' })
   if (transferErr) throw transferErr
   const { error: workerErr } = await supabase.from('plantpro_workers').update({ supervisor_id: toSupervisorId }).eq('id', workerId)
   if (workerErr) throw workerErr
+  await logWorkerMovement(supabase, workerId, `${month}-${day}`, before, { supervisor_id: toSupervisorId, line: before?.line ?? null })
   revalidatePath('/plantpro/ot')
+  revalidatePath('/plantpro/hr')
+}
+
+// Appends to plantpro_worker_movements (the HR page's Supervisor Movement
+// tab reads it). Best-effort: a logging failure must never block the edit
+// the user actually asked for. Skipped when neither supervisor nor
+// department actually changed.
+async function logWorkerMovement(
+  supabase: Awaited<ReturnType<typeof requirePlantproAccess>>['supabase'],
+  workerId: number, effectiveDate: string,
+  before: { supervisor_id: number | null; line: string | null } | null,
+  after: { supervisor_id: number | null; line: string | null },
+) {
+  if (!before || (before.supervisor_id === after.supervisor_id && before.line === after.line)) return
+  const { data: { user } } = await supabase.auth.getUser()
+  await supabase.from('plantpro_worker_movements').insert([{
+    worker_id: workerId, effective_date: effectiveDate,
+    from_supervisor_id: before.supervisor_id, to_supervisor_id: after.supervisor_id,
+    from_line: before.line, to_line: after.line, changed_by: user?.email ?? null,
+  }])
 }
 
 // ---------------------------------------------------------------------------
@@ -413,8 +435,17 @@ export async function createWorker(input: { worker_no: string; name: string; lin
 
 export async function updateWorkerField(id: number, field: string, value: unknown) {
   const { supabase } = await requirePlantproAccess()
+  const tracked = field === 'supervisor_id' || field === 'line'
+  const { data: before } = tracked ? await supabase.from('plantpro_workers').select('supervisor_id, line').eq('id', id).single() : { data: null }
   const { error } = await supabase.from('plantpro_workers').update({ [field]: value }).eq('id', id)
   if (error) throw error
+  if (tracked && before) {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }).format(new Date())
+    await logWorkerMovement(supabase, id, today, before, {
+      supervisor_id: field === 'supervisor_id' ? (value as number | null) : before.supervisor_id,
+      line: field === 'line' ? ((value as string) || null) : before.line,
+    })
+  }
   revalidatePath('/plantpro/hr')
   revalidatePath('/plantpro/ot')
   revalidatePath('/plantpro/timesheet')

@@ -6,6 +6,7 @@ import {
   createWorker, updateWorkerField, updateWorkerPayValue, deleteWorker, copyWorker,
   saveAllocationSnapshot, updateWorkerAllocationPct,
 } from '../actions'
+import MovementView, { type Movement } from './MovementView'
 import { calcGrossPay, calcNetPay } from '@/lib/plantpro-payroll'
 
 type Worker = {
@@ -22,9 +23,11 @@ type PayValue = { worker_id: number; pay_column_id: number; value: number }
 function fmt(n: number) { return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
 async function guard(fn: () => Promise<any>) { try { await fn() } catch (err: any) { alert('Error: ' + err.message) } }
 
-export default function HRClient({ workers, supervisors, projects, payColumns, allocations, payValues }: {
+export default function HRClient({ workers, supervisors, projects, payColumns, allocations, payValues, movements, supervisorNames }: {
   workers: Worker[]; supervisors: Supervisor[]; projects: Project[]; payColumns: PayColumn[]; allocations: Allocation[]; payValues: PayValue[]
+  movements: Movement[]; supervisorNames: Record<number, string>
 }) {
+  const [tab, setTab] = useState<'data' | 'movement'>('data')
   const [searchTerm, setSearchTerm] = useState('')
   const [sortConfig, setSortConfig] = useState<{ key: string | null; direction: 'asc' | 'desc' }>({ key: null, direction: 'asc' })
   const [showAdd, setShowAdd] = useState(false)
@@ -71,8 +74,18 @@ export default function HRClient({ workers, supervisors, projects, payColumns, a
   function requestSort(key: string) { setSortConfig(prev => ({ key, direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc' })) }
   function SortIcon({ col }: { col: string }) { return <ArrowUpDown className="w-3 h-3 inline ml-0.5" style={{ opacity: sortConfig.key === col ? 1 : 0.35 }} /> }
 
+  const tabBar = (
+    <div className="flex gap-1 mb-4 border-b">
+      {([['data', 'Worker Data'], ['movement', 'Supervisor Movement']] as const).map(([k, label]) => (
+        <button key={k} onClick={() => setTab(k)} className={`px-4 py-2 text-sm -mb-px border-b-2 ${tab === k ? 'border-indigo-600 text-indigo-600 font-bold' : 'border-transparent text-gray-500'}`}>{label}</button>
+      ))}
+    </div>
+  )
+  if (tab === 'movement') return <>{tabBar}<MovementView workers={workers} movements={movements} supervisorNames={supervisorNames} /></>
+
   return (
     <>
+      {tabBar}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div className="relative">
           <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
