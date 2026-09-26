@@ -93,9 +93,7 @@ export async function askGeminiWithTools(opts: {
     // rather than throwing away all that work with an error.
     const lastTurn = turn === maxTurns - 1
     const data = await callGenerateContent(opts.model, {
-      system_instruction: { parts: [{ text: opts.systemInstruction + (lastTurn ? '
-
-You have used all your query steps. Answer NOW using only the data you already retrieved, and say clearly which parts you could not check.' : '') }] },
+      system_instruction: { parts: [{ text: opts.systemInstruction + (lastTurn ? ' You have used all your query steps. Answer NOW using only the data you already retrieved, and say clearly which parts you could not check.' : '') }] },
       contents,
       tools: [{ functionDeclarations: opts.tools }],
       ...(lastTurn ? { toolConfig: { functionCallingConfig: { mode: 'NONE' } } } : {}),
