@@ -31,14 +31,22 @@ async function callGenerateContent(model: string, body: any): Promise<any> {
   const apiKey = process.env.GEMINI_API_KEY
   if (!apiKey) throw new Error('AI Helper is not configured (missing GEMINI_API_KEY)')
 
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-    body: JSON.stringify(body),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.error?.message || `Gemini request failed (${res.status})`)
-  return data
+  // Gemini intermittently answers 429/500/503 ("model overloaded") under
+  // load — retry those briefly before giving up, since the same request
+  // usually succeeds a second later.
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+      body: JSON.stringify(body),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) return data
+    const transient = res.status === 429 || res.status === 500 || res.status === 502 || res.status === 503 || res.status === 504
+    if (transient && attempt < 2) { await new Promise(r => setTimeout(r, 800 * (attempt + 1))); continue }
+    throw new Error(data?.error?.message || `Gemini request failed (${res.status})`)
+  }
 }
 
 // Runs Gemini with tool calling: the model decides which tool calls (if any)
