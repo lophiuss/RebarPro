@@ -72,7 +72,7 @@ export async function askGeminiWithTools(opts: {
   }
 
   const contents: any[] = opts.messages.map(m => ({ role: m.role, parts: [{ text: m.text }] }))
-  const maxTurns = opts.maxTurns ?? 6
+  const maxTurns = opts.maxTurns ?? 12
 
   // A tool-calling exchange is several generateContent calls (one per
   // turn) — usage is summed across all of them so the logged figure is the
@@ -87,10 +87,18 @@ export async function askGeminiWithTools(opts: {
   }
 
   for (let turn = 0; turn < maxTurns; turn++) {
+    // Broad questions ("who should we follow up with today?") legitimately
+    // need many queries. On the very last allowed turn, switch tool calling
+    // OFF so the model must write its answer from what it has gathered —
+    // rather than throwing away all that work with an error.
+    const lastTurn = turn === maxTurns - 1
     const data = await callGenerateContent(opts.model, {
-      system_instruction: { parts: [{ text: opts.systemInstruction }] },
+      system_instruction: { parts: [{ text: opts.systemInstruction + (lastTurn ? '
+
+You have used all your query steps. Answer NOW using only the data you already retrieved, and say clearly which parts you could not check.' : '') }] },
       contents,
       tools: [{ functionDeclarations: opts.tools }],
+      ...(lastTurn ? { toolConfig: { functionCallingConfig: { mode: 'NONE' } } } : {}),
       generationConfig,
     })
     addUsage(data)
