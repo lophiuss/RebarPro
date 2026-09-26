@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import MiniMarkdown from '@/components/MiniMarkdown'
 import { Sparkles, Send, Settings as SettingsIcon, X, UserPlus, Trash2, Loader2 } from 'lucide-react'
 import {
   askAiHelper, getSettings, updateSettings, amISuperAdmin,
@@ -140,8 +141,8 @@ export default function AiHelperPage() {
         )}
         {messages.map((m, i) => (
           <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap ${m.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-slate-800'}`}>
-              {m.text}
+            <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm ${m.role === 'user' ? 'bg-blue-600 text-white whitespace-pre-wrap' : 'bg-gray-100 text-slate-800'}`}>
+              {m.role === 'user' ? m.text : <MiniMarkdown text={m.text} />}
             </div>
           </div>
         ))}
