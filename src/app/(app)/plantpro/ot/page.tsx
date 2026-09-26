@@ -30,7 +30,7 @@ export default async function PlantproOtPage({ searchParams }: { searchParams: P
     { data: otMonths }, { data: allocations }, { data: otApprovals },
     { data: targets }, { data: claims }, { data: payValues }, { data: payColumns },
   ] = await Promise.all([
-    supabase.from('plantpro_workers').select('id, name, worker_no, designation, status, supervisor_id, supervisors:plantpro_supervisors(name)').eq('status', 'Active').order('name'),
+    supabase.from('plantpro_workers').select('id, name, worker_no, designation, line, status, supervisor_id, supervisors:plantpro_supervisors(name)').eq('status', 'Active').order('name'),
     supabase.from('plantpro_supervisors').select('id, name, status').eq('status', 'Active').order('name'),
     supabase.from('plantpro_projects').select('id, name, type_id, status').order('name'),
     supabase.from('plantpro_project_types').select('id, name'),

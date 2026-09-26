@@ -5,11 +5,11 @@ import { useRouter } from 'next/navigation'
 import { ChevronLeft, ChevronRight, Check, X, Copy, Eraser, Send, CheckCircle, XCircle, Edit3, ArrowRightLeft, Search, ArrowUpDown } from 'lucide-react'
 import {
   updateOtDayHours, updateOtMonthMeta, bulkFillOt, copyOtMonth, clearOtMonth,
-  otApprovalAction, updateWorkerAllocationPct, transferWorker,
+  otApprovalAction, updateWorkerAllocationPct, transferWorker, updateWorkerField,
 } from '../actions'
 
 type Worker = {
-  id: number; name: string; worker_no: string | null; designation: string | null
+  id: number; name: string; worker_no: string | null; designation: string | null; line: string | null
   supervisor_id: number | null; supervisors: { name: string } | null
 }
 type Supervisor = { id: number; name: string }
@@ -87,6 +87,20 @@ export default function OTClient({
   const [searchTerm, setSearchTerm] = useState('')
   const [sortConfig, setSortConfig] = useState<{ key: string | null; direction: 'asc' | 'desc' }>({ key: null, direction: 'asc' })
   const [applying, setApplying] = useState(false)
+  // Column widths (px) — drag the right edge of any header to resize. All
+  // day columns share one width, as do all project-allocation columns.
+  const [colW, setColW] = useState<Record<string, number>>({
+    id: 64, name: 150, supervisor: 110, dept: 110, mode: 92, remarks: 110, bulk: 92, day: 44, total: 72, alloc: 64, transfer: 92,
+  })
+  function startResize(key: string, e: React.MouseEvent) {
+    e.preventDefault(); e.stopPropagation()
+    const startX = e.clientX, startW = colW[key]
+    const move = (ev: MouseEvent) => setColW(prev => ({ ...prev, [key]: Math.max(30, startW + ev.clientX - startX) }))
+    const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
+    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up)
+  }
+  const grip = (key: string) => <span onMouseDown={e => startResize(key, e)} onClick={e => e.stopPropagation()} className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-indigo-300" />
+  const distinctDepts = [...new Set(workers.map(w => w.line).filter(Boolean))].sort() as string[]
 
   const daysArray = Array.from({ length: daysInMonth(month) }, (_, i) => String(i + 1).padStart(2, '0'))
   const otMonthByWorker = useMemo(() => new Map(otMonths.map(m => [m.worker_id, m])), [otMonths])
@@ -141,7 +155,8 @@ export default function OTClient({
     const getVal = (w: Worker): string | number => {
       if (key === 'name') return w.name
       if (key === 'supervisor') return w.supervisors?.name || ''
-      if (key === 'designation') return w.designation || ''
+      if (key === 'dept') return w.line || ''
+      if (key === 'id') return w.worker_no || ''
       if (key === 'totalOT') return getWorkerTotalOT(w.id)
       return ''
     }
@@ -302,25 +317,47 @@ export default function OTClient({
                     )
                   })}
                 </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-gray-300 font-bold">
+                    <td className="py-1.5">Total</td>
+                    <td>{approvalsBySupervisorRows.reduce((sum, r) => sum + r.workerCount, 0)}</td>
+                    <td colSpan={3} className="text-xs font-normal text-gray-500">{approvalsBySupervisorRows.length} supervisors</td>
+                  </tr>
+                </tfoot>
               </table>
             )}
           </div>
         )}
 
+        <datalist id="ot-dept-list">{distinctDepts.map(d => <option key={d} value={d} />)}</datalist>
         <div className="overflow-auto max-h-[calc(100vh-14rem)]">
-          <table className="text-xs border-collapse w-full">
+          <table className="text-xs border-collapse" style={{ tableLayout: 'fixed', width: (colW.id + colW.name + colW.supervisor + colW.dept + colW.mode + colW.remarks + colW.bulk + (hideDates ? 0 : daysArray.length * colW.day) + colW.total + (hideAllocations ? 0 : sortedActiveProjects.length * colW.alloc) + colW.transfer) }}>
+            <colgroup>
+              <col style={{ width: colW.id }} /><col style={{ width: colW.name }} /><col style={{ width: colW.supervisor }} /><col style={{ width: colW.dept }} />
+              <col style={{ width: colW.mode }} /><col style={{ width: colW.remarks }} /><col style={{ width: colW.bulk }} />
+              {!hideDates && daysArray.map(d => <col key={d} style={{ width: colW.day }} />)}
+              <col style={{ width: colW.total }} />
+              {!hideAllocations && sortedActiveProjects.map(p => <col key={p.id} style={{ width: colW.alloc }} />)}
+              <col style={{ width: colW.transfer }} />
+            </colgroup>
             <thead>
-              <tr className="bg-gray-50">
-                <th className="sticky left-0 top-0 z-30 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('name')}>Name <SortIcon col="name" /></th>
-                <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('supervisor')}>Supervisor <SortIcon col="supervisor" /></th>
-                <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('designation')}>Position <SortIcon col="designation" /></th>
-                <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left whitespace-nowrap">Mode</th>
-                <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left whitespace-nowrap">Remarks</th>
-                <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left whitespace-nowrap" title="Fills every weekday. Sundays/holidays skipped.">Bulk OT</th>
-                {!hideDates && daysArray.map(d => <th key={d} className={`sticky top-0 z-20 shadow-[inset_0_-1px_0_#e5e7eb] px-0.5 py-1 text-center text-xs ${isSunday(month, d) ? 'bg-red-50 text-red-500' : 'bg-gray-50'}`}>{d}</th>)}
-                <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-center cursor-pointer whitespace-nowrap" onClick={() => requestSort('totalOT')}>Total OT <SortIcon col="totalOT" /></th>
-                {!hideAllocations && sortedActiveProjects.map(p => <th key={p.id} className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-1 py-1 text-center text-xs w-16">{p.name} (%)</th>)}
-                <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-center whitespace-nowrap">Transfer</th>
+              <tr>
+                <th className="sticky left-0 top-0 z-30 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left cursor-pointer" onClick={() => requestSort('id')}>ID <SortIcon col="id" />{grip('id')}</th>
+                <th style={{ left: colW.id }} className="sticky top-0 z-30 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left cursor-pointer" onClick={() => requestSort('name')}>Name <SortIcon col="name" />{grip('name')}</th>
+                <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left cursor-pointer" onClick={() => requestSort('supervisor')}>Supervisor <SortIcon col="supervisor" />{grip('supervisor')}</th>
+                <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left cursor-pointer" onClick={() => requestSort('dept')}>Dept <SortIcon col="dept" />{grip('dept')}</th>
+                <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left">Mode{grip('mode')}</th>
+                <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left">Remarks{grip('remarks')}</th>
+                <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left" title="Fills every weekday. Sundays/holidays skipped.">Bulk OT{grip('bulk')}</th>
+                {!hideDates && daysArray.map(d => (
+                  <th key={d} className={`sticky top-0 z-20 shadow-[inset_0_-1px_0_#e5e7eb] px-0 py-0.5 text-center text-xs font-normal leading-tight ${isSunday(month, d) ? 'bg-red-50 text-red-500' : 'bg-gray-50'}`}>
+                    <div className="text-[9px] text-gray-400">{'SMTWTFS'[new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, Number(d)).getDay()]}</div>
+                    <div className="font-semibold">{d}</div>{grip('day')}
+                  </th>
+                ))}
+                <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-center cursor-pointer" onClick={() => requestSort('totalOT')}>Total OT <SortIcon col="totalOT" />{grip('total')}</th>
+                {!hideAllocations && sortedActiveProjects.map(p => <th key={p.id} className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-center !px-1 truncate" title={p.name}>{p.name} (%){grip('alloc')}</th>)}
+                <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-center">Transfer{grip('transfer')}</th>
               </tr>
             </thead>
             <tbody>
@@ -329,18 +366,21 @@ export default function OTClient({
                 const om = otMonthByWorker.get(w.id)
                 return (
                   <tr key={w.id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="sticky left-0 z-10 bg-white px-2 py-0.5 font-medium whitespace-nowrap">{w.name}</td>
-                    <td className="px-2 py-0.5 text-xs text-gray-500 whitespace-nowrap">{w.supervisors?.name || '—'}</td>
-                    <td className="px-2 py-0.5 text-xs whitespace-nowrap">{w.designation || '-'}</td>
+                    <td className="sticky left-0 z-10 bg-white px-2 py-0.5 text-gray-500 truncate">{w.worker_no || '-'}</td>
+                    <td style={{ left: colW.id }} className="sticky z-10 bg-white px-2 py-0.5 font-medium truncate" title={w.name}>{w.name}</td>
+                    <td className="px-2 py-0.5 text-xs text-gray-500 truncate">{w.supervisors?.name || '—'}</td>
                     <td className="px-1 py-0.5">
-                      <select defaultValue={om?.mode || 'General'} disabled={isLocked} onChange={e => guard(() => updateOtMonthMeta(w.id, month, 'mode', e.target.value))} className="text-xs border rounded px-1 py-1 bg-white disabled:opacity-50">
+                      <input list="ot-dept-list" defaultValue={w.line || ''} disabled={isLocked} title="Department — edit to rename" onBlur={e => { const v = e.target.value.trim(); if (v !== (w.line || '')) guard(() => updateWorkerField(w.id, 'line', v || null)) }} className="text-xs border rounded px-1 py-0 h-5 w-full disabled:opacity-50" />
+                    </td>
+                    <td className="px-1 py-0.5">
+                      <select defaultValue={om?.mode || 'General'} disabled={isLocked} onChange={e => guard(() => updateOtMonthMeta(w.id, month, 'mode', e.target.value))} className="text-xs border rounded px-1 py-0 h-5 bg-white w-full disabled:opacity-50">
                         <option value="Production">Production</option><option value="Delivery">Delivery</option><option value="General">General</option>
                       </select>
                     </td>
-                    <td className="px-1 py-0.5"><input defaultValue={om?.remark || ''} disabled={isLocked} onBlur={e => guard(() => updateOtMonthMeta(w.id, month, 'remark', e.target.value))} className="text-xs border rounded px-1 py-1 w-24 disabled:opacity-50" /></td>
+                    <td className="px-1 py-0.5"><input defaultValue={om?.remark || ''} disabled={isLocked} onBlur={e => guard(() => updateOtMonthMeta(w.id, month, 'remark', e.target.value))} className="text-xs border rounded px-1 py-0 h-5 w-full disabled:opacity-50" /></td>
                     <td className="px-1 py-0.5">
                       <div className="flex gap-1">
-                        <input type="number" value={bulkValues[w.id] || ''} disabled={isLocked} onChange={e => setBulkValues(prev => ({ ...prev, [w.id]: e.target.value }))} className="w-12 border rounded px-1 py-1 text-xs disabled:opacity-50" placeholder="hrs" />
+                        <input type="number" value={bulkValues[w.id] || ''} disabled={isLocked} onChange={e => setBulkValues(prev => ({ ...prev, [w.id]: e.target.value }))} className="flex-1 min-w-0 border rounded px-1 py-0 h-5 text-xs disabled:opacity-50" placeholder="hrs" />
                         <button disabled={isLocked} onClick={() => guard(() => bulkFillOt(w.id, month, bulkValues[w.id] || '0'))} className="text-xs bg-gray-100 px-1.5 rounded disabled:opacity-50"><Check className="w-3 h-3" /></button>
                       </div>
                     </td>
@@ -348,7 +388,7 @@ export default function OTClient({
                       const { basic, ot } = getDayHours(w.id, day)
                       return (
                         <td key={day} className={`px-0.5 py-0.5 ${isSunday(month, day) ? 'bg-red-50/50' : ''}`}>
-                          <div className="flex flex-col w-10">
+                          <div className="flex flex-col w-full">
                             <input type="number" defaultValue={basic} disabled={isLocked} title="Basic" onBlur={e => guard(() => updateOtDayHours(w.id, month, day, 'basic', e.target.value))} className="border rounded px-0.5 py-0 h-5 text-[11px] w-full disabled:opacity-50" />
                             <input type="number" defaultValue={ot || ''} disabled={isLocked} title="OT" placeholder="0" onBlur={e => guard(() => updateOtDayHours(w.id, month, day, 'ot', e.target.value))} className="border rounded px-0.5 py-0 h-5 text-[11px] w-full disabled:opacity-50" />
                           </div>
@@ -358,7 +398,7 @@ export default function OTClient({
                     <td className={`px-2 py-0.5 text-center font-bold ${totalOT > 104 ? 'text-red-600' : 'text-green-600'}`}>{fmt(totalOT)}</td>
                     {!hideAllocations && sortedActiveProjects.map(p => (
                       <td key={p.id} className="px-1 py-0.5">
-                        <input type="number" defaultValue={getAllocation(w.id, p.id)} disabled={isLocked} min={0} max={100} placeholder="0" onBlur={e => guard(() => updateWorkerAllocationPct(w.id, p.id, Number(e.target.value) || 0))} className="w-14 border rounded px-1 py-1 text-xs disabled:opacity-50" />
+                        <input type="number" defaultValue={getAllocation(w.id, p.id)} disabled={isLocked} min={0} max={100} placeholder="0" onBlur={e => guard(() => updateWorkerAllocationPct(w.id, p.id, Number(e.target.value) || 0))} className="w-full border rounded px-1 py-0 h-5 text-xs disabled:opacity-50" />
                       </td>
                     ))}
                     <td className="px-1 py-0.5 text-center">
@@ -367,7 +407,7 @@ export default function OTClient({
                   </tr>
                 )
               })}
-              {visibleWorkers.length === 0 && <tr><td colSpan={daysArray.length + 8} className="text-center text-gray-400 py-8">No workers found for this filter.</td></tr>}
+              {visibleWorkers.length === 0 && <tr><td colSpan={daysArray.length + 12} className="text-center text-gray-400 py-8">No workers found for this filter.</td></tr>}
             </tbody>
           </table>
         </div>
