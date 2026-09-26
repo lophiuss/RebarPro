@@ -28,6 +28,7 @@ export default function HRClient({ workers, supervisors, projects, payColumns, a
   movements: Movement[]; supervisorNames: Record<number, string>
 }) {
   const [tab, setTab] = useState<'data' | 'movement'>('data')
+  const [showAlloc, setShowAlloc] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
   const [sortConfig, setSortConfig] = useState<{ key: string | null; direction: 'asc' | 'desc' }>({ key: null, direction: 'asc' })
   const [showAdd, setShowAdd] = useState(false)
@@ -58,6 +59,7 @@ export default function HRClient({ workers, supervisors, projects, payColumns, a
     const key = sortConfig.key
     const getVal = (w: Worker): string | number => {
       if (key === 'name') return w.name
+      if (key === 'id') return w.worker_no || ''
       if (key === 'line') return w.line || ''
       if (key === 'supervisor') return supervisorById.get(w.supervisor_id || -1) || ''
       if (key === 'grossPay') return grossOf(w)
@@ -76,7 +78,7 @@ export default function HRClient({ workers, supervisors, projects, payColumns, a
 
   const tabBar = (
     <div className="flex gap-1 mb-4 border-b">
-      {([['data', 'Worker Data'], ['movement', 'Supervisor Movement']] as const).map(([k, label]) => (
+      {([['data', 'Worker Data'], ['movement', 'Worker Movement']] as const).map(([k, label]) => (
         <button key={k} onClick={() => setTab(k)} className={`px-4 py-2 text-sm -mb-px border-b-2 ${tab === k ? 'border-indigo-600 text-indigo-600 font-bold' : 'border-transparent text-gray-500'}`}>{label}</button>
       ))}
     </div>
@@ -93,6 +95,7 @@ export default function HRClient({ workers, supervisors, projects, payColumns, a
         </div>
         <div className="flex gap-2">
           <button disabled={snapshotting} onClick={async () => { setSnapshotting(true); await guard(saveAllocationSnapshot); setSnapshotting(false) }} className="flex items-center gap-1 text-xs bg-gray-100 text-gray-700 px-2.5 py-1.5 rounded-lg hover:bg-gray-200 disabled:opacity-50"><History className="w-3.5 h-3.5" /> {snapshotting ? 'Saving...' : 'Save Snapshot'}</button>
+          <button onClick={() => setShowAlloc(v => !v)} className="text-xs bg-gray-100 text-gray-700 px-2.5 py-1.5 rounded-lg hover:bg-gray-200">{showAlloc ? 'Hide Allocation' : 'Show Allocation'}</button>
           <button onClick={() => setShowAdd(v => !v)} className="flex items-center gap-1 bg-indigo-600 text-white text-sm font-medium px-3 py-1.5 rounded-lg hover:bg-indigo-700"><Plus className="w-4 h-4" /> New Worker</button>
         </div>
       </div>
@@ -123,16 +126,15 @@ export default function HRClient({ workers, supervisors, projects, payColumns, a
         <table className="text-xs border-collapse w-full">
           <thead>
             <tr className="bg-gray-50">
-              <th className="sticky left-0 top-0 z-30 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('name')}>Name <SortIcon col="name" /></th>
-              <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left whitespace-nowrap">ID</th>
+              <th className="sticky left-0 top-0 z-30 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left cursor-pointer whitespace-nowrap w-20 min-w-20" onClick={() => requestSort('id')}>ID <SortIcon col="id" /></th>
+              <th style={{ left: 80 }} className="sticky top-0 z-30 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('name')}>Name <SortIcon col="name" /></th>
               <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('line')}>Line <SortIcon col="line" /></th>
-              <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left whitespace-nowrap">Position</th>
               <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('supervisor')}>Supervisor <SortIcon col="supervisor" /></th>
               <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left whitespace-nowrap">Status</th>
               {payColumns.map(c => <th key={c.id} className={`sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-1 py-1.5 text-center whitespace-nowrap ${c.type === 'DEDUCT' ? 'text-red-600' : ''}`}>{c.label}</th>)}
               <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-center whitespace-nowrap !bg-green-50 cursor-pointer" onClick={() => requestSort('grossPay')}>Gross <SortIcon col="grossPay" /></th>
               <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-center whitespace-nowrap !bg-indigo-50 cursor-pointer" onClick={() => requestSort('netPay')}>Net <SortIcon col="netPay" /></th>
-              {projects.map(p => <th key={p.id} className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-1 py-1.5 text-center text-xs w-16">{p.name} %</th>)}
+              {showAlloc && projects.map(p => <th key={p.id} className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-1 py-1.5 text-center text-xs w-16">{p.name} %</th>)}
               <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left whitespace-nowrap">Remarks</th>
               <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-center whitespace-nowrap">Actions</th>
             </tr>
@@ -140,10 +142,10 @@ export default function HRClient({ workers, supervisors, projects, payColumns, a
           <tbody>
             {sorted.map(w => (
               <tr key={w.id} className={`border-b border-gray-100 ${w.status === 'Inactive' ? 'opacity-50' : w.status === 'On Leave' ? 'bg-amber-50/40' : ''}`}>
-                <td className="sticky left-0 z-10 bg-white px-2 py-0.5 font-medium whitespace-nowrap"><input defaultValue={w.name} onBlur={e => e.target.value.trim() && e.target.value !== w.name && guard(() => updateWorkerField(w.id, 'name', e.target.value.trim()))} className="border rounded px-1 py-0.5 text-[11px] w-32" /></td>
-                <td className="px-1 py-0.5"><input defaultValue={w.worker_no || ''} onBlur={e => guard(() => updateWorkerField(w.id, 'worker_no', e.target.value))} className="border rounded px-1 py-0.5 text-[11px] w-20" /></td>
+                <td className="sticky left-0 z-10 bg-white px-1 py-0.5 w-20 min-w-20"><input defaultValue={w.worker_no || ''} onBlur={e => guard(() => updateWorkerField(w.id, 'worker_no', e.target.value))} className="border rounded px-1 py-0.5 text-[11px] w-20" /></td>
+                <td style={{ left: 80 }} className="sticky z-10 bg-white px-2 py-0.5 font-medium whitespace-nowrap"><input defaultValue={w.name} onBlur={e => e.target.value.trim() && e.target.value !== w.name && guard(() => updateWorkerField(w.id, 'name', e.target.value.trim()))} className="border rounded px-1 py-0.5 text-[11px] w-32" /></td>
                 <td className="px-1 py-0.5"><input defaultValue={w.line || ''} onBlur={e => guard(() => updateWorkerField(w.id, 'line', e.target.value))} className="border rounded px-1 py-0.5 text-[11px] w-28" /></td>
-                <td className="px-1 py-0.5"><input defaultValue={w.designation || ''} onBlur={e => guard(() => updateWorkerField(w.id, 'designation', e.target.value))} className="border rounded px-1 py-0.5 text-[11px] w-24" /></td>
+                
                 <td className="px-1 py-0.5">
                   <select defaultValue={w.supervisor_id || ''} onChange={e => guard(() => updateWorkerField(w.id, 'supervisor_id', e.target.value ? Number(e.target.value) : null))} className="border rounded px-1 py-0.5 text-[11px] bg-white w-28">
                     <option value="">--</option>{supervisors.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -163,7 +165,7 @@ export default function HRClient({ workers, supervisors, projects, payColumns, a
                 ))}
                 <td className="px-2 py-0.5 text-center font-bold text-green-600 bg-green-50/50 whitespace-nowrap">{fmt(grossOf(w))}</td>
                 <td className="px-2 py-0.5 text-center font-bold text-indigo-600 bg-indigo-50/50 whitespace-nowrap">{fmt(netOf(w))}</td>
-                {projects.map(p => (
+                {showAlloc && projects.map(p => (
                   <td key={p.id} className="px-1 py-0.5">
                     <input type="number" step="0.01" min={0} max={100} placeholder="0" defaultValue={allocByWorker.get(w.id)?.get(p.id) ?? ''}
                       onBlur={e => guard(() => updateWorkerAllocationPct(w.id, p.id, Number(e.target.value) || 0))} className="border rounded px-1 py-0.5 text-[11px] w-12" />

@@ -24,6 +24,16 @@ export default function MovementView({ workers, movements, supervisorNames }: {
   const [month, setMonth] = useState(todayMonth())
   const [search, setSearch] = useState('')
   const [movedOnly, setMovedOnly] = useState(false)
+  // Widths (px) of the first three columns — drag a header's right edge to resize.
+  const [colW, setColW] = useState({ id: 70, name: 150, dept: 100 })
+  function startResize(key: 'id' | 'name' | 'dept', e: React.MouseEvent) {
+    e.preventDefault(); e.stopPropagation()
+    const startX = e.clientX, startW = colW[key]
+    const move = (ev: MouseEvent) => setColW(prev => ({ ...prev, [key]: Math.max(40, startW + ev.clientX - startX) }))
+    const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
+    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up)
+  }
+  const grip = (key: 'id' | 'name' | 'dept') => <span onMouseDown={e => startResize(key, e)} className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-indigo-300" />
 
   const supName = (id: number | null) => (id == null ? '—' : supervisorNames[id] || `#${id}`)
   const [y, m] = month.split('-').map(Number)
@@ -81,19 +91,22 @@ export default function MovementView({ workers, movements, supervisorNames }: {
       </div>
 
       <div className="bg-white border rounded-xl shadow-sm overflow-auto max-h-[60vh] mb-6">
-        <table className="text-[11px] border-collapse">
+        <table className="text-[11px] border-collapse" style={{ tableLayout: 'fixed' }}>
+          <colgroup><col style={{ width: colW.id }} /><col style={{ width: colW.name }} /><col style={{ width: colW.dept }} />{days.map(d => <col key={d} style={{ width: 56 }} />)}</colgroup>
           <thead>
             <tr>
-              <th className={`${th} sticky left-0 z-30 px-2 py-1 text-left`}>Worker</th>
-              <th className={`${th} px-2 py-1 text-left`}>Dept</th>
-              {days.map(d => <th key={d} className={`${th} px-0.5 py-1 text-center font-normal w-14 min-w-14`}>{d}</th>)}
+              <th className={`${th} sticky left-0 z-30 px-2 py-1 text-left`}>ID{grip('id')}</th>
+              <th style={{ left: colW.id }} className={`${th} sticky z-30 px-2 py-1 text-left`}>Worker{grip('name')}</th>
+              <th className={`${th} px-2 py-1 text-left`}>Dept{grip('dept')}</th>
+              {days.map(d => <th key={d} className={`${th} px-0.5 py-1 text-center font-normal`}>{d}</th>)}
             </tr>
           </thead>
           <tbody>
             {rows.map(({ w, cells }) => (
               <tr key={w.id} className="border-b border-gray-100">
-                <td className="sticky left-0 z-10 bg-white px-2 py-0.5 font-medium whitespace-nowrap">{w.name}</td>
-                <td className="px-2 py-0.5 text-gray-500 whitespace-nowrap">{w.line || '-'}</td>
+                <td className="sticky left-0 z-10 bg-white px-2 py-0.5 text-gray-500 truncate">{w.worker_no || '-'}</td>
+                <td style={{ left: colW.id }} className="sticky z-10 bg-white px-2 py-0.5 font-medium truncate" title={w.name}>{w.name}</td>
+                <td className="px-2 py-0.5 text-gray-500 truncate">{w.line || '-'}</td>
                 {cells.map((sid, i) => (
                   <td key={i} className="px-0.5 py-0.5 text-center whitespace-nowrap" style={sid != null ? { background: colorOf(sid) } : undefined} title={`${w.name} · ${isoOf(days[i])} · ${supName(sid)}`}>
                     {sid != null ? shortName(supName(sid)) : '—'}

@@ -18,7 +18,7 @@ export default async function PlantproTimesheetPage({ searchParams }: { searchPa
 
   const [
     { data: workers }, { data: timesheetDays }, { data: holidays }, { data: allHolidays },
-    { data: multiplier }, { data: payColumns }, { data: payValues },
+    { data: multiplier }, { data: payColumns }, { data: payValues }, { data: otMonths },
   ] = await Promise.all([
     supabase.from('plantpro_workers').select('id, worker_no, name, line, designation, supervisors:plantpro_supervisors(name)').neq('status', 'Inactive').order('name'),
     supabase.from('plantpro_timesheet_days').select('worker_id, day, basic, ot').eq('month', month),
@@ -28,7 +28,11 @@ export default async function PlantproTimesheetPage({ searchParams }: { searchPa
     supabase.from('plantpro_pay_columns').select('id, key, include_in_gross, include_in_net_deduct'),
     // RLS-gated: empty for a supervisor-tier viewer, by design.
     supabase.from('plantpro_worker_pay_values').select('worker_id, pay_column_id, value'),
+    // Applied OT = what the supervisor planned/submitted on the OT & Allocation page.
+    supabase.from('plantpro_ot_months').select('worker_id, days:plantpro_ot_days(ot)').eq('month', month),
   ])
+  const appliedOtByWorker: Record<number, number> = {}
+  for (const om of (otMonths as any[]) || []) appliedOtByWorker[om.worker_id] = (om.days || []).reduce((sum: number, d: { ot: number }) => sum + Number(d.ot || 0), 0)
 
   return (
     <div className="p-4 md:p-8 max-w-[1600px] mx-auto">
@@ -43,6 +47,7 @@ export default async function PlantproTimesheetPage({ searchParams }: { searchPa
         multiplier={multiplier}
         payColumns={payColumns || []}
         payValues={payValues || []}
+        appliedOtByWorker={appliedOtByWorker}
       />
     </div>
   )

@@ -26,9 +26,9 @@ async function guard(fn: () => Promise<any>) {
   try { await fn() } catch (err: any) { alert('Error: ' + err.message) }
 }
 
-export default function TimesheetClient({ month, workers, timesheetDays, monthHolidays, allHolidays, multiplier, payColumns, payValues }: {
+export default function TimesheetClient({ month, workers, timesheetDays, monthHolidays, allHolidays, multiplier, payColumns, payValues, appliedOtByWorker }: {
   month: string; workers: Worker[]; timesheetDays: TimesheetDay[]; monthHolidays: Holiday[]; allHolidays: Holiday[]
-  multiplier: MultiplierRow; payColumns: PayColumn[]; payValues: PayValue[]
+  multiplier: MultiplierRow; payColumns: PayColumn[]; payValues: PayValue[]; appliedOtByWorker: Record<number, number>
 }) {
   const router = useRouter()
   const multipliers: Multipliers = {
@@ -41,6 +41,17 @@ export default function TimesheetClient({ month, workers, timesheetDays, monthHo
   const [sortConfig, setSortConfig] = useState<{ key: string | null; direction: 'asc' | 'desc' }>({ key: null, direction: 'asc' })
   const [filterSupervisor, setFilterSupervisor] = useState('')
   const [filterDepartment, setFilterDepartment] = useState('')
+  // Column widths (px) — drag a header's right edge to resize. All day
+  // columns share one width.
+  const [colW, setColW] = useState<Record<string, number>>({ id: 64, name: 150, supervisor: 100, dept: 90, day: 40, applied: 70, actual: 70, diff: 60, basic: 64, pay: 96 })
+  function startResize(key: string, e: React.MouseEvent) {
+    e.preventDefault(); e.stopPropagation()
+    const startX = e.clientX, startW = colW[key]
+    const move = (ev: MouseEvent) => setColW(prev => ({ ...prev, [key]: Math.max(28, startW + ev.clientX - startX) }))
+    const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up) }
+    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up)
+  }
+  const grip = (key: string) => <span onMouseDown={e => startResize(key, e)} onClick={e => e.stopPropagation()} className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize hover:bg-indigo-300" />
 
   const daysArray = Array.from({ length: daysInMonth(month) }, (_, i) => {
     const [y, m] = month.split('-').map(Number)
@@ -82,7 +93,8 @@ export default function TimesheetClient({ month, workers, timesheetDays, monthHo
     const netPay = calcNetPay(values as any, columnFlags as any)
     const days = daysArray.map(d => ({ basic: getVal(w.id, d.day, 'basic'), ot: getVal(w.id, d.day, 'ot'), dayType: getDayType(d) }))
     const { totalBasic, totalOT, totalPay } = calcMonthPay(days, netPay, multipliers)
-    return { totalBasic, totalOT, totalPay }
+    const appliedOT = appliedOtByWorker[w.id] || 0
+    return { totalBasic, totalOT, totalPay, appliedOT, diffOT: totalOT - appliedOT }
   }
 
   const distinctSupervisors = [...new Set(workers.map(w => w.supervisors?.name).filter(Boolean))].sort() as string[]
@@ -102,6 +114,9 @@ export default function TimesheetClient({ month, workers, timesheetDays, monthHo
       if (key === 'line') return row.worker.line || ''
       if (key === 'totalBasic') return row.totalBasic
       if (key === 'totalOT') return row.totalOT
+      if (key === 'appliedOT') return row.appliedOT
+      if (key === 'diffOT') return row.diffOT
+      if (key === 'id') return row.worker.worker_no || ''
       if (key === 'totalPay') return row.totalPay
       return ''
     }
@@ -155,42 +170,53 @@ export default function TimesheetClient({ month, workers, timesheetDays, monthHo
             </select>
           </div>
           <div className="overflow-auto max-h-[calc(100vh-15rem)]">
-            <table className="text-sm border-collapse w-full">
+            <table className="text-xs border-collapse" style={{ tableLayout: 'fixed', width: colW.id + colW.name + colW.supervisor + colW.dept + daysArray.length * colW.day + colW.applied + colW.actual + colW.diff + colW.basic + colW.pay }}>
+              <colgroup>
+                <col style={{ width: colW.id }} /><col style={{ width: colW.name }} /><col style={{ width: colW.supervisor }} /><col style={{ width: colW.dept }} />
+                {daysArray.map(d => <col key={d.day} style={{ width: colW.day }} />)}
+                <col style={{ width: colW.applied }} /><col style={{ width: colW.actual }} /><col style={{ width: colW.diff }} /><col style={{ width: colW.basic }} /><col style={{ width: colW.pay }} />
+              </colgroup>
               <thead>
-                <tr className="bg-gray-50">
-                  <th className="sticky left-0 top-0 z-30 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('name')}>Name <SortIcon col="name" /></th>
-                  <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('supervisor')}>Supervisor <SortIcon col="supervisor" /></th>
-                  <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('line')}>Dept <SortIcon col="line" /></th>
+                <tr>
+                  <th className="sticky left-0 top-0 z-30 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left cursor-pointer" onClick={() => requestSort('id')}>ID <SortIcon col="id" />{grip('id')}</th>
+                  <th style={{ left: colW.id }} className="sticky top-0 z-30 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left cursor-pointer" onClick={() => requestSort('name')}>Name <SortIcon col="name" />{grip('name')}</th>
+                  <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('supervisor')}>Supervisor <SortIcon col="supervisor" />{grip('supervisor')}</th>
+                  <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('line')}>Dept <SortIcon col="line" />{grip('dept')}</th>
                   {daysArray.map(d => (
                     <th key={d.day} className={`sticky top-0 z-20 shadow-[inset_0_-1px_0_#e5e7eb] px-0.5 py-1 text-center text-xs ${dayBg(d) || 'bg-gray-50'}`}>
-                      <div className="font-bold">{d.day}</div><div className="text-[10px] text-gray-400">{DAYS_OF_WEEK[d.dayOfWeek]}</div>
+                      <div className="font-bold">{d.day}</div><div className="text-[10px] text-gray-400">{DAYS_OF_WEEK[d.dayOfWeek]}</div>{grip('day')}
                     </th>
                   ))}
-                  <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-center cursor-pointer whitespace-nowrap" onClick={() => requestSort('totalBasic')}>Basic <SortIcon col="totalBasic" /></th>
-                  <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-center cursor-pointer whitespace-nowrap" onClick={() => requestSort('totalOT')}>OT <SortIcon col="totalOT" /></th>
-                  <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-center cursor-pointer whitespace-nowrap" onClick={() => requestSort('totalPay')}>Est. Pay (RM) <SortIcon col="totalPay" /></th>
+                  <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-center cursor-pointer whitespace-nowrap" title="OT hours the supervisor applied for (OT & Allocation page)" onClick={() => requestSort('appliedOT')}>Applied OT <SortIcon col="appliedOT" />{grip('applied')}</th>
+                  <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-center cursor-pointer whitespace-nowrap" title="OT hours actually keyed in this timesheet" onClick={() => requestSort('totalOT')}>Actual OT <SortIcon col="totalOT" />{grip('actual')}</th>
+                  <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-center cursor-pointer whitespace-nowrap" title="Actual minus Applied" onClick={() => requestSort('diffOT')}>Diff <SortIcon col="diffOT" />{grip('diff')}</th>
+                  <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-center cursor-pointer whitespace-nowrap" onClick={() => requestSort('totalBasic')}>Basic <SortIcon col="totalBasic" />{grip('basic')}</th>
+                  <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1 text-center cursor-pointer whitespace-nowrap" onClick={() => requestSort('totalPay')}>Est. Pay (RM) <SortIcon col="totalPay" />{grip('pay')}</th>
                 </tr>
               </thead>
               <tbody>
-                {sortedRows.map(({ worker: w, totalBasic, totalOT, totalPay }) => (
+                {sortedRows.map(({ worker: w, totalBasic, totalOT, totalPay, appliedOT, diffOT }) => (
                   <tr key={w.id} className="border-b border-gray-100">
-                    <td className="sticky left-0 z-10 bg-white px-2 py-0.5 font-medium whitespace-nowrap">{w.name}</td>
-                    <td className="px-2 py-0.5 text-xs text-gray-500 whitespace-nowrap">{w.supervisors?.name || '-'}</td>
-                    <td className="px-2 py-0.5 text-xs text-gray-500 whitespace-nowrap">{w.line || '-'}</td>
+                    <td className="sticky left-0 z-10 bg-white px-2 py-0.5 text-gray-500 truncate">{w.worker_no || '-'}</td>
+                    <td style={{ left: colW.id }} className="sticky z-10 bg-white px-2 py-0.5 font-medium truncate" title={w.name}>{w.name}</td>
+                    <td className="px-2 py-0.5 text-xs text-gray-500 truncate">{w.supervisors?.name || '-'}</td>
+                    <td className="px-2 py-0.5 text-xs text-gray-500 truncate">{w.line || '-'}</td>
                     {daysArray.map(d => (
                       <td key={d.day} className={`px-0.5 py-0.5 ${dayBg(d)}`}>
-                        <div className="flex flex-col w-9">
+                        <div className="flex flex-col w-full">
                           <input type="number" defaultValue={getVal(w.id, d.day, 'basic')} title="Basic" onBlur={e => guard(() => updateTimesheetDay(w.id, month, d.day, 'basic', e.target.value))} className="border rounded px-0.5 py-0 h-5 text-[11px] w-full text-center" />
                           <input type="number" defaultValue={getVal(w.id, d.day, 'ot') || ''} title="OT" placeholder="OT" onBlur={e => guard(() => updateTimesheetDay(w.id, month, d.day, 'ot', e.target.value))} className="border rounded px-0.5 py-0 h-5 text-[11px] w-full text-center bg-amber-50" />
                         </div>
                       </td>
                     ))}
-                    <td className="px-2 py-0.5 text-center font-bold text-indigo-600">{fmt(totalBasic)}</td>
+                    <td className="px-2 py-0.5 text-center text-gray-600">{fmt(appliedOT)}</td>
                     <td className="px-2 py-0.5 text-center font-bold text-amber-600">{fmt(totalOT)}</td>
+                    <td className={`px-2 py-0.5 text-center font-bold ${diffOT > 0 ? 'text-red-600' : diffOT < 0 ? 'text-blue-600' : 'text-gray-400'}`} title={diffOT > 0 ? 'More OT worked than applied for' : diffOT < 0 ? 'Less OT worked than applied for' : 'Matches'}>{diffOT > 0 ? '+' : ''}{fmt(diffOT)}</td>
+                    <td className="px-2 py-0.5 text-center font-bold text-indigo-600">{fmt(totalBasic)}</td>
                     <td className="px-2 py-0.5 text-center font-bold text-green-600">RM {fmt(totalPay)}</td>
                   </tr>
                 ))}
-                {sortedRows.length === 0 && <tr><td colSpan={daysArray.length + 6} className="text-center text-gray-400 py-8">No workers match this filter.</td></tr>}
+                {sortedRows.length === 0 && <tr><td colSpan={daysArray.length + 10} className="text-center text-gray-400 py-8">No workers match this filter.</td></tr>}
               </tbody>
             </table>
           </div>
