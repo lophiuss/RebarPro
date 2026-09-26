@@ -156,17 +156,32 @@ export async function askAiHelper(messages: ChatMessage[]): Promise<string> {
     settings.system_instructions?.trim() ? `\nAdditional instructions from this organization's admin:\n${settings.system_instructions.trim()}` : '',
   ].join('\n')
 
-  const result = await askGeminiWithTools({
-    model: settings.model,
-    effort: settings.effort,
-    systemInstruction,
-    messages,
-    tools: [queryDatabaseToolDeclaration()],
-    executeTool: async (name, args) => {
-      if (name === 'query_database') return executeQueryDatabase(supabase, args)
-      return { error: `Unknown tool: ${name}` }
-    },
-  })
+  // A thrown error from a Server Action reaches the browser as an opaque
+  // "Minified React error #441" in production (Next redacts the message).
+  // Return the real reason as the reply instead so the user/admin can act on it.
+  let result: Awaited<ReturnType<typeof askGeminiWithTools>>
+  try {
+    result = await askGeminiWithTools({
+      model: settings.model,
+      effort: settings.effort,
+      systemInstruction,
+      messages,
+      tools: [queryDatabaseToolDeclaration()],
+      executeTool: async (name, args) => {
+        if (name === 'query_database') return executeQueryDatabase(supabase, args)
+        return { error: `Unknown tool: ${name}` }
+      },
+    })
+  } catch (err: any) {
+    const msg: string = err?.message || 'Unknown error'
+    console.error('AI Helper Gemini call failed:', msg)
+    const hint = /invalid authentication|API key|UNAUTHENTICATED|permission/i.test(msg)
+      ? ' — the Gemini API key looks invalid or revoked. An admin needs to replace GEMINI_API_KEY.'
+      : /quota|rate|429|exhausted/i.test(msg) ? ' — the Gemini usage quota was hit; try again shortly.'
+      : /not found|404|model/i.test(msg) ? ' — the selected model may not exist; pick another in AI Helper settings.'
+      : ''
+    return `⚠️ The AI service returned an error: ${msg}${hint}`
+  }
 
   // Best-effort — a logging failure shouldn't take down an answer the user
   // already has.
