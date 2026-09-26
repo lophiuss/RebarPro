@@ -199,3 +199,46 @@ export async function askAiHelper(messages: ChatMessage[]): Promise<string> {
 
   return result.text
 }
+
+// ---------------------------------------------------------------------------
+// Saved chats — private to the signed-in person (RLS: user_id = auth.uid()).
+// ---------------------------------------------------------------------------
+
+export type ChatSummary = { id: string; title: string; updated_at: string }
+export type SavedMessage = { role: 'user' | 'model'; text: string }
+
+export async function listChats(): Promise<ChatSummary[]> {
+  const { supabase } = await requireAccess()
+  const { data, error } = await supabase.from('ai_helper_chats').select('id, title, updated_at').order('updated_at', { ascending: false }).limit(60)
+  if (error) throw error
+  return data || []
+}
+
+export async function getChat(id: string): Promise<SavedMessage[]> {
+  const { supabase } = await requireAccess()
+  const { data, error } = await supabase.from('ai_helper_chats').select('messages').eq('id', id).single()
+  if (error) throw error
+  return (data?.messages as SavedMessage[]) || []
+}
+
+// Creates the chat on first save (title = the first question), then keeps
+// overwriting its messages as the conversation grows. Returns the chat id.
+export async function saveChat(id: string | null, messages: SavedMessage[]): Promise<string> {
+  const { supabase } = await requireAccess()
+  const trimmed = messages.slice(-100).map(m => ({ role: m.role, text: String(m.text).slice(0, 20000) }))
+  if (id) {
+    const { error } = await supabase.from('ai_helper_chats').update({ messages: trimmed, updated_at: new Date().toISOString() }).eq('id', id)
+    if (error) throw error
+    return id
+  }
+  const firstQuestion = trimmed.find(m => m.role === 'user')?.text || 'New chat'
+  const { data, error } = await supabase.from('ai_helper_chats').insert([{ title: firstQuestion.replace(/\s+/g, ' ').slice(0, 70), messages: trimmed }]).select('id').single()
+  if (error) throw error
+  return data.id
+}
+
+export async function deleteChat(id: string): Promise<void> {
+  const { supabase } = await requireAccess()
+  const { error } = await supabase.from('ai_helper_chats').delete().eq('id', id)
+  if (error) throw error
+}

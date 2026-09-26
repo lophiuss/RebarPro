@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react'
 import MiniMarkdown from '@/components/MiniMarkdown'
-import { Sparkles, Send, Settings as SettingsIcon, X, UserPlus, Trash2, Loader2 } from 'lucide-react'
+import { Sparkles, Send, Settings as SettingsIcon, X, UserPlus, Trash2, Loader2, History, MessageSquarePlus } from 'lucide-react'
 import {
   askAiHelper, getSettings, updateSettings, amISuperAdmin,
   listAllowedPeople, listAllPeople, grantAccess, revokeAccess, getUsageSummary,
+  listChats, getChat, saveChat, deleteChat, type ChatSummary,
   type Settings, type AllowedPerson, type UsageSummary,
 } from './actions'
 
@@ -43,6 +44,26 @@ export default function AiHelperPage() {
   const [grantUserId, setGrantUserId] = useState('')
   const [usage, setUsage] = useState<UsageSummary | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  // Saved chats (private to this login)
+  const [chatId, setChatId] = useState<string | null>(null)
+  const [chats, setChats] = useState<ChatSummary[]>([])
+  const [showHistory, setShowHistory] = useState(false)
+  const [loadingChat, setLoadingChat] = useState<string | null>(null)
+  const refreshChats = () => listChats().then(setChats).catch(() => {})
+  useEffect(() => { refreshChats() }, [])
+
+  function newChat() { setChatId(null); setMessages([]); setInput(''); setShowHistory(false) }
+  async function openChat(id: string) {
+    setLoadingChat(id)
+    try { setMessages(await getChat(id)); setChatId(id); setShowHistory(false) }
+    catch (err: any) { alert('Error: ' + err.message) }
+    finally { setLoadingChat(null) }
+  }
+  async function removeChat(id: string) {
+    if (!confirm('Delete this saved chat?')) return
+    try { await deleteChat(id); setChats(prev => prev.filter(c => c.id !== id)); if (chatId === id) newChat() }
+    catch (err: any) { alert('Error: ' + err.message) }
+  }
 
   useEffect(() => {
     amISuperAdmin().then(async admin => {
@@ -69,6 +90,8 @@ export default function AiHelperPage() {
     try {
       const reply = await askAiHelper(nextMessages)
       setMessages(prev => [...prev, { role: 'model', text: reply }])
+      // Save the whole conversation so far (best-effort — never blocks the answer).
+      saveChat(chatId, [...nextMessages, { role: 'model', text: reply }]).then(id => { setChatId(id); refreshChats() }).catch(() => {})
       if (isSuperAdmin) getUsageSummary().then(setUsage).catch(() => {})
     } catch (err: any) {
       setMessages(prev => [...prev, { role: 'model', text: `⚠ ${err.message || 'Something went wrong.'}` }])
@@ -115,12 +138,39 @@ export default function AiHelperPage() {
     <div className="p-4 md:p-8 max-w-4xl mx-auto flex flex-col h-[calc(100vh-2rem)] md:h-screen">
       <div className="flex items-center justify-between gap-4 mb-4 flex-shrink-0">
         <h1 className="text-3xl font-bold flex items-center gap-2"><Sparkles className="w-7 h-7 text-violet-600" /> AI Helper</h1>
+        <div className="flex items-center gap-2">
+        <button onClick={newChat} className="flex items-center gap-1.5 bg-violet-600 text-white text-sm font-medium px-3 py-2 rounded-lg hover:bg-violet-700"><MessageSquarePlus className="w-4 h-4" /> New chat</button>
+        <button onClick={() => setShowHistory(v => !v)} className="flex items-center gap-1.5 bg-gray-100 text-gray-700 text-sm font-medium px-3 py-2 rounded-lg hover:bg-gray-200"><History className="w-4 h-4" /> History{chats.length > 0 ? ` (${chats.length})` : ''}</button>
         {isSuperAdmin && (
           <button onClick={() => setShowSettings(true)} className="flex items-center gap-1.5 bg-gray-100 text-gray-700 text-sm font-medium px-3 py-2 rounded-lg hover:bg-gray-200">
             <SettingsIcon className="w-4 h-4" /> Settings
           </button>
         )}
+        </div>
       </div>
+      {showHistory && (
+        <div className="fixed inset-0 z-40" onClick={() => setShowHistory(false)}>
+          <div className="absolute top-0 right-0 h-full w-80 max-w-[90vw] bg-white border-l shadow-xl flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b">
+              <h2 className="font-bold text-sm flex items-center gap-2"><History className="w-4 h-4" /> My chat history</h2>
+              <button onClick={() => setShowHistory(false)} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+            </div>
+            <p className="text-[11px] text-gray-400 px-4 pt-2">Only you can see these — saved under your login.</p>
+            <div className="flex-1 overflow-y-auto p-2">
+              {chats.length === 0 && <p className="text-sm text-gray-400 text-center py-8">No saved chats yet. Ask something and it is saved automatically.</p>}
+              {chats.map(c => (
+                <div key={c.id} className={`group flex items-start gap-2 rounded-lg px-3 py-2 cursor-pointer hover:bg-violet-50 ${c.id === chatId ? 'bg-violet-50' : ''}`} onClick={() => openChat(c.id)}>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm text-slate-800 truncate">{loadingChat === c.id ? 'Loading…' : c.title}</div>
+                    <div className="text-[11px] text-gray-400">{new Date(c.updated_at).toLocaleString()}</div>
+                  </div>
+                  <button onClick={e => { e.stopPropagation(); removeChat(c.id) }} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 p-1" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       <p className="text-xs text-gray-400 mb-4 flex-shrink-0">
         Answers are grounded only in this system's own live data — Rebar, BPlant, and Security, scoped to what your account can see. It won't invent numbers.
       </p>
