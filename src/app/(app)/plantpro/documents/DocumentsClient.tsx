@@ -1,5 +1,6 @@
 'use client'
 
+import { guard } from '../feedback'
 import { useState } from 'react'
 import { FolderClock, Plus, Trash2, ChevronLeft, ChevronRight, Eye, Tag, List, Table2, Search, Upload } from 'lucide-react'
 import { createDocumentType, updateDocumentType, deleteDocumentType, uploadPlantproDocument, deletePlantproDocument } from '../actions'
@@ -24,7 +25,6 @@ type Hostel = { id: number; name: string }
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-async function guard(fn: () => Promise<any>) { try { await fn() } catch (err: any) { alert('Error: ' + err.message) } }
 
 function StatusBadge({ expiryDate }: { expiryDate: string | null }) {
   const status = getDocumentStatus(expiryDate)

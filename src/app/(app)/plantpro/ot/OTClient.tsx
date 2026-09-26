@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { guard } from '../feedback'
+import { useState, useMemo, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, Check, X, Copy, Eraser, Send, CheckCircle, XCircle, Edit3, ArrowRightLeft, Search, ArrowUpDown } from 'lucide-react'
+import { Loader2, ChevronLeft, ChevronRight, Check, X, Copy, Eraser, Send, CheckCircle, XCircle, Edit3, ArrowRightLeft, Search, ArrowUpDown } from 'lucide-react'
 import {
   updateOtDayHours, updateOtMonthMeta, bulkFillOt, copyOtMonth, clearOtMonth,
   otApprovalAction, updateWorkerAllocationPct, transferWorker, updateWorkerField,
@@ -58,9 +59,6 @@ const STATUS_STYLE: Record<string, string> = {
   Approved: 'bg-green-100 text-green-700', Rejected: 'bg-red-100 text-red-700',
 }
 
-async function guard(fn: () => Promise<any>) {
-  try { await fn() } catch (err: any) { alert('Error: ' + err.message) }
-}
 
 export default function OTClient({
   month, myRole, myUserId, mySupervisorName, workers, supervisors, projects, projectTypes,
@@ -87,6 +85,9 @@ export default function OTClient({
   const [searchTerm, setSearchTerm] = useState('')
   const [sortConfig, setSortConfig] = useState<{ key: string | null; direction: 'asc' | 'desc' }>({ key: null, direction: 'asc' })
   const [applying, setApplying] = useState(false)
+  const [bulkBusy, setBulkBusy] = useState<number | null>(null)
+  const [flashId, setFlashId] = useState<number | null>(null)
+  const [isPending, startTransition] = useTransition()
   // Column widths (px) — drag the right edge of any header to resize. All
   // day columns share one width, as do all project-allocation columns.
   const [colW, setColW] = useState<Record<string, number>>({
@@ -176,7 +177,7 @@ export default function OTClient({
   }
 
   function changeMonth(newMonth: string) {
-    router.push(`/plantpro/ot?month=${newMonth}`)
+    startTransition(() => router.push(`/plantpro/ot?month=${newMonth}`))
   }
 
   let totalBasic = 0, totalOT = 0
@@ -246,7 +247,7 @@ export default function OTClient({
           <div className="flex items-center gap-3 flex-wrap">
             <div className="flex items-center">
               <button onClick={() => changeMonth(shiftMonth(month, -1))} className="p-1.5 hover:bg-gray-100 rounded"><ChevronLeft className="w-5 h-5" /></button>
-              <span className="font-semibold px-2">{monthLabel(month)}</span>
+              <span className="font-semibold px-2 flex items-center gap-1.5">{monthLabel(month)}{isPending && <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />}</span>
               <button onClick={() => changeMonth(shiftMonth(month, 1))} className="p-1.5 hover:bg-gray-100 rounded"><ChevronRight className="w-5 h-5" /></button>
             </div>
             {monthStatus === null ? (
@@ -266,7 +267,7 @@ export default function OTClient({
             {!isLocked && (
               <>
                 <button onClick={() => setShowCopyModal(true)} className="flex items-center gap-1 text-xs bg-gray-100 text-gray-700 px-2.5 py-1.5 rounded-lg hover:bg-gray-200"><Copy className="w-3.5 h-3.5" /> Copy From...</button>
-                <button onClick={() => confirm(`Clear all OT data for ${monthLabel(month)}?`) && guard(() => clearOtMonth(myWorkers.map(w => w.id), month))} className="flex items-center gap-1 text-xs bg-red-50 text-red-600 px-2.5 py-1.5 rounded-lg hover:bg-red-100"><Eraser className="w-3.5 h-3.5" /> Clear Month</button>
+                <button onClick={() => confirm(`Clear all OT data for ${monthLabel(month)}?`) && guard(() => clearOtMonth(myWorkers.map(w => w.id), month), 'Clearing month…')} className="flex items-center gap-1 text-xs bg-red-50 text-red-600 px-2.5 py-1.5 rounded-lg hover:bg-red-100"><Eraser className="w-3.5 h-3.5" /> Clear Month</button>
               </>
             )}
             {currentSupervisorRow && canSubmit && monthStatus === 'Draft' && (
@@ -330,7 +331,7 @@ export default function OTClient({
         )}
 
         <datalist id="ot-dept-list">{distinctDepts.map(d => <option key={d} value={d} />)}</datalist>
-        <div className="overflow-auto max-h-[calc(100vh-14rem)]">
+        <div className={`overflow-auto max-h-[calc(100vh-14rem)] transition-opacity ${isPending ? 'opacity-50' : ''}`}>
           <table className="text-xs border-collapse" style={{ tableLayout: 'fixed', width: (colW.id + colW.name + colW.supervisor + colW.dept + colW.mode + colW.remarks + colW.bulk + (hideDates ? 0 : daysArray.length * colW.day) + colW.total + (hideAllocations ? 0 : sortedActiveProjects.length * colW.alloc) + colW.transfer) }}>
             <colgroup>
               <col style={{ width: colW.id }} /><col style={{ width: colW.name }} /><col style={{ width: colW.supervisor }} /><col style={{ width: colW.dept }} />
@@ -365,9 +366,9 @@ export default function OTClient({
                 const totalOT = getWorkerTotalOT(w.id)
                 const om = otMonthByWorker.get(w.id)
                 return (
-                  <tr key={w.id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="sticky left-0 z-10 bg-white px-2 py-0.5 text-gray-500 truncate">{w.worker_no || '-'}</td>
-                    <td style={{ left: colW.id }} className="sticky z-10 bg-white px-2 py-0.5 font-medium truncate" title={w.name}>{w.name}</td>
+                  <tr key={w.id} className={`border-b border-gray-100 transition-colors duration-700 ${flashId === w.id ? 'bg-green-100' : 'hover:bg-gray-50'}`}>
+                    <td className={`sticky left-0 z-10 transition-colors duration-700 ${flashId === w.id ? 'bg-green-100' : 'bg-white'} px-2 py-0.5 text-gray-500 truncate`}>{w.worker_no || '-'}</td>
+                    <td style={{ left: colW.id }} className={`sticky z-10 transition-colors duration-700 ${flashId === w.id ? 'bg-green-100' : 'bg-white'} px-2 py-0.5 font-medium truncate`} title={w.name}>{w.name}</td>
                     <td className="px-2 py-0.5 text-xs text-gray-500 truncate">{w.supervisors?.name || '—'}</td>
                     <td className="px-1 py-0.5">
                       <input list="ot-dept-list" defaultValue={w.line || ''} disabled={isLocked} title="Department — edit to rename" onBlur={e => { const v = e.target.value.trim(); if (v !== (w.line || '')) guard(() => updateWorkerField(w.id, 'line', v || null)) }} className="text-xs border rounded px-1 py-0 h-5 w-full disabled:opacity-50" />
@@ -381,7 +382,7 @@ export default function OTClient({
                     <td className="px-1 py-0.5">
                       <div className="flex gap-1">
                         <input type="number" value={bulkValues[w.id] || ''} disabled={isLocked} onChange={e => setBulkValues(prev => ({ ...prev, [w.id]: e.target.value }))} className="flex-1 min-w-0 border rounded px-1 py-0 h-5 text-xs disabled:opacity-50" placeholder="hrs" />
-                        <button disabled={isLocked} onClick={() => guard(() => bulkFillOt(w.id, month, bulkValues[w.id] || '0'))} className="text-xs bg-gray-100 px-1.5 rounded disabled:opacity-50"><Check className="w-3 h-3" /></button>
+                        <button disabled={isLocked || bulkBusy === w.id} title="Fill every weekday with this OT" onClick={async () => { setBulkBusy(w.id); await guard(() => bulkFillOt(w.id, month, bulkValues[w.id] || '0'), 'Filling OT…'); setBulkBusy(null); setFlashId(w.id); setTimeout(() => setFlashId(null), 1400) }} className="text-xs bg-gray-100 hover:bg-indigo-100 px-1.5 rounded disabled:opacity-50 transition-colors">{bulkBusy === w.id ? <Loader2 className="w-3 h-3 animate-spin text-indigo-600" /> : <Check className="w-3 h-3" />}</button>
                       </div>
                     </td>
                     {!hideDates && daysArray.map(day => {
@@ -389,8 +390,8 @@ export default function OTClient({
                       return (
                         <td key={day} className={`px-0.5 py-0.5 ${isSunday(month, day) ? 'bg-red-50/50' : ''}`}>
                           <div className="flex flex-col w-full">
-                            <input type="number" defaultValue={basic} disabled={isLocked} title="Basic" onBlur={e => guard(() => updateOtDayHours(w.id, month, day, 'basic', e.target.value))} className="border rounded px-0.5 py-0 h-5 text-[11px] w-full disabled:opacity-50" />
-                            <input type="number" defaultValue={ot || ''} disabled={isLocked} title="OT" placeholder="0" onBlur={e => guard(() => updateOtDayHours(w.id, month, day, 'ot', e.target.value))} className="border rounded px-0.5 py-0 h-5 text-[11px] w-full disabled:opacity-50" />
+                            <input key={`b-${w.id}-${day}-${basic}`} type="number" defaultValue={basic} disabled={isLocked} title="Basic" onBlur={e => guard(() => updateOtDayHours(w.id, month, day, 'basic', e.target.value))} className="border rounded px-0.5 py-0 h-5 text-[11px] w-full disabled:opacity-50" />
+                            <input key={`o-${w.id}-${day}-${ot}`} type="number" defaultValue={ot || ''} disabled={isLocked} title="OT" placeholder="0" onBlur={e => guard(() => updateOtDayHours(w.id, month, day, 'ot', e.target.value))} className="border rounded px-0.5 py-0 h-5 text-[11px] w-full disabled:opacity-50" />
                           </div>
                         </td>
                       )
@@ -446,7 +447,7 @@ export default function OTClient({
             <input type="month" value={copyFromMonth} onChange={e => setCopyFromMonth(e.target.value)} className="w-full border rounded-md px-3 py-2 text-sm mb-4" />
             <div className="flex justify-end gap-2">
               <button onClick={() => setShowCopyModal(false)} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm">Cancel</button>
-              <button disabled={!copyFromMonth || applying} onClick={async () => { setApplying(true); await guard(() => copyOtMonth(myWorkers.map(w => w.id), copyFromMonth, month)); setApplying(false); setShowCopyModal(false); setCopyFromMonth('') }} className="bg-indigo-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm">Copy Data</button>
+              <button disabled={!copyFromMonth || applying} onClick={async () => { setApplying(true); await guard(() => copyOtMonth(myWorkers.map(w => w.id), copyFromMonth, month), 'Copying month…'); setApplying(false); setShowCopyModal(false); setCopyFromMonth('') }} className="bg-indigo-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm">Copy Data</button>
             </div>
           </div>
         </div>

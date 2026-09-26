@@ -1,5 +1,6 @@
 'use client'
 
+import { guard, useColResize } from '../feedback'
 import { useState } from 'react'
 import { Building2, Plus, Trash2, Users, History, Receipt, Tag, ArrowRightLeft, ChevronDown, ChevronRight } from 'lucide-react'
 import {
@@ -17,12 +18,12 @@ type Preview = { occupants: { worker_id: number; worker_name: string; days: numb
 
 function fmt(n: number) { return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
 function today() { return new Date().toISOString().slice(0, 10) }
-async function guard(fn: () => Promise<any>) { try { await fn() } catch (err: any) { alert('Error: ' + err.message) } }
 
 export default function HostelClient({ hostels, workers, stays, itemTypes, bills }: {
   hostels: Hostel[]; workers: Worker[]; stays: Stay[]; itemTypes: ItemType[]; bills: Bill[]
 }) {
   const [tab, setTab] = useState<'manage' | 'assign' | 'billing'>('manage')
+  const { colW, grip } = useColResize({ name: 180, address: 220, owner: 150, contact: 130, rental: 100, deposit: 100, status: 90, actions: 70 })
   const [newHostelName, setNewHostelName] = useState('')
   const [showArchived, setShowArchived] = useState(false)
   const [assignWorkerId, setAssignWorkerId] = useState('')
@@ -89,20 +90,21 @@ export default function HostelClient({ hostels, workers, stays, itemTypes, bills
             <input value={newHostelName} onChange={e => setNewHostelName(e.target.value)} placeholder="New Hostel Name" required className="flex-1 border rounded-md px-3 py-2 text-sm" />
             <button type="submit" className="flex items-center gap-1 bg-indigo-600 text-white text-sm font-medium px-3 py-2 rounded-lg hover:bg-indigo-700"><Plus className="w-4 h-4" /> Add</button>
           </form>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead><tr className="text-xs text-gray-500 uppercase text-left border-b"><th className="pb-2">Name</th><th>Address</th><th>Owner</th><th>Contact</th><th>Rental/Mo</th><th>Deposit</th><th>Status</th><th className="text-right">Actions</th></tr></thead>
+          <div className="overflow-auto max-h-[calc(100vh-16rem)]">
+            <table className="text-sm" style={{ tableLayout: 'fixed', width: colW.name + colW.address + colW.owner + colW.contact + colW.rental + colW.deposit + colW.status + colW.actions }}>
+              <colgroup><col style={{ width: colW.name }} /><col style={{ width: colW.address }} /><col style={{ width: colW.owner }} /><col style={{ width: colW.contact }} /><col style={{ width: colW.rental }} /><col style={{ width: colW.deposit }} /><col style={{ width: colW.status }} /><col style={{ width: colW.actions }} /></colgroup>
+              <thead><tr className="text-xs text-gray-500 uppercase text-left"><th className="sticky top-0 z-10 bg-white shadow-[inset_0_-1px_0_#e5e7eb] pb-2 pt-1 pr-2">Name{grip('name')}</th><th className="sticky top-0 z-10 bg-white shadow-[inset_0_-1px_0_#e5e7eb] pb-2 pt-1 pr-2">Address{grip('address')}</th><th className="sticky top-0 z-10 bg-white shadow-[inset_0_-1px_0_#e5e7eb] pb-2 pt-1 pr-2">Owner{grip('owner')}</th><th className="sticky top-0 z-10 bg-white shadow-[inset_0_-1px_0_#e5e7eb] pb-2 pt-1 pr-2">Contact{grip('contact')}</th><th className="sticky top-0 z-10 bg-white shadow-[inset_0_-1px_0_#e5e7eb] pb-2 pt-1 pr-2">Rental/Mo{grip('rental')}</th><th className="sticky top-0 z-10 bg-white shadow-[inset_0_-1px_0_#e5e7eb] pb-2 pt-1 pr-2">Deposit{grip('deposit')}</th><th className="sticky top-0 z-10 bg-white shadow-[inset_0_-1px_0_#e5e7eb] pb-2 pt-1 pr-2">Status{grip('status')}</th><th className="sticky top-0 z-10 bg-white shadow-[inset_0_-1px_0_#e5e7eb] pb-2 pt-1 pr-2 text-right">Actions{grip('actions')}</th></tr></thead>
               <tbody>
                 {hostels.filter(h => showArchived || h.status === 'Active').map(h => (
                   <tr key={h.id} className={`border-b border-gray-100 ${h.status === 'Inactive' ? 'opacity-50' : ''}`}>
-                    <td className="py-2"><input defaultValue={h.name} onBlur={e => e.target.value.trim() && guard(() => updateHostel(h.id, { name: e.target.value.trim() }))} className="border rounded px-2 py-1 w-28" /></td>
-                    <td className="py-2"><input defaultValue={h.address || ''} onBlur={e => guard(() => updateHostel(h.id, { address: e.target.value }))} className="border rounded px-2 py-1 w-32" /></td>
-                    <td className="py-2"><input defaultValue={h.owner_name || ''} onBlur={e => guard(() => updateHostel(h.id, { owner_name: e.target.value }))} className="border rounded px-2 py-1 w-24" /></td>
-                    <td className="py-2"><input defaultValue={h.owner_contact || ''} onBlur={e => guard(() => updateHostel(h.id, { owner_contact: e.target.value }))} className="border rounded px-2 py-1 w-24" /></td>
-                    <td className="py-2"><input type="number" step="0.01" defaultValue={h.rental_per_month ?? ''} onBlur={e => guard(() => updateHostel(h.id, { rental_per_month: e.target.value ? Number(e.target.value) : null }))} className="border rounded px-2 py-1 w-20" /></td>
-                    <td className="py-2"><input type="number" step="0.01" defaultValue={h.deposit_withheld ?? ''} onBlur={e => guard(() => updateHostel(h.id, { deposit_withheld: e.target.value ? Number(e.target.value) : null }))} className="border rounded px-2 py-1 w-20" /></td>
-                    <td className="py-2"><button onClick={() => guard(() => updateHostel(h.id, { status: h.status === 'Active' ? 'Inactive' : 'Active' }))} className={`text-xs font-bold px-2 py-1 rounded-full ${h.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'}`}>{h.status}</button></td>
-                    <td className="py-2 text-right"><button onClick={() => confirm(`Delete "${h.name}"?`) && guard(() => deleteHostel(h.id))} className="text-red-500 hover:text-red-700 p-1"><Trash2 className="w-4 h-4" /></button></td>
+                    <td className="py-1 pr-2"><input defaultValue={h.name} onBlur={e => e.target.value.trim() && guard(() => updateHostel(h.id, { name: e.target.value.trim() }))} className="border rounded px-2 py-1 w-full" /></td>
+                    <td className="py-1 pr-2"><input defaultValue={h.address || ''} onBlur={e => guard(() => updateHostel(h.id, { address: e.target.value }))} className="border rounded px-2 py-1 w-full" /></td>
+                    <td className="py-1 pr-2"><input defaultValue={h.owner_name || ''} onBlur={e => guard(() => updateHostel(h.id, { owner_name: e.target.value }))} className="border rounded px-2 py-1 w-full" /></td>
+                    <td className="py-1 pr-2"><input defaultValue={h.owner_contact || ''} onBlur={e => guard(() => updateHostel(h.id, { owner_contact: e.target.value }))} className="border rounded px-2 py-1 w-full" /></td>
+                    <td className="py-1 pr-2"><input type="number" step="0.01" defaultValue={h.rental_per_month ?? ''} onBlur={e => guard(() => updateHostel(h.id, { rental_per_month: e.target.value ? Number(e.target.value) : null }))} className="border rounded px-2 py-1 w-full" /></td>
+                    <td className="py-1 pr-2"><input type="number" step="0.01" defaultValue={h.deposit_withheld ?? ''} onBlur={e => guard(() => updateHostel(h.id, { deposit_withheld: e.target.value ? Number(e.target.value) : null }))} className="border rounded px-2 py-1 w-full" /></td>
+                    <td className="py-1 pr-2"><button onClick={() => guard(() => updateHostel(h.id, { status: h.status === 'Active' ? 'Inactive' : 'Active' }))} className={`text-xs font-bold px-2 py-1 rounded-full ${h.status === 'Active' ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'}`}>{h.status}</button></td>
+                    <td className="py-1 pr-2 text-right"><button onClick={() => confirm(`Delete "${h.name}"?`) && guard(() => deleteHostel(h.id))} className="text-red-500 hover:text-red-700 p-1"><Trash2 className="w-4 h-4" /></button></td>
                   </tr>
                 ))}
                 {hostels.length === 0 && <tr><td colSpan={8} className="text-gray-400 py-4">No hostels added.</td></tr>}

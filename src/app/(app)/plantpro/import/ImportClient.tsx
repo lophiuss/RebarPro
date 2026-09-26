@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, Fragment } from 'react'
-import { ChevronDown, ChevronRight, CheckCircle2, AlertTriangle, Loader2, Upload } from 'lucide-react'
+import { ChevronDown, ChevronRight, CheckCircle2, AlertTriangle, Loader2, Upload, FileSearch } from 'lucide-react'
 import { previewPlantproImport, commitPlantproImport, type ImportPreviewWorker, type ImportPreviewResult, type ImportCommitSummary } from '../actions'
 
 const SOURCE_LABEL: Record<ImportPreviewWorker['source'], string> = { both: 'Both', 'pdf-only': 'PDF only', 'excel-only': 'Excel only' }
@@ -61,19 +61,22 @@ export default function ImportClient() {
           Upload the electronic time-card PDF (attendance export, one page per worker) and/or the worker-details Excel
           (nationality, passport, DOB, salary, hostel). At least one file is required.
         </p>
-        <div className="flex flex-wrap gap-6 mb-4">
-          <div>
-            <label className="block text-sm mb-1">Timecard PDF</label>
-            <input type="file" accept=".pdf" onChange={e => setPdfFile(e.target.files?.[0] || null)} className="text-sm" />
-          </div>
-          <div>
-            <label className="block text-sm mb-1">Worker Details Excel</label>
-            <input type="file" accept=".xlsx,.xls" onChange={e => setExcelFile(e.target.files?.[0] || null)} className="text-sm" />
-          </div>
+        <div className="grid sm:grid-cols-2 gap-3 mb-4">
+          {([['Timecard PDF', '.pdf', pdfFile, setPdfFile], ['Worker Details Excel', '.xlsx,.xls', excelFile, setExcelFile]] as const).map(([label, accept, file, setFile]) => (
+            <label key={label} className={`flex items-center gap-3 border-2 border-dashed rounded-xl px-4 py-3 cursor-pointer transition ${file ? 'border-green-400 bg-green-50' : 'border-gray-300 hover:border-indigo-400 hover:bg-indigo-50/40'}`}>
+              {file ? <CheckCircle2 className="w-6 h-6 text-green-600 flex-shrink-0" /> : <Upload className="w-6 h-6 text-indigo-500 flex-shrink-0" />}
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-slate-800">{label}</span>
+                <span className="block text-xs text-gray-500 truncate">{file ? file.name : 'Click to choose a file'}</span>
+              </span>
+              <input type="file" accept={accept} onChange={e => setFile(e.target.files?.[0] || null)} className="hidden" />
+            </label>
+          ))}
         </div>
-        <button onClick={handlePreview} disabled={previewing} className="flex items-center gap-1 bg-indigo-600 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50">
-          {previewing ? <><Loader2 className="w-4 h-4 animate-spin" /> Parsing...</> : 'Preview'}
+        <button onClick={handlePreview} disabled={previewing || (!pdfFile && !excelFile)} className="flex items-center justify-center gap-2 w-full sm:w-auto bg-indigo-600 text-white text-sm font-semibold px-6 py-2.5 rounded-lg hover:bg-indigo-700 disabled:bg-gray-300 disabled:text-gray-600 transition-colors">
+          {previewing ? <><Loader2 className="w-4 h-4 animate-spin" /> Parsing files…</> : <><FileSearch className="w-4 h-4" /> Preview Import</>}
         </button>
+        <p className="text-xs text-gray-400 mt-2">Preview only reads the files — nothing is saved until you press Commit in step 2.</p>
         {error && <p className="text-red-600 text-sm mt-3">{error}</p>}
       </div>
 
@@ -83,7 +86,7 @@ export default function ImportClient() {
             <h3 className="font-bold">
               2. Review ({preview.workers.length} workers{preview.period ? `, period ${preview.period.days[0]} to ${preview.period.days[preview.period.days.length - 1]}` : ''})
             </h3>
-            <button onClick={handleCommit} disabled={committing} className="flex items-center gap-1 bg-indigo-600 text-white text-sm font-medium px-3 py-1.5 rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+            <button onClick={handleCommit} disabled={committing} className="flex items-center gap-2 bg-green-600 text-white text-sm font-semibold px-5 py-2.5 rounded-lg hover:bg-green-700 disabled:opacity-60 shadow-sm transition-colors">
               {committing ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Committing...</> : <><Upload className="w-3.5 h-3.5" /> Commit Import ({preview.workers.length - excluded.size} of {preview.workers.length})</>}
             </button>
           </div>

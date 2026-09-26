@@ -1,5 +1,6 @@
 'use client'
 
+import { guard } from '../feedback'
 import { useState, useMemo } from 'react'
 import { Truck, Package, CheckCircle, BarChart2, Trash2, Calendar, HelpCircle } from 'lucide-react'
 import { createClaim, updateClaimField, deleteClaim } from '../actions'
@@ -8,7 +9,6 @@ type Project = { id: number; name: string; status: string }
 type Claim = { id: number; project_id: number; type: 'Production' | 'Delivery' | 'General'; volume_or_trips: number; amount: number; remarks: string | null; date: string }
 type ClaimType = Claim['type']
 
-async function guard(fn: () => Promise<any>) { try { await fn() } catch (err: any) { alert('Error: ' + err.message) } }
 function fmt(n: number) { return (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
 function todayStr() { return new Date().toISOString().slice(0, 10) }
 function addMonths(d: Date, n: number) { return new Date(d.getFullYear(), d.getMonth() + n, 1) }

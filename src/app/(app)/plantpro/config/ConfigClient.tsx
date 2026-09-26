@@ -1,5 +1,6 @@
 'use client'
 
+import { guard } from '../feedback'
 import { useState, Fragment } from 'react'
 import { Plus, Trash2, Folder, UserCheck, Tag, DollarSign, ArrowUp, ArrowDown, ShieldAlert } from 'lucide-react'
 import {
@@ -19,9 +20,6 @@ type PayColumn = {
 }
 type PayColumnBase = { column_id: number; base_column_id: number }
 
-async function guard(fn: () => Promise<any>) {
-  try { await fn() } catch (err: any) { alert('Error: ' + err.message) }
-}
 
 export default function ConfigClient({ projects, projectTypes, supervisors, payColumns, payColumnBases }: {
   projects: Project[]; projectTypes: ProjectType[]; supervisors: Supervisor[]; payColumns: PayColumn[]; payColumnBases: PayColumnBase[]

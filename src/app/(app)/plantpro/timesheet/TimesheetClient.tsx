@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { guard } from '../feedback'
+import { useState, useMemo, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, Settings, Calendar, Plus, Trash2, ArrowUpDown } from 'lucide-react'
+import { Loader2, ChevronLeft, ChevronRight, Settings, Calendar, Plus, Trash2, ArrowUpDown } from 'lucide-react'
 import { updateTimesheetDay, updateTimesheetMultiplier, addHoliday, removeHoliday } from '../actions'
 import { calcNetPay, calcMonthPay, type DayType, type Multipliers } from '@/lib/plantpro-payroll'
 
@@ -22,15 +23,13 @@ function daysInMonth(month: string) { const [y, m] = month.split('-').map(Number
 function shiftMonth(month: string, delta: number) { const [y, m] = month.split('-').map(Number); const d = new Date(y, m - 1 + delta, 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` }
 function monthLabel(month: string) { const [y, m] = month.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' }) }
 
-async function guard(fn: () => Promise<any>) {
-  try { await fn() } catch (err: any) { alert('Error: ' + err.message) }
-}
 
 export default function TimesheetClient({ month, workers, timesheetDays, monthHolidays, allHolidays, multiplier, payColumns, payValues, appliedOtByWorker }: {
   month: string; workers: Worker[]; timesheetDays: TimesheetDay[]; monthHolidays: Holiday[]; allHolidays: Holiday[]
   multiplier: MultiplierRow; payColumns: PayColumn[]; payValues: PayValue[]; appliedOtByWorker: Record<number, number>
 }) {
   const router = useRouter()
+  const [isPending, startTransition] = useTransition()
   const multipliers: Multipliers = {
     normalOt: multiplier.normal_ot, sundayBasic: multiplier.sunday_basic, sundayOt: multiplier.sunday_ot,
     holidayBasic: multiplier.holiday_basic, holidayOt: multiplier.holiday_ot,
@@ -130,7 +129,7 @@ export default function TimesheetClient({ month, workers, timesheetDays, monthHo
 
   function requestSort(key: string) { setSortConfig(prev => ({ key, direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc' })) }
   function SortIcon({ col }: { col: string }) { return <ArrowUpDown className="w-3 h-3 inline ml-0.5" style={{ opacity: sortConfig.key === col ? 1 : 0.35 }} /> }
-  function changeMonth(m: string) { router.push(`/plantpro/timesheet?month=${m}`) }
+  function changeMonth(m: string) { startTransition(() => router.push(`/plantpro/timesheet?month=${m}`)) }
   function dayBg(d: { day: string; isSunday: boolean }) {
     const t = getDayType(d)
     if (t === 'holiday') return 'bg-purple-50'
@@ -152,7 +151,7 @@ export default function TimesheetClient({ month, workers, timesheetDays, monthHo
             <h3 className="font-bold">Actual Hours Entry</h3>
             <div className="flex items-center">
               <button onClick={() => changeMonth(shiftMonth(month, -1))} className="p-1.5 hover:bg-gray-100 rounded"><ChevronLeft className="w-5 h-5" /></button>
-              <span className="font-semibold px-2">{monthLabel(month)}</span>
+              <span className="font-semibold px-2 flex items-center gap-1.5">{monthLabel(month)}{isPending && <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />}</span>
               <button onClick={() => changeMonth(shiftMonth(month, 1))} className="p-1.5 hover:bg-gray-100 rounded"><ChevronRight className="w-5 h-5" /></button>
             </div>
           </div>
@@ -169,7 +168,7 @@ export default function TimesheetClient({ month, workers, timesheetDays, monthHo
               <option value="">All Departments</option>{distinctDepartments.map(d => <option key={d} value={d}>{d}</option>)}
             </select>
           </div>
-          <div className="overflow-auto max-h-[calc(100vh-15rem)]">
+          <div className={`overflow-auto max-h-[calc(100vh-15rem)] transition-opacity ${isPending ? 'opacity-50' : ''}`}>
             <table className="text-xs border-collapse" style={{ tableLayout: 'fixed', width: colW.id + colW.name + colW.supervisor + colW.dept + daysArray.length * colW.day + colW.applied + colW.actual + colW.diff + colW.basic + colW.pay }}>
               <colgroup>
                 <col style={{ width: colW.id }} /><col style={{ width: colW.name }} /><col style={{ width: colW.supervisor }} /><col style={{ width: colW.dept }} />

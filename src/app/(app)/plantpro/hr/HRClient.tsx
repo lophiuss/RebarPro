@@ -1,5 +1,6 @@
 'use client'
 
+import { guard, useColResize } from '../feedback'
 import { useState } from 'react'
 import { Plus, Trash2, Copy, History, Search, ArrowUpDown } from 'lucide-react'
 import {
@@ -21,7 +22,6 @@ type Allocation = { worker_id: number; project_id: number; percentage: number }
 type PayValue = { worker_id: number; pay_column_id: number; value: number }
 
 function fmt(n: number) { return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }
-async function guard(fn: () => Promise<any>) { try { await fn() } catch (err: any) { alert('Error: ' + err.message) } }
 
 export default function HRClient({ workers, supervisors, projects, payColumns, allocations, payValues, movements, supervisorNames }: {
   workers: Worker[]; supervisors: Supervisor[]; projects: Project[]; payColumns: PayColumn[]; allocations: Allocation[]; payValues: PayValue[]
@@ -29,6 +29,11 @@ export default function HRClient({ workers, supervisors, projects, payColumns, a
 }) {
   const [tab, setTab] = useState<'data' | 'movement'>('data')
   const [showAlloc, setShowAlloc] = useState(false)
+  const { colW, grip } = useColResize({
+    id: 80, name: 150, line: 120, supervisor: 130, status: 96, gross: 90, net: 90, alloc: 70, remarks: 150, actions: 84,
+    ...Object.fromEntries(payColumns.map(c => ['pay_' + c.id, 88])),
+  })
+  const tableW = colW.id + colW.name + colW.line + colW.supervisor + colW.status + payColumns.reduce((n, c) => n + colW['pay_' + c.id], 0) + colW.gross + colW.net + (showAlloc ? projects.length * colW.alloc : 0) + colW.remarks + colW.actions
   const [searchTerm, setSearchTerm] = useState('')
   const [sortConfig, setSortConfig] = useState<{ key: string | null; direction: 'asc' | 'desc' }>({ key: null, direction: 'asc' })
   const [showAdd, setShowAdd] = useState(false)
@@ -123,36 +128,43 @@ export default function HRClient({ workers, supervisors, projects, payColumns, a
       )}
 
       <div className="bg-white border rounded-xl shadow-sm overflow-auto max-h-[calc(100vh-11rem)]">
-        <table className="text-xs border-collapse w-full">
+        <table className="text-xs border-collapse" style={{ tableLayout: 'fixed', width: tableW }}>
+          <colgroup>
+            <col style={{ width: colW.id }} /><col style={{ width: colW.name }} /><col style={{ width: colW.line }} /><col style={{ width: colW.supervisor }} /><col style={{ width: colW.status }} />
+            {payColumns.map(c => <col key={c.id} style={{ width: colW['pay_' + c.id] }} />)}
+            <col style={{ width: colW.gross }} /><col style={{ width: colW.net }} />
+            {showAlloc && projects.map(p => <col key={p.id} style={{ width: colW.alloc }} />)}
+            <col style={{ width: colW.remarks }} /><col style={{ width: colW.actions }} />
+          </colgroup>
           <thead>
-            <tr className="bg-gray-50">
-              <th className="sticky left-0 top-0 z-30 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left cursor-pointer whitespace-nowrap w-20 min-w-20" onClick={() => requestSort('id')}>ID <SortIcon col="id" /></th>
-              <th style={{ left: 80 }} className="sticky top-0 z-30 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('name')}>Name <SortIcon col="name" /></th>
-              <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('line')}>Line <SortIcon col="line" /></th>
-              <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('supervisor')}>Supervisor <SortIcon col="supervisor" /></th>
-              <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left whitespace-nowrap">Status</th>
-              {payColumns.map(c => <th key={c.id} className={`sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-1 py-1.5 text-center whitespace-nowrap ${c.type === 'DEDUCT' ? 'text-red-600' : ''}`}>{c.label}</th>)}
-              <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-center whitespace-nowrap !bg-green-50 cursor-pointer" onClick={() => requestSort('grossPay')}>Gross <SortIcon col="grossPay" /></th>
-              <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-center whitespace-nowrap !bg-indigo-50 cursor-pointer" onClick={() => requestSort('netPay')}>Net <SortIcon col="netPay" /></th>
-              {showAlloc && projects.map(p => <th key={p.id} className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-1 py-1.5 text-center text-xs w-16">{p.name} %</th>)}
-              <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left whitespace-nowrap">Remarks</th>
-              <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-center whitespace-nowrap">Actions</th>
+            <tr>
+              <th className="sticky left-0 top-0 z-30 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('id')}>ID <SortIcon col="id" />{grip('id')}</th>
+              <th style={{ left: colW.id }} className="sticky top-0 z-30 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('name')}>Name <SortIcon col="name" />{grip('name')}</th>
+              <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('line')}>Line <SortIcon col="line" />{grip('line')}</th>
+              <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left cursor-pointer whitespace-nowrap" onClick={() => requestSort('supervisor')}>Supervisor <SortIcon col="supervisor" />{grip('supervisor')}</th>
+              <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left whitespace-nowrap">Status{grip('status')}</th>
+              {payColumns.map(c => <th key={c.id} className={`sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 !px-1 text-center whitespace-nowrap ${c.type === 'DEDUCT' ? 'text-red-600' : ''}`}>{c.label}{grip('pay_' + c.id)}</th>)}
+              <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-center whitespace-nowrap !bg-green-50 cursor-pointer" onClick={() => requestSort('grossPay')}>Gross <SortIcon col="grossPay" />{grip('gross')}</th>
+              <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-center whitespace-nowrap !bg-indigo-50 cursor-pointer" onClick={() => requestSort('netPay')}>Net <SortIcon col="netPay" />{grip('net')}</th>
+              {showAlloc && projects.map(p => <th key={p.id} className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 !px-1 text-center text-xs truncate" title={p.name}>{p.name} %{grip('alloc')}</th>)}
+              <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-left whitespace-nowrap">Remarks{grip('remarks')}</th>
+              <th className="sticky top-0 z-20 bg-gray-50 shadow-[inset_0_-1px_0_#e5e7eb] px-2 py-1.5 text-center whitespace-nowrap">Actions{grip('actions')}</th>
             </tr>
           </thead>
           <tbody>
             {sorted.map(w => (
               <tr key={w.id} className={`border-b border-gray-100 ${w.status === 'Inactive' ? 'opacity-50' : w.status === 'On Leave' ? 'bg-amber-50/40' : ''}`}>
-                <td className="sticky left-0 z-10 bg-white px-1 py-0.5 w-20 min-w-20"><input defaultValue={w.worker_no || ''} onBlur={e => guard(() => updateWorkerField(w.id, 'worker_no', e.target.value))} className="border rounded px-1 py-0.5 text-[11px] w-20" /></td>
-                <td style={{ left: 80 }} className="sticky z-10 bg-white px-2 py-0.5 font-medium whitespace-nowrap"><input defaultValue={w.name} onBlur={e => e.target.value.trim() && e.target.value !== w.name && guard(() => updateWorkerField(w.id, 'name', e.target.value.trim()))} className="border rounded px-1 py-0.5 text-[11px] w-32" /></td>
-                <td className="px-1 py-0.5"><input defaultValue={w.line || ''} onBlur={e => guard(() => updateWorkerField(w.id, 'line', e.target.value))} className="border rounded px-1 py-0.5 text-[11px] w-28" /></td>
+                <td className="sticky left-0 z-10 bg-white px-1 py-0.5"><input defaultValue={w.worker_no || ''} onBlur={e => guard(() => updateWorkerField(w.id, 'worker_no', e.target.value))} className="border rounded px-1 py-0.5 text-[11px] w-full" /></td>
+                <td style={{ left: colW.id }} className="sticky z-10 bg-white px-2 py-0.5 font-medium whitespace-nowrap"><input defaultValue={w.name} onBlur={e => e.target.value.trim() && e.target.value !== w.name && guard(() => updateWorkerField(w.id, 'name', e.target.value.trim()))} className="border rounded px-1 py-0.5 text-[11px] w-full" /></td>
+                <td className="px-1 py-0.5"><input defaultValue={w.line || ''} onBlur={e => guard(() => updateWorkerField(w.id, 'line', e.target.value))} className="border rounded px-1 py-0.5 text-[11px] w-full" /></td>
                 
                 <td className="px-1 py-0.5">
-                  <select defaultValue={w.supervisor_id || ''} onChange={e => guard(() => updateWorkerField(w.id, 'supervisor_id', e.target.value ? Number(e.target.value) : null))} className="border rounded px-1 py-0.5 text-[11px] bg-white w-28">
+                  <select defaultValue={w.supervisor_id || ''} onChange={e => guard(() => updateWorkerField(w.id, 'supervisor_id', e.target.value ? Number(e.target.value) : null))} className="border rounded px-1 py-0.5 text-[11px] bg-white w-full">
                     <option value="">--</option>{supervisors.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
                 </td>
                 <td className="px-1 py-0.5">
-                  <select defaultValue={w.status} onChange={e => guard(() => updateWorkerField(w.id, 'status', e.target.value))} className="border rounded px-1 py-0.5 text-[11px] bg-white">
+                  <select defaultValue={w.status} onChange={e => guard(() => updateWorkerField(w.id, 'status', e.target.value))} className="border rounded px-1 py-0.5 text-[11px] bg-white w-full">
                     <option value="Active">Active</option><option value="Inactive">Inactive</option><option value="On Leave">On Leave</option>
                   </select>
                 </td>
@@ -160,7 +172,7 @@ export default function HRClient({ workers, supervisors, projects, payColumns, a
                   <td key={c.id} className="px-1 py-0.5">
                     <input type="number" step="0.01" defaultValue={payValueByWorker.get(w.id)?.get(c.id) || 0}
                       onBlur={e => guard(() => updateWorkerPayValue(w.id, c.id, Number(parseFloat(e.target.value || '0').toFixed(2))))}
-                      className={`border rounded px-1 py-0.5 text-[11px] w-20 ${c.type === 'DEDUCT' ? 'text-red-600' : ''}`} />
+                      className={`border rounded px-1 py-0.5 text-[11px] w-full ${c.type === 'DEDUCT' ? 'text-red-600' : ''}`} />
                   </td>
                 ))}
                 <td className="px-2 py-0.5 text-center font-bold text-green-600 bg-green-50/50 whitespace-nowrap">{fmt(grossOf(w))}</td>
@@ -168,10 +180,10 @@ export default function HRClient({ workers, supervisors, projects, payColumns, a
                 {showAlloc && projects.map(p => (
                   <td key={p.id} className="px-1 py-0.5">
                     <input type="number" step="0.01" min={0} max={100} placeholder="0" defaultValue={allocByWorker.get(w.id)?.get(p.id) ?? ''}
-                      onBlur={e => guard(() => updateWorkerAllocationPct(w.id, p.id, Number(e.target.value) || 0))} className="border rounded px-1 py-0.5 text-[11px] w-12" />
+                      onBlur={e => guard(() => updateWorkerAllocationPct(w.id, p.id, Number(e.target.value) || 0))} className="border rounded px-1 py-0.5 text-[11px] w-full" />
                   </td>
                 ))}
-                <td className="px-1 py-0.5"><input defaultValue={w.remarks || ''} onBlur={e => guard(() => updateWorkerField(w.id, 'remarks', e.target.value))} className="border rounded px-1 py-0.5 text-[11px] w-28" /></td>
+                <td className="px-1 py-0.5"><input defaultValue={w.remarks || ''} onBlur={e => guard(() => updateWorkerField(w.id, 'remarks', e.target.value))} className="border rounded px-1 py-0.5 text-[11px] w-full" /></td>
                 <td className="px-1 py-0.5">
                   <div className="flex gap-1 justify-center">
                     <button onClick={() => guard(() => copyWorker(w.id))} title="Copy" className="text-gray-400 hover:text-indigo-600 p-1"><Copy className="w-3.5 h-3.5" /></button>

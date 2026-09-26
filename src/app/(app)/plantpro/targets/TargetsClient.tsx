@@ -1,5 +1,6 @@
 'use client'
 
+import { guard } from '../feedback'
 import { useState } from 'react'
 import { Package, Truck, HelpCircle, ChevronLeft, ChevronRight, Save } from 'lucide-react'
 import { updateMonthlyTarget, copyTargetsFromMonth } from '../actions'
@@ -9,7 +10,6 @@ type ProjectType = { id: number; name: string }
 type MonthlyTarget = { id: number; project_id: number; month: string; production_target: number | null; delivery_target: number | null; general_target: number | null }
 type Claim = { id: number; project_id: number; type: 'Production' | 'Delivery' | 'General'; volume_or_trips: number; date: string }
 
-async function guard(fn: () => Promise<any>) { try { await fn() } catch (err: any) { alert('Error: ' + err.message) } }
 function monthLabel(d: Date) { return d.toLocaleString(undefined, { month: 'long', year: 'numeric' }) }
 function monthStr(d: Date) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` }
 
