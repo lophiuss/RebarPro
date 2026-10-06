@@ -7,16 +7,18 @@ interface TransactionItem {
   quantity: number
   type: string
   transaction_date: string
+  size_id?: string | null
 }
 
 interface Props {
   transactions: TransactionItem[]
+  sizes?: { id: string; size: string }[]
   unit?: DefaultUnit
 }
 
 type Period = 'current_month' | '14_days' | 'monthly' | 'yearly' | 'custom'
 
-export default function UsageTrendsChart({ transactions, unit = 'kg' }: Props) {
+export default function UsageTrendsChart({ transactions: allTransactions, sizes = [], unit = 'kg' }: Props) {
   const uLabel = unitLabel(unit)
   const today = new Date()
   const todayStr = today.toISOString().split('T')[0]
@@ -26,6 +28,11 @@ export default function UsageTrendsChart({ transactions, unit = 'kg' }: Props) {
   const [period, setPeriod] = useState<Period>('current_month')
   const [customStart, setCustomStart] = useState<string>(firstDayCurrentMonth)
   const [customEnd, setCustomEnd] = useState<string>(todayStr)
+
+  // 'all' = every size combined; otherwise just that rebar size.
+  const [sizeId, setSizeId] = useState<string>('all')
+  const transactions = useMemo(() => sizeId === 'all' ? allTransactions : allTransactions.filter(t => t.size_id === sizeId), [allTransactions, sizeId])
+  const sizeLabel = sizeId === 'all' ? 'All sizes' : (sizes.find(sz => sz.id === sizeId)?.size || 'Size')
 
   const [showIncoming, setShowIncoming] = useState(true)
   const [showUsage, setShowUsage] = useState(true)
@@ -207,6 +214,16 @@ export default function UsageTrendsChart({ transactions, unit = 'kg' }: Props) {
           </button>
         </div>
 
+        {sizes.length > 0 && (
+          <label className="flex items-center gap-1.5 text-xs">
+            <span className="text-gray-500 font-medium">Size:</span>
+            <select value={sizeId} onChange={e => setSizeId(e.target.value)} className="border rounded-lg px-2.5 py-1.5 bg-white font-semibold text-slate-800 text-xs shadow-xs">
+              <option value="all">All sizes</option>
+              {sizes.map(sz => <option key={sz.id} value={sz.id}>{sz.size}</option>)}
+            </select>
+          </label>
+        )}
+
         {/* Custom Date Range Selector */}
         {period === 'custom' && (
           <div className="flex items-center gap-2 text-xs bg-gray-50 p-1.5 rounded-lg border">
@@ -326,7 +343,7 @@ export default function UsageTrendsChart({ transactions, unit = 'kg' }: Props) {
             className="fixed bg-slate-900 text-white text-xs rounded-lg shadow-xl p-2.5 whitespace-nowrap z-50 pointer-events-none border border-slate-700 min-w-[130px] -translate-x-1/2 -translate-y-full"
             style={{ left: `${leftPct}%`, top: tooltip.y - 10 }}
           >
-            <div className="font-bold border-b border-slate-700 pb-1 mb-1 text-slate-200">{item.key}</div>
+            <div className="font-bold border-b border-slate-700 pb-1 mb-1 text-slate-200">{item.key} · {sizeLabel}</div>
             {item.incoming > 0 && <div className="text-green-400">↑ Incoming: {fmtQtyNum(item.incoming, unit)} {uLabel}</div>}
             {item.usage > 0 && <div className="text-red-400">↓ Usage: {fmtQtyNum(item.usage, unit)} {uLabel}</div>}
             {item.wastage > 0 && <div className="text-orange-400">⚠ Wastage: {fmtQtyNum(item.wastage, unit)} {uLabel}</div>}

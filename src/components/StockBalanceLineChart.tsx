@@ -79,6 +79,11 @@ export default function StockBalanceLineChart({
   const [range, setRange] = useState<RangeOption>('30_days')
   const [hoveredPoint, setHoveredPoint] = useState<any | null>(null)
   const [activeSizeFilter, setActiveSizeFilter] = useState<string | null>(null)
+  // Dotted "theoretical" line = what the books say if no physical stock take
+  // had ever corrected them (pure running sum of transactions). The solid
+  // line resets to the counted figure at each stock take, so the gap between
+  // the two is the accumulated stock-take correction.
+  const [showTheo, setShowTheo] = useState(true)
 
   const today = new Date()
   const todayStr = today.toISOString().split('T')[0]
@@ -111,10 +116,12 @@ export default function StockBalanceLineChart({
     return dateList.map(dateStr => {
       let combinedTotal = 0
       let combinedSuspended = 0
-      const perSizeBalances: Record<string, { total: number; usable: number; suspended: number }> = {}
+      let combinedTheoTotal = 0
+      const perSizeBalances: Record<string, { total: number; usable: number; suspended: number; theoTotal: number; theoUsable: number }> = {}
 
       sizes.forEach(size => {
         let sizeTotal = 0
+        let sizeTheo = 0
 
         for (const pt of projectTypes) {
           const pIds = projects.filter(p => p.project_type_id === pt.id).map(p => p.id)
@@ -131,6 +138,7 @@ export default function StockBalanceLineChart({
           ).sort((a, b) => b.stock_take_date.localeCompare(a.stock_take_date))
 
           const latestST = priorSTs[0]
+          sizeTheo += ptTxs.reduce((sum, t) => sum + Number(t.quantity), 0)
 
           if (latestST) {
             const txsAfter = ptTxs.filter(t => t.transaction_date > latestST.stock_take_date)
@@ -148,7 +156,9 @@ export default function StockBalanceLineChart({
           (!t.project_id || !knownProjectIds.includes(t.project_id)) &&
           t.transaction_date <= dateStr
         )
-        sizeTotal += unassignedTxs.reduce((sum, t) => sum + Number(t.quantity), 0)
+        const unassignedSum = unassignedTxs.reduce((sum, t) => sum + Number(t.quantity), 0)
+        sizeTotal += unassignedSum
+        sizeTheo += unassignedSum
 
         const sizeTxs = transactions.filter(t => t.size_id === size.id && t.transaction_date <= dateStr)
         let sCount = 0
@@ -163,10 +173,13 @@ export default function StockBalanceLineChart({
         perSizeBalances[size.id] = {
           total: Math.max(sizeTotal, 0),
           usable: sizeUsable,
-          suspended: sizeSuspended
+          suspended: sizeSuspended,
+          theoTotal: Math.max(sizeTheo, 0),
+          theoUsable: Math.max(sizeTheo - sizeSuspended, 0),
         }
 
         combinedTotal += Math.max(sizeTotal, 0)
+        combinedTheoTotal += Math.max(sizeTheo, 0)
         combinedSuspended += sizeSuspended
       })
 
@@ -178,6 +191,8 @@ export default function StockBalanceLineChart({
         combinedTotal,
         combinedUsable,
         combinedSuspended,
+        combinedTheoTotal,
+        combinedTheoUsable: Math.max(combinedTheoTotal - combinedSuspended, 0),
         perSizeBalances,
         isToday: dateStr === todayStr
       }
@@ -195,20 +210,20 @@ export default function StockBalanceLineChart({
   const maxVal = useMemo(() => {
     let rawMax = 1
     if (selectedMode === 'all_total') {
-      rawMax = Math.max(...dailyData.map(d => d.combinedTotal), 1)
+      rawMax = Math.max(...dailyData.map(d => Math.max(d.combinedTotal, showTheo ? d.combinedTheoTotal : 0)), 1)
     } else if (selectedMode === 'all_multi') {
       const allVals = dailyData.flatMap(d => 
-        activeSizes.map(s => multiMetric === 'usable' ? d.perSizeBalances[s.id]?.usable || 0 : d.perSizeBalances[s.id]?.total || 0)
+        activeSizes.flatMap(s => { const b = d.perSizeBalances[s.id]; if (!b) return [0]; return multiMetric === 'usable' ? [b.usable, showTheo ? b.theoUsable : 0] : [b.total, showTheo ? b.theoTotal : 0] })
       )
       rawMax = Math.max(...allVals, 1)
     } else {
-      const vals = dailyData.map(d => d.perSizeBalances[selectedMode]?.total || 0)
+      const vals = dailyData.map(d => Math.max(d.perSizeBalances[selectedMode]?.total || 0, showTheo ? d.perSizeBalances[selectedMode]?.theoTotal || 0 : 0))
       rawMax = Math.max(...vals, 1)
     }
     const padded = rawMax * 1.15
     const step = Math.max(Math.ceil((padded / 4) / 100) * 100, 25)
     return step * 4
-  }, [dailyData, selectedMode, activeSizes, multiMetric])
+  }, [dailyData, selectedMode, activeSizes, multiMetric, showTheo])
 
   const width = 900
   const height = 270
@@ -227,21 +242,29 @@ export default function StockBalanceLineChart({
       const yTotal = paddingTop + plotHeight - (d.combinedTotal / maxVal) * plotHeight
       const yUsable = paddingTop + plotHeight - (d.combinedUsable / maxVal) * plotHeight
 
-      const sizeCoords: Record<string, { y: number; val: number }> = {}
+      const yTheoTotal = paddingTop + plotHeight - (d.combinedTheoTotal / maxVal) * plotHeight
+      const yTheoUsable = paddingTop + plotHeight - (d.combinedTheoUsable / maxVal) * plotHeight
+      const sizeCoords: Record<string, { y: number; val: number; yTheo: number }> = {}
       activeSizes.forEach(s => {
         const val = multiMetric === 'usable' 
           ? (d.perSizeBalances[s.id]?.usable || 0)
           : (d.perSizeBalances[s.id]?.total || 0)
         const y = paddingTop + plotHeight - (val / maxVal) * plotHeight
-        sizeCoords[s.id] = { y, val }
+        const theoVal = multiMetric === 'usable' ? (d.perSizeBalances[s.id]?.theoUsable || 0) : (d.perSizeBalances[s.id]?.theoTotal || 0)
+        sizeCoords[s.id] = { y, val, yTheo: paddingTop + plotHeight - (theoVal / maxVal) * plotHeight }
       })
 
       let ySingleTotal = 0
       let ySingleUsable = 0
+      let ySingleTheoTotal = 0
+      let ySingleTheoUsable = 0
       if (selectedMode !== 'all_multi' && selectedMode !== 'all_total') {
         const sData = d.perSizeBalances[selectedMode] || { total: 0, usable: 0, suspended: 0 }
         ySingleTotal = paddingTop + plotHeight - (sData.total / maxVal) * plotHeight
         ySingleUsable = paddingTop + plotHeight - (sData.usable / maxVal) * plotHeight
+        const sb = d.perSizeBalances[selectedMode]
+        ySingleTheoTotal = paddingTop + plotHeight - ((sb?.theoTotal || 0) / maxVal) * plotHeight
+        ySingleTheoUsable = paddingTop + plotHeight - ((sb?.theoUsable || 0) / maxVal) * plotHeight
       }
 
       return {
@@ -249,9 +272,13 @@ export default function StockBalanceLineChart({
         x,
         yTotal,
         yUsable,
+        yTheoTotal,
+        yTheoUsable,
         sizeCoords,
         ySingleTotal,
-        ySingleUsable
+        ySingleUsable,
+        ySingleTheoTotal,
+        ySingleTheoUsable
       }
     })
   }, [dailyData, maxVal, activeSizes, multiMetric, selectedMode])
@@ -271,6 +298,38 @@ export default function StockBalanceLineChart({
   const singleUsablePath = points.length > 0
     ? points.reduce((acc, p, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.ySingleUsable.toFixed(1)}`, '')
     : ''
+
+  const mkPath = (key: 'yTheoTotal' | 'yTheoUsable' | 'ySingleTheoTotal' | 'ySingleTheoUsable') =>
+    points.reduce((acc, p, i) => `${acc} ${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${(p as any)[key].toFixed(1)}`, '')
+  const theoTotalPath = mkPath('yTheoTotal')
+  const theoUsablePath = mkPath('yTheoUsable')
+  const singleTheoTotalPath = mkPath('ySingleTheoTotal')
+  const singleTheoUsablePath = mkPath('ySingleTheoUsable')
+
+  const multiTheoPaths = useMemo(() => {
+    const paths: Record<string, string> = {}
+    activeSizes.forEach(s => {
+      paths[s.id] = points.reduce((acc, p, i) => {
+        const coord = p.sizeCoords[s.id]
+        if (!coord) return acc
+        return `${acc} ${i === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${coord.yTheo.toFixed(1)}`
+      }, '')
+    })
+    return paths
+  }, [activeSizes, points])
+
+  // Which sizes have drifted furthest from their books-only balance, as of
+  // the last day shown: actual (counted) minus theoretical.
+  const lastDay = dailyData[dailyData.length - 1]
+  const gaps = lastDay
+    ? activeSizes.map(s => {
+        const b = lastDay.perSizeBalances[s.id]
+        const actual = multiMetric === 'usable' ? b?.usable || 0 : b?.total || 0
+        const theo = multiMetric === 'usable' ? b?.theoUsable || 0 : b?.theoTotal || 0
+        return { ...s, actual, theo, diff: actual - theo }
+      }).sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff))
+    : []
+  const maxGap = Math.max(...gaps.map(g => Math.abs(g.diff)), 1)
 
   const multiPaths = useMemo(() => {
     const paths: Record<string, string> = {}
@@ -296,6 +355,7 @@ export default function StockBalanceLineChart({
             {selectedMode === 'all_total' && `Total combined factory physical balance & usable balance (${uLabel})`}
             {selectedMode !== 'all_multi' && selectedMode !== 'all_total' && `Daily balance for ${sizes.find(s => s.id === selectedMode)?.size || 'Selected Size'} (${uLabel})`}
           </p>
+          {showTheo && <p className="text-[11px] text-gray-400 mt-0.5">Solid = actual (resets to the counted figure at each stock take) · Dotted = theoretical (transactions only). The wider the gap, the bigger the stock-take correction.</p>}
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
@@ -335,6 +395,12 @@ export default function StockBalanceLineChart({
               </button>
             </div>
           )}
+
+          <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 cursor-pointer select-none" title="Dotted line = balance from transactions only, ignoring stock-take corrections">
+            <input type="checkbox" checked={showTheo} onChange={e => setShowTheo(e.target.checked)} className="accent-slate-700" />
+            <svg width="22" height="6"><line x1="1" y1="3" x2="21" y2="3" stroke="#475569" strokeWidth="2" strokeDasharray="2 4" strokeLinecap="round" /></svg>
+            Theoretical
+          </label>
 
           <div className="flex items-center bg-gray-100 p-1 rounded-lg">
             <button
@@ -445,6 +511,9 @@ export default function StockBalanceLineChart({
                       strokeLinejoin="round"
                       className="transition-all duration-200"
                     />
+                    {showTheo && (
+                      <path d={multiTheoPaths[s.id] || ''} fill="none" stroke={s.color} strokeWidth={isHighlighted ? 2.5 : 1.8} strokeDasharray="2 5" strokeLinecap="round" opacity={0.85} />
+                    )}
                   </g>
                 )
               })}
@@ -469,6 +538,12 @@ export default function StockBalanceLineChart({
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
+              {showTheo && (
+                <>
+                  <path d={theoTotalPath} fill="none" stroke="#2563eb" strokeWidth="2" strokeDasharray="2 5" strokeLinecap="round" />
+                  <path d={theoUsablePath} fill="none" stroke="#10b981" strokeWidth="2" strokeDasharray="2 5" strokeLinecap="round" />
+                </>
+              )}
             </>
           )}
 
@@ -490,6 +565,12 @@ export default function StockBalanceLineChart({
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
+              {showTheo && (
+                <>
+                  <path d={singleTheoTotalPath} fill="none" stroke="#2563eb" strokeWidth="2" strokeDasharray="2 5" strokeLinecap="round" />
+                  <path d={singleTheoUsablePath} fill="none" stroke="#10b981" strokeWidth="2" strokeDasharray="2 5" strokeLinecap="round" />
+                </>
+              )}
             </>
           )}
 
@@ -595,7 +676,10 @@ export default function StockBalanceLineChart({
                         <span className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
                         {s.size}:
                       </span>
-                      <span className="font-bold text-slate-100">{fmtQtyNum(val, unit)} {uLabel}</span>
+                      <span className="font-bold text-slate-100">
+                        {fmtQtyNum(val, unit)} {uLabel}
+                        {showTheo && (() => { const th = multiMetric === 'usable' ? sData.theoUsable : sData.theoTotal; const d = val - th; return Math.abs(d) >= 1 ? <span className={`ml-1.5 font-medium ${d < 0 ? 'text-red-300' : 'text-green-300'}`}>({d > 0 ? '+' : ''}{fmtQtyNum(d, unit)} vs theo)</span> : null })()}
+                      </span>
                     </div>
                   )
                 })}
@@ -610,6 +694,12 @@ export default function StockBalanceLineChart({
                   <span>Usable Stock:</span>
                   <span>{fmtQtyNum(hoveredPoint.combinedUsable, unit)} {uLabel}</span>
                 </div>
+                {showTheo && (
+                  <div className="text-slate-400 text-[11px] pt-1 border-t border-slate-800 flex justify-between">
+                    <span>Theoretical total:</span>
+                    <span>{fmtQtyNum(hoveredPoint.combinedTheoTotal, unit)} {uLabel}</span>
+                  </div>
+                )}
                 {hoveredPoint.combinedSuspended > 0 && (
                   <div className="text-amber-400 text-[11px] pt-1 border-t border-slate-800 flex justify-between">
                     <span>Suspended:</span>
@@ -633,6 +723,12 @@ export default function StockBalanceLineChart({
                         <span>Usable:</span>
                         <span>{fmtQtyNum(sData.usable, unit)} {uLabel}</span>
                       </div>
+                      {showTheo && (
+                        <div className="text-slate-400 text-[11px] pt-1 border-t border-slate-800 flex justify-between">
+                          <span>Theoretical total:</span>
+                          <span>{fmtQtyNum(sData.theoTotal, unit)} {uLabel}</span>
+                        </div>
+                      )}
                       {sData.suspended > 0 && (
                         <div className="text-amber-400 text-[11px] pt-1 border-t border-slate-800 flex justify-between">
                           <span>Suspended:</span>
@@ -647,6 +743,27 @@ export default function StockBalanceLineChart({
           </div>
         )}
       </div>
+
+      {showTheo && selectedMode === 'all_multi' && gaps.length > 0 && (
+        <div className="mt-4 pt-4 border-t">
+          <h3 className="text-xs font-bold text-slate-700 mb-0.5">Actual vs theoretical — which sizes differ most</h3>
+          <p className="text-[11px] text-gray-400 mb-2">As of {lastDay?.date}. Negative = fewer counted than the books say; positive = more. Click a size to isolate its line.</p>
+          <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2">
+            {gaps.map(g => (
+              <button key={g.id} onClick={() => setActiveSizeFilter(activeSizeFilter === g.id ? null : g.id)} className="flex items-center gap-2 text-xs text-left hover:bg-gray-50 rounded px-1 py-0.5">
+                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: g.color }} />
+                <span className="w-9 font-semibold text-slate-800">{g.size}</span>
+                <span className="flex-1 h-2 bg-gray-100 rounded overflow-hidden">
+                  <span className={`block h-full ${g.diff < 0 ? 'bg-red-400' : 'bg-green-400'}`} style={{ width: `${(Math.abs(g.diff) / maxGap) * 100}%` }} />
+                </span>
+                <span className={`w-28 text-right font-semibold ${Math.abs(g.diff) < 1 ? 'text-gray-400' : g.diff < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                  {Math.abs(g.diff) < 1 ? '—' : `${g.diff > 0 ? '+' : ''}${fmtQtyNum(g.diff, unit)} ${uLabel}`}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

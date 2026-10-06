@@ -88,7 +88,7 @@ export default function ExportMonthlyReportButton({
       `"${fmtQtyNum(totals.wastage, unit)}"`,
       `"${totalWastePct}"`,
       `"${fmtQtyNum(totals.expectedClosing, unit)}"`,
-      '""',
+      `"${totals.stCounted > 0 ? fmtQtyNum(totals.stPhysical, unit) : ''}"`,
       `"${totals.variance > 0 ? '+' : ''}${fmtQtyNum(totals.variance, unit)}"`,
       `"${totalVarPct}"`
     ].join(','))

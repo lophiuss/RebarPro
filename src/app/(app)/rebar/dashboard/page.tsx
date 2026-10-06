@@ -398,7 +398,7 @@ export default function DashboardPage() {
           <h2 className="text-xl font-bold text-slate-900">Inventory Trends (Incoming, Usage & Wastage)</h2>
           <p className="text-xs text-gray-500 mt-0.5">Historical and custom range activity tracking ({uLabel})</p>
         </div>
-        <UsageTrendsChart transactions={scopedTransactions} unit={unit} />
+        <UsageTrendsChart transactions={scopedTransactions} sizes={sizes} unit={unit} />
       </div>
 
       {/* Breakdown by Rebar Size Table */}

@@ -219,12 +219,16 @@ export default function MonthlyReportPage() {
     suspended: acc.suspended + r.suspended,
     wastage: acc.wastage + r.wastage,
     expectedClosing: acc.expectedClosing + r.expectedClosing,
-    variance: acc.variance + (r.variance || 0)
+    variance: acc.variance + (r.variance || 0),
+    stPhysical: acc.stPhysical + (r.hasStockTake && r.stPhysical !== null ? r.stPhysical : 0),
+    stCounted: acc.stCounted + (r.hasStockTake && r.stPhysical !== null ? 1 : 0),
   }), {
     opening: 0, incoming: 0, transfer: 0, usage: 0, suspended: 0,
     wastage: unassignedWastageQty,
     expectedClosing: -unassignedWastageQty,
-    variance: 0
+    variance: 0,
+    stPhysical: 0,
+    stCounted: 0,
   })
 
   const totalWastagePct = totals.usage > 0 ? (totals.wastage / totals.usage) * 100 : 0
@@ -448,7 +452,9 @@ export default function MonthlyReportPage() {
               <td className="px-3 py-3 text-right text-orange-700 border-l">{fmtQtyNum(totals.wastage, unit)}</td>
               <td className="px-3 py-3 text-right text-orange-700 border-l text-xs font-bold">{totalWastagePct.toFixed(1)}%</td>
               <td className="px-3 py-3 text-right border-l bg-slate-200">{fmtQtyNum(totals.expectedClosing, unit)}</td>
-              <td className="px-3 py-3 border-l" />
+              <td className="px-3 py-3 text-right border-l" title={`Sum of the latest stock take for the ${totals.stCounted} of ${sizeRows.length} sizes that have one this month`}>
+                {totals.stCounted > 0 ? <>{fmtQtyNum(totals.stPhysical, unit)}{totals.stCounted < sizeRows.length && <span className="block text-[10px] font-normal text-gray-400">{totals.stCounted}/{sizeRows.length} sizes counted</span>}</> : <span className="text-gray-300 text-xs italic">No ST</span>}
+              </td>
               <td className={`px-3 py-3 text-right border-l font-bold ${totals.variance < 0 ? 'text-red-700' : totals.variance > 0 ? 'text-green-700' : 'text-slate-800'}`}>
                 {totals.variance > 0 ? `+${fmtQtyNum(totals.variance, unit)}` : fmtQtyNum(totals.variance, unit)}
               </td>
