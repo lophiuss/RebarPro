@@ -423,7 +423,7 @@ export default function MonthlyReportPage() {
               </tr>
             ))}
 
-            {unassignedWastageQty > 0 && !isTypeFiltered && (
+            {unassignedWastageQty > 0 && (
               <tr className="bg-orange-50/50 hover:bg-orange-50">
                 <td className="px-3 py-3 font-semibold text-orange-800 sticky left-0 bg-orange-50 border-r italic">Overall Scrap (Combined)</td>
                 <td className="px-3 py-3 text-right text-gray-400 border-l">-</td>
