@@ -15,8 +15,8 @@ export const visitorCheckinDict: Record<Lang, Dict> = {
     footer: 'For visitors, drivers, and in-house staff alike — a guard will review this, take your photo, and let you in after this.',
     nameRequired: 'Please enter your name',
     submitError: 'Something went wrong: ',
-    doneTitle: "You're checked in",
-    doneBody: 'Please wait here — a guard will review your details, take your photo, and let you in shortly.',
+    doneTitle: 'Submitted',
+    doneBody: 'Your details have been submitted. Please wait here — a guard will review your details, take your photo, and let you in shortly.',
   },
   zh: {
     checkIn: '登记',
@@ -32,8 +32,8 @@ export const visitorCheckinDict: Record<Lang, Dict> = {
     footer: '访客、司机与驻场员工均适用 —— 保安将审核您的资料、拍照后放行。',
     nameRequired: '请输入您的姓名',
     submitError: '出现错误：',
-    doneTitle: '登记成功',
-    doneBody: '请在此稍候 —— 保安将审核您的资料、为您拍照，稍后让您入内。',
+    doneTitle: '已提交',
+    doneBody: '您的资料已提交。请在此稍候 —— 保安将审核您的资料、为您拍照，稍后让您入内。',
   },
   ms: {
     checkIn: 'Daftar Masuk',
@@ -49,7 +49,7 @@ export const visitorCheckinDict: Record<Lang, Dict> = {
     footer: 'Untuk pelawat, pemandu, dan kakitangan dalaman — pengawal akan menyemak maklumat ini, mengambil gambar anda, dan membenarkan anda masuk selepas itu.',
     nameRequired: 'Sila masukkan nama anda',
     submitError: 'Ralat berlaku: ',
-    doneTitle: 'Anda telah didaftar masuk',
-    doneBody: 'Sila tunggu di sini — pengawal akan menyemak maklumat anda, mengambil gambar anda, dan membenarkan anda masuk sebentar lagi.',
+    doneTitle: 'Dihantar',
+    doneBody: 'Maklumat anda telah dihantar. Sila tunggu di sini — pengawal akan menyemak maklumat anda, mengambil gambar anda, dan membenarkan anda masuk sebentar lagi.',
   },
 }
