@@ -10,6 +10,7 @@ import { useLang } from '@/lib/i18n/useLang'
 import { makeT } from '@/lib/i18n/languages'
 import { securityDict } from '@/lib/i18n/dict/security'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
+import { reportActionError } from '@/lib/staleAction'
 
 type Category = 'visitor' | 'delivery' | 'inhouse'
 
@@ -136,7 +137,7 @@ export default function EntriesPage() {
       setPhotoFile(null)
       await load()
     } catch (err: any) {
-      alert('Error saving entry: ' + err.message)
+      reportActionError(err, 'Error saving entry')
     } finally {
       setSubmitting(false)
     }
@@ -190,7 +191,7 @@ export default function EntriesPage() {
       setApprovePhoto(null)
       await load()
     } catch (err: any) {
-      alert('Error approving: ' + err.message)
+      reportActionError(err, 'Error approving')
     } finally {
       setApproving2(false)
     }

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { uploadMaintenanceFile } from '../../actions'
 import { Upload, FileText } from 'lucide-react'
+import { reportActionError } from '@/lib/staleAction'
 
 export default function ManualUpload({ equipmentId, manualDriveId }: { equipmentId: number; manualDriveId: string | null }) {
   const supabase = createClient()
@@ -21,7 +22,7 @@ export default function ManualUpload({ equipmentId, manualDriveId }: { equipment
       if (error) throw error
       setDriveId(id)
     } catch (err: any) {
-      alert('Error uploading manual: ' + err.message)
+      reportActionError(err, 'Error uploading manual')
     } finally {
       setUploading(false)
     }

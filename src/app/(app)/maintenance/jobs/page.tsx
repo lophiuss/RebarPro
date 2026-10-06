@@ -8,6 +8,7 @@ import PhotoPicker from '@/components/PhotoPicker'
 import PhotoLightbox from '@/components/PhotoLightbox'
 import CategoryEquipmentPicker, { type EquipmentOption } from '@/components/CategoryEquipmentPicker'
 import { jobNo } from '@/lib/utils/jobNo'
+import { reportActionError } from '@/lib/staleAction'
 
 // This page is the logged-in equivalent of the public /maintenance-request
 // form — same fields, same category -> equipment picker — so a staff
@@ -137,7 +138,7 @@ export default function JobsPage() {
       setPhotoFile(null)
       await load()
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      reportActionError(err, 'Error')
     } finally {
       setSubmitting(false)
     }

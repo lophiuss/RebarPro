@@ -9,6 +9,7 @@ import { useLang } from '@/lib/i18n/useLang'
 import { makeT } from '@/lib/i18n/languages'
 import { securityDict } from '@/lib/i18n/dict/security'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
+import { reportActionError } from '@/lib/staleAction'
 
 type Post = { id: number; name: string }
 type LayoutRow = { photo_url: string | null; photo_drive_id: string | null } | null
@@ -97,7 +98,7 @@ export default function SecuritySettingsPage() {
       if (e2) throw e2
       await load()
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      reportActionError(err, 'Error')
     }
   }
 
@@ -123,7 +124,7 @@ export default function SecuritySettingsPage() {
       cancelCheckpointEdit()
       await load()
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      reportActionError(err, 'Error')
     } finally {
       setSavingCp(false)
     }
@@ -184,7 +185,7 @@ export default function SecuritySettingsPage() {
       alert(t('settings.layoutUpdated'))
       load()
     } catch (err: any) {
-      alert('Error uploading layout: ' + err.message)
+      reportActionError(err, 'Error uploading layout')
     } finally {
       setUploadingLayout(false)
     }

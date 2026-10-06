@@ -12,6 +12,7 @@ import { useLang } from '@/lib/i18n/useLang'
 import { makeT } from '@/lib/i18n/languages'
 import { securityDict } from '@/lib/i18n/dict/security'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
+import { reportActionError } from '@/lib/staleAction'
 
 type Checkpoint = { id: number; name: string; latitude: number; longitude: number; radius_meters: number; sequence_order: number; is_active: boolean }
 type ClockRecord = {
@@ -183,7 +184,7 @@ export default function GpsClockingPage() {
           setRemark('')
           await load()
         } catch (err: any) {
-          alert('Error: ' + err.message)
+          reportActionError(err, 'Error')
         } finally {
           setLocating(false)
         }

@@ -7,6 +7,7 @@ import { useLang } from '@/lib/i18n/useLang'
 import { makeT } from '@/lib/i18n/languages'
 import { visitorCheckinDict } from '@/lib/i18n/dict/visitorCheckin'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
+import { isStaleActionError, reportActionError } from '@/lib/staleAction'
 
 export default function VisitorCheckinPage() {
   const [form, setForm] = useState({ personName: '', company: '', purpose: '', lookingFor: '', vehicleNo: '', notes: '' })
@@ -23,7 +24,7 @@ export default function VisitorCheckinPage() {
       await submitVisitorCheckin(form)
       setDone(true)
     } catch (err: any) {
-      alert(t('submitError') + err.message)
+      isStaleActionError(err) ? reportActionError(err) : alert(t('submitError') + err.message)
     } finally {
       setSubmitting(false)
     }

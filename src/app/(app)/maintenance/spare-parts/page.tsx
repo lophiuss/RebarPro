@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { PackageSearch, Plus, Pencil, Trash2, Check, X, PackageCheck } from 'lucide-react'
+import { reportActionError } from '@/lib/staleAction'
 
 type Equipment = { id: number; name: string }
 type Request = {
@@ -78,7 +79,7 @@ export default function SparePartsPage() {
       setReceiveTarget(null)
       await load()
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      reportActionError(err, 'Error')
     } finally {
       setSavingReceive(false)
     }
@@ -103,7 +104,7 @@ export default function SparePartsPage() {
       setForm({ partName: '', equipmentId: '', location: '', quantityRequested: '', requestDate: new Date().toISOString().split('T')[0], requisitionNumber: '', remark: '' })
       await load()
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      reportActionError(err, 'Error')
     } finally {
       setSaving(false)
     }
@@ -147,7 +148,7 @@ export default function SparePartsPage() {
       if (error) throw error
       await load()
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      reportActionError(err, 'Error')
     } finally {
       setDeletingId(null)
     }

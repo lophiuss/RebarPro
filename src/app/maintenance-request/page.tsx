@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { submitWorkRequest, listPublicEquipmentOptions, type PublicEquipmentOption } from './actions'
 import { Wrench, CheckCircle2, Camera } from 'lucide-react'
 import CategoryEquipmentPicker from '@/components/CategoryEquipmentPicker'
+import { reportActionError } from '@/lib/staleAction'
 
 async function compressToDataUrl(file: File): Promise<string> {
   const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -49,7 +50,7 @@ export default function MaintenanceRequestPage() {
       await submitWorkRequest({ ...form, equipmentId, photoDataUrl })
       setDone(true)
     } catch (err: any) {
-      alert('Something went wrong: ' + err.message)
+      reportActionError(err, 'Something went wrong')
     } finally {
       setSubmitting(false)
     }

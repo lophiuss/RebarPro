@@ -7,6 +7,7 @@ import { Inbox, CheckCircle2, UserPlus, X, Pencil, ClipboardCheck, XCircle, Play
 import PhotoPicker from '@/components/PhotoPicker'
 import PhotoLightbox from '@/components/PhotoLightbox'
 import { jobNo } from '@/lib/utils/jobNo'
+import { reportActionError } from '@/lib/staleAction'
 
 type WorkRequest = {
   id: number; requester_name: string; requester_contact: string | null; location: string | null
@@ -159,7 +160,7 @@ export default function WorkRequestsPage() {
       setEditTarget(null)
       await load()
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      reportActionError(err, 'Error')
     } finally {
       setSavingEdit(false)
     }
@@ -177,7 +178,7 @@ export default function WorkRequestsPage() {
       setSelectedAssignees(new Set())
       await load()
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      reportActionError(err, 'Error')
     } finally {
       setSaving(false)
     }
@@ -194,7 +195,7 @@ export default function WorkRequestsPage() {
       if (error) throw error
       await load()
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      reportActionError(err, 'Error')
     } finally {
       setBusyId(null)
     }
@@ -221,7 +222,7 @@ export default function WorkRequestsPage() {
       setCompletionRemark('')
       await load()
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      reportActionError(err, 'Error')
     } finally {
       setSaving(false)
     }
@@ -255,7 +256,7 @@ export default function WorkRequestsPage() {
       setDetailTask(null)
       await load()
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      reportActionError(err, 'Error')
     } finally {
       setSavingCompletionEdit(false)
     }
@@ -273,7 +274,7 @@ export default function WorkRequestsPage() {
       if (error) throw error
       await load()
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      reportActionError(err, 'Error')
     } finally {
       setBusyId(null)
     }
@@ -290,7 +291,7 @@ export default function WorkRequestsPage() {
       if (error) throw error
       await load()
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      reportActionError(err, 'Error')
     } finally {
       setBusyId(null)
     }
@@ -310,7 +311,7 @@ export default function WorkRequestsPage() {
       if (error) throw error
       await load()
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      reportActionError(err, 'Error')
     } finally {
       setBusyId(null)
     }

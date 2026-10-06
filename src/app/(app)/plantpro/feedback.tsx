@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { isStaleActionError } from '@/lib/staleAction'
 import { Loader2, CheckCircle2, XCircle, X } from 'lucide-react'
 
 // Shared "did my click actually do something?" feedback for the whole HR
@@ -29,6 +30,7 @@ export async function guard(fn: () => Promise<any>, label = 'Saving…'): Promis
     setTimeout(() => setToast(id, null), 1600)
     return result
   } catch (err: any) {
+    if (isStaleActionError(err)) { setToast(id, null); alert('The system was updated while this page was open. The page will reload now.'); window.location.reload(); return undefined }
     setToast(id, { kind: 'error', text: err?.message || 'Something went wrong' })
     return undefined
   }

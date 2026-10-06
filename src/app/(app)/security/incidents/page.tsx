@@ -10,6 +10,7 @@ import { useLang } from '@/lib/i18n/useLang'
 import { makeT } from '@/lib/i18n/languages'
 import { securityDict } from '@/lib/i18n/dict/security'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
+import { reportActionError } from '@/lib/staleAction'
 
 type Incident = {
   id: number
@@ -93,7 +94,7 @@ export default function IncidentsPage() {
       setPhotoFile(null)
       await load()
     } catch (err: any) {
-      alert('Error reporting incident: ' + err.message)
+      reportActionError(err, 'Error reporting incident')
     } finally {
       setSubmitting(false)
     }

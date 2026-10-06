@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Settings as SettingsIcon, Plus, Trash2, Pencil, Check, X, Download, Upload, Copy } from 'lucide-react'
 import PublicJobRequestLink from '../PublicJobRequestLink'
 import DropdownOrOther from '@/components/DropdownOrOther'
+import { reportActionError } from '@/lib/staleAction'
 
 type Equipment = {
   id: number; equip_code: string | null; name: string; category: string | null; brand: string | null
@@ -66,7 +67,7 @@ export default function MaintenanceSettingsPage() {
       const { error } = await supabase.from('maintenance_settings').update({ manager_email: managerEmail.trim() || null, updated_at: new Date().toISOString() }).eq('id', 1)
       if (error) throw error
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      reportActionError(err, 'Error')
     } finally {
       setSavingEmail(false)
     }
@@ -215,7 +216,7 @@ export default function MaintenanceSettingsPage() {
       await load()
       setExpandedTemplate(tmpl.id)
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      reportActionError(err, 'Error')
     } finally {
       setDuplicating(null)
     }

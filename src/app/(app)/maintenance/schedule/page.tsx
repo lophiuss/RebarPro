@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { listMaintenanceStaff, uploadMaintenanceFile, type StaffMember } from '../actions'
 import { CalendarClock, ClipboardList, X, Plus, Trash2, ChevronLeft, ChevronRight, Bell, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react'
 import PhotoPicker from '@/components/PhotoPicker'
+import { reportActionError } from '@/lib/staleAction'
 
 type Equipment = {
   id: number; name: string; equip_code: string | null; category: string | null; location: string | null
@@ -329,7 +330,7 @@ export default function SchedulePage() {
       setPlanEquipment(null)
       await load()
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      reportActionError(err, 'Error')
     } finally {
       setSavingPlan(false)
     }
@@ -361,7 +362,7 @@ export default function SchedulePage() {
       if (futErr2) throw futErr2
       await load()
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      reportActionError(err, 'Error')
     }
   }
 
@@ -395,7 +396,7 @@ export default function SchedulePage() {
       setNewRec({ equipmentId: '', frequencyWeeks: '4', startDate: today.toISOString().split('T')[0], assignedTo: '', notes: '' })
       await load()
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      reportActionError(err, 'Error')
     } finally {
       setSavingRec(false)
     }
@@ -494,7 +495,7 @@ export default function SchedulePage() {
       alert('Checklist submitted — awaiting manager approval.')
       await load()
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      reportActionError(err, 'Error')
     } finally {
       setSaving(false)
     }
@@ -522,7 +523,7 @@ export default function SchedulePage() {
       }
       await load()
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      reportActionError(err, 'Error')
     } finally {
       setApprovingId(null)
     }
@@ -539,7 +540,7 @@ export default function SchedulePage() {
       if (error) throw error
       await load()
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      reportActionError(err, 'Error')
     } finally {
       setApprovingId(null)
     }
