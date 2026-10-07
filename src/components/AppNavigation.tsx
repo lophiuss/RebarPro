@@ -9,7 +9,7 @@ import {
   ArrowLeftRight, ClipboardList, AlertTriangle, Factory, DoorClosed, KeyRound,
   Radio, Siren, ClipboardEdit, User, Sparkles, Wrench, CalendarClock,
   PackageSearch, Inbox, History, HelpCircle, Navigation, Hammer,
-  Users, Lock, FileBarChart, Clock, BedDouble, FileText, Upload, Target, Receipt, DollarSign
+  Users, Lock, FileBarChart, Clock, BedDouble, FileText, Upload, Target, Receipt, DollarSign, LayoutDashboard
 } from 'lucide-react'
 
 export type Department = 'rebar' | 'cement' | 'security' | 'maintenance' | 'mould' | 'plantpro'
@@ -121,6 +121,7 @@ export const NAV_ITEMS: Record<Department, NavItem[]> = {
     { href: '/mould/settings', label: 'Settings', icon: Settings },
   ],
   plantpro: [
+    { href: '/plantpro/dashboard', label: 'HR Dashboard', icon: LayoutDashboard },
     { href: '/plantpro/ot', label: 'OT & Allocation', icon: Clock },
     { href: '/plantpro/timesheet', label: 'Timesheet', icon: ClipboardCheck },
     { href: '/plantpro/hr', label: 'HR Pay Input', icon: DollarSign },
