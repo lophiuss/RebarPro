@@ -30,6 +30,8 @@ async function requireMeetingsAdmin() {
 
 function refresh(meetingId?: string) {
   revalidatePath('/meetings')
+  revalidatePath('/meetings/workspace')
+  revalidatePath('/meetings/todos')
   if (meetingId) revalidatePath(`/meetings/${meetingId}`)
 }
 
@@ -230,9 +232,11 @@ export async function concludeMeeting(runId: string, opts: { archiveTodos: boole
     goals: goals ?? [],
   }
 
-  const { error: sumErr } = await supabase
+  const { data: summary, error: sumErr } = await supabase
     .from('mtg_summaries')
     .insert({ run_id: runId, meeting_id: meetingId, average_rating: average, snapshot })
+    .select('id')
+    .single()
   if (sumErr) throw sumErr
 
   if (opts.archiveTodos) {
@@ -248,6 +252,7 @@ export async function concludeMeeting(runId: string, opts: { archiveTodos: boole
     .eq('id', runId)
   if (error) throw error
   refresh(meetingId)
+  return summary.id as string
 }
 
 // ---------------------------------------------------------------------------
@@ -427,8 +432,48 @@ export async function deleteKpi(meetingId: string, id: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Private notes (row-private: RLS limits every query to the caller's own rows)
+// ---------------------------------------------------------------------------
+
+export async function addPrivateNote(body: string) {
+  const { supabase, user } = await requireMeetingsAccess()
+  const { error } = await supabase.from('mtg_private_notes').insert({ user_id: user.id, body: body.trim() })
+  if (error) throw error
+  refresh()
+}
+
+export async function updatePrivateNote(id: string, body: string) {
+  const { supabase } = await requireMeetingsAccess()
+  const { error } = await supabase
+    .from('mtg_private_notes')
+    .update({ body, updated_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) throw error
+  refresh()
+}
+
+export async function deletePrivateNote(id: string) {
+  const { supabase } = await requireMeetingsAccess()
+  const { error } = await supabase.from('mtg_private_notes').delete().eq('id', id)
+  if (error) throw error
+  refresh()
+}
+
+// ---------------------------------------------------------------------------
 // Settings
 // ---------------------------------------------------------------------------
+
+export async function saveCoreValues(values: string[]) {
+  const { supabase } = await requireMeetingsAdmin()
+  const clean = values.map(v => v.trim()).filter(Boolean)
+  const { error } = await supabase
+    .from('mtg_settings')
+    .update({ core_values: clean, updated_at: new Date().toISOString() })
+    .eq('id', 1)
+  if (error) throw error
+  refresh()
+  revalidatePath('/meetings/settings')
+}
 
 export async function saveDefaultAgenda(agenda: { page_type: PageType; title: string; minutes: number }[]) {
   const { supabase } = await requireMeetingsAdmin()

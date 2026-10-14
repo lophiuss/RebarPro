@@ -15,10 +15,12 @@ export const PAGE_LABEL: Record<PageType, string> = {
   WRAP_UP: 'Wrap-up',
 }
 
-export type MeetingTab = 'MEETING' | 'MEETING_SUMMARIES' | 'ARCHIVE'
+export type MeetingTab = 'MEETING' | 'WORKSPACE' | 'MEETING_SUMMARIES' | 'GROWTH_PLAN' | 'ARCHIVE'
 export const MEETING_TABS: { key: MeetingTab; label: string }[] = [
   { key: 'MEETING', label: 'Meeting' },
+  { key: 'WORKSPACE', label: 'Workspace' },
   { key: 'MEETING_SUMMARIES', label: 'Summary' },
+  { key: 'GROWTH_PLAN', label: 'Growth Plan' },
   { key: 'ARCHIVE', label: 'Archive' },
 ]
 
@@ -61,6 +63,11 @@ export function weekStart(d: Date) {
   const day = (x.getDay() + 6) % 7
   x.setDate(x.getDate() - day)
   return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`
+}
+
+// Local YYYY-MM-DD.
+export function ymd(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 export function formatSeconds(total: number) {

@@ -13,6 +13,7 @@ import {
   type Headline, type Todo, type Issue, type Goal, type Kpi, type KpiValue, type Rating,
 } from './Sections'
 import { SummaryTab, ArchiveTab, type SummaryRow } from './SummaryArchive'
+import { MeetingWorkspace, GrowthPlan } from './Overview'
 import {
   MEETING_TABS, PAGE_LABEL, PAGE_TYPES, formatSeconds, type MeetingTab, type PageType, type Person,
 } from '@/lib/meetings'
@@ -38,6 +39,7 @@ export type ShellProps = {
   lastFeedback: Rating[]
   summaries: SummaryRow[]
   archived: { headlines: Headline[]; todos: Todo[]; issues: Issue[] }
+  coreValues: string[]
   isAdmin: boolean
 }
 
@@ -194,6 +196,16 @@ export default function MeetingShell(props: ShellProps) {
           </div>
         )}
 
+        {tab === 'WORKSPACE' && (
+          <div className="p-4 md:p-8 max-w-6xl w-full mx-auto">
+            <MeetingWorkspace headlines={props.headlines} todos={props.todos} issues={props.issues} goals={props.goals} kpis={props.kpis} kpiValues={props.kpiValues} summaries={props.summaries} />
+          </div>
+        )}
+        {tab === 'GROWTH_PLAN' && (
+          <div className="p-4 md:p-8 max-w-5xl w-full mx-auto">
+            <GrowthPlan goals={props.goals} kpis={props.kpis} kpiValues={props.kpiValues} coreValues={props.coreValues} />
+          </div>
+        )}
         {tab === 'MEETING_SUMMARIES' && <div className="p-4 md:p-8 max-w-5xl w-full mx-auto"><SummaryTab summaries={props.summaries} peopleById={peopleById} /></div>}
         {tab === 'ARCHIVE' && <div className="p-4 md:p-8 max-w-5xl w-full mx-auto"><ArchiveTab archived={props.archived} peopleById={peopleById} /></div>}
 

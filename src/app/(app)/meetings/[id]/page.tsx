@@ -35,7 +35,7 @@ export default async function MeetingPage({
   const [
     { data: attendees }, { data: agenda }, { data: activeRun }, { data: headlines }, { data: todos },
     { data: issues }, { data: goals }, { data: kpis }, { data: summaries }, { data: people },
-    { data: archivedHeadlines }, { data: archivedTodos }, { data: access },
+    { data: archivedHeadlines }, { data: archivedTodos }, { data: access }, { data: settings },
   ] = await Promise.all([
     supabase.from('mtg_attendees').select('user_id').eq('meeting_id', id),
     supabase.from('mtg_agenda_items').select('id, page_type, title, minutes, position').eq('meeting_id', id).order('position'),
@@ -45,13 +45,15 @@ export default async function MeetingPage({
     supabase.from('mtg_issues').select('id, title, owner_id, status, solved_run_id, created_at').eq('meeting_id', id).order('created_at'),
     supabase.from('mtg_goals').select('id, title, owner_id, status, due_date, milestones').eq('meeting_id', id).order('created_at'),
     supabase.from('mtg_kpis').select('id, name, owner_id, cadence, target, unit').eq('meeting_id', id).order('position'),
-    supabase.from('mtg_summaries').select('id, run_id, created_at, average_rating, snapshot').eq('meeting_id', id).order('created_at', { ascending: false }).limit(50),
+    supabase.from('mtg_summaries').select('id, run_id, created_at, average_rating, snapshot, emailed_at').eq('meeting_id', id).order('created_at', { ascending: false }).limit(50),
     supabase.from('profiles').select('id, full_name, avatar_url').neq('is_active', false).order('full_name'),
     supabase.from('mtg_headlines').select('id, title, owner_id, created_at').eq('meeting_id', id).not('archived_at', 'is', null).order('archived_at', { ascending: false }).limit(100),
     supabase.from('mtg_todos').select('id, title, owner_id, due_date, done_at, run_id, created_at').eq('meeting_id', id).not('archived_at', 'is', null).order('archived_at', { ascending: false }).limit(100),
     user
       ? supabase.from('user_department_access').select('role').eq('user_id', user.id).eq('department', 'meetings').maybeSingle()
       : Promise.resolve({ data: null }),
+    // core_values arrives with v46; until then the query errors and we show none.
+    supabase.from('mtg_settings').select('core_values').eq('id', 1).maybeSingle(),
   ])
 
   const kpiIds = (kpis ?? []).map(k => k.id as string)
@@ -93,6 +95,7 @@ export default async function MeetingPage({
       lastFeedback={lastFeedback}
       summaries={(summaries ?? []) as any}
       archived={{ headlines: (archivedHeadlines ?? []) as any, todos: (archivedTodos ?? []) as any, issues: archivedIssues }}
+      coreValues={(Array.isArray(settings?.core_values) ? settings.core_values : []) as string[]}
       isAdmin={access?.role === 'admin'}
     />
   )

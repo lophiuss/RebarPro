@@ -8,9 +8,10 @@ import {
   saveRating, revealRatings, concludeMeeting,
 } from '../actions'
 import { useMeeting, useRun } from './context'
+import { emailSummary } from './emailSummary'
 import Avatar from '../Avatar'
 import {
-  CADENCES, CHECK_IN_PROMPTS, TIPS, ISSUE_STATUS_LABEL, type Cadence, type IssueStatus,
+  CADENCES, CHECK_IN_PROMPTS, TIPS, ISSUE_STATUS_LABEL, ymd, type Cadence, type IssueStatus,
 } from '@/lib/meetings'
 
 export type Headline = { id: string; title: string; owner_id: string | null; created_at: string }
@@ -50,10 +51,6 @@ function SectionTitle({ children, right }: { children: React.ReactNode; right?: 
       {right}
     </div>
   )
-}
-
-function ymd(d: Date) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 const todayStr = () => ymd(new Date())
@@ -528,6 +525,9 @@ export function WrapUp({ todos, issues, ratings, pageSeconds }: { todos: Todo[];
   const [saved, setSaved] = useState(false)
   const [archiveTodos, setArchiveTodos] = useState(true)
   const [archiveHeadlines, setArchiveHeadlines] = useState(true)
+  const [sendEmail, setSendEmail] = useState(false)
+  const [includeDetails, setIncludeDetails] = useState(true)
+  const [includeNotes, setIncludeNotes] = useState(false)
   const [concluding, setConcluding] = useState(false)
 
   if (!liveRun) {
@@ -553,7 +553,15 @@ export function WrapUp({ todos, issues, ratings, pageSeconds }: { todos: Todo[];
   async function conclude() {
     if (!confirm('Conclude this meeting? This saves the summary for everyone.')) return
     setConcluding(true)
-    await run(() => concludeMeeting(liveRun!.id, { archiveTodos, archiveHeadlines, pageSeconds: pageSeconds() }))
+    const summaryId = await run(() => concludeMeeting(liveRun!.id, { archiveTodos, archiveHeadlines, pageSeconds: pageSeconds() }))
+    if (summaryId && sendEmail) {
+      try {
+        const n = await emailSummary(summaryId, { includeDetails, includeNotes })
+        alert(`Summary emailed to ${n} attendee${n === 1 ? '' : 's'}.`)
+      } catch (err: any) {
+        alert('The meeting was concluded, but the summary email failed: ' + err.message + '\n\nYou can retry from the Summary tab.')
+      }
+    }
     setConcluding(false)
   }
 
@@ -613,7 +621,15 @@ export function WrapUp({ todos, issues, ratings, pageSeconds }: { todos: Todo[];
           <div className="text-sm font-semibold">Concluding actions</div>
           <p className="text-sm text-gray-500 mb-3">Save the summary and archive completed items for the next meeting.</p>
           <label className="flex items-center gap-2 text-sm mb-1.5"><input type="checkbox" checked={archiveTodos} onChange={e => setArchiveTodos(e.target.checked)} /> Archive completed to-dos</label>
-          <label className="flex items-center gap-2 text-sm mb-4"><input type="checkbox" checked={archiveHeadlines} onChange={e => setArchiveHeadlines(e.target.checked)} /> Archive headlines</label>
+          <label className="flex items-center gap-2 text-sm mb-1.5"><input type="checkbox" checked={archiveHeadlines} onChange={e => setArchiveHeadlines(e.target.checked)} /> Archive headlines</label>
+          <label className="flex items-center gap-2 text-sm mb-1.5"><input type="checkbox" checked={sendEmail} onChange={e => setSendEmail(e.target.checked)} /> Email the summary to all attendees</label>
+          {sendEmail && (
+            <div className="ml-6 mb-4 space-y-1.5">
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={includeDetails} onChange={e => setIncludeDetails(e.target.checked)} /> Include headlines and to-do details</label>
+              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={includeNotes} onChange={e => setIncludeNotes(e.target.checked)} /> Include meeting notes</label>
+            </div>
+          )}
+          {!sendEmail && <div className="mb-3" />}
           <button onClick={conclude} disabled={concluding} className="px-5 py-2.5 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-50">{concluding ? 'Concluding…' : 'Conclude meeting'}</button>
         </div>
       ) : (

@@ -1,8 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { ArrowLeft, Star, FileText } from 'lucide-react'
+import { ArrowLeft, Star, FileText, Mail } from 'lucide-react'
 import Avatar from '../Avatar'
+import { emailSummary } from './emailSummary'
 import { formatSeconds, PAGE_LABEL, PAGE_TYPES, type Person } from '@/lib/meetings'
 import type { Headline, Todo, Issue } from './Sections'
 
@@ -12,6 +13,36 @@ export type SummaryRow = {
   created_at: string
   average_rating: number | null
   snapshot: any
+  emailed_at?: string | null
+}
+
+function EmailButton({ summaryId, emailedAt }: { summaryId: string; emailedAt?: string | null }) {
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  async function send() {
+    if (!confirm('Email this summary to all attendees?')) return
+    setBusy(true)
+    setMsg(null)
+    try {
+      const n = await emailSummary(summaryId, { includeDetails: true, includeNotes: false })
+      setMsg({ ok: true, text: `Sent to ${n} attendee${n === 1 ? '' : 's'}.` })
+    } catch (err: any) {
+      setMsg({ ok: false, text: err.message })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-3">
+      <button onClick={send} disabled={busy} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white text-sm font-medium hover:bg-gray-50 disabled:opacity-50">
+        <Mail className="w-4 h-4" /> {busy ? 'Sending…' : 'Email summary'}
+      </button>
+      {msg && <span className={`text-sm ${msg.ok ? 'text-green-700' : 'text-red-600'}`}>{msg.text}</span>}
+      {!msg && emailedAt && <span className="text-xs text-gray-500">Last emailed {new Date(emailedAt).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}</span>}
+    </div>
+  )
 }
 
 const card = 'border rounded-xl bg-white'
@@ -37,7 +68,10 @@ export function SummaryTab({ summaries, peopleById }: { summaries: SummaryRow[];
     return (
       <div>
         <button onClick={() => setSelected(null)} className="inline-flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900 mb-4"><ArrowLeft className="w-4 h-4" /> Back to summary list</button>
-        <h2 className="text-xl font-bold mb-1">{when(selected.created_at)}</h2>
+        <div className="flex items-start justify-between gap-3 flex-wrap mb-1">
+          <h2 className="text-xl font-bold">{when(selected.created_at)}</h2>
+          <EmailButton summaryId={selected.id} emailedAt={selected.emailed_at} />
+        </div>
         <div className="text-sm text-gray-500 mb-4 flex gap-4 flex-wrap">
           {duration != null && <span>Duration {formatSeconds(duration)}</span>}
           {selected.average_rating != null && <span className="flex items-center gap-1"><Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" /> Average rating {Number(selected.average_rating).toFixed(1)}</span>}
