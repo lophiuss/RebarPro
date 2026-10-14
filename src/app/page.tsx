@@ -34,6 +34,9 @@ export default async function Home() {
   if (departments.includes('plantpro')) {
     redirect('/plantpro/ot')
   }
+  if (departments.includes('meetings')) {
+    redirect('/meetings')
+  }
 
   // No department access yet — (app)/layout.tsx shows the "no access" message.
   redirect('/rebar/dashboard')

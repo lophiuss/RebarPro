@@ -9,10 +9,10 @@ import {
   ArrowLeftRight, ClipboardList, AlertTriangle, Factory, DoorClosed, KeyRound,
   Radio, Siren, ClipboardEdit, User, Sparkles, Wrench, CalendarClock,
   PackageSearch, Inbox, History, HelpCircle, Navigation, Hammer,
-  Users, Lock, FileBarChart, Clock, BedDouble, FileText, Upload, Target, Receipt, DollarSign, LayoutDashboard
+  Users, Lock, FileBarChart, Clock, BedDouble, FileText, Upload, Target, Receipt, DollarSign, LayoutDashboard, CalendarDays
 } from 'lucide-react'
 
-export type Department = 'rebar' | 'cement' | 'security' | 'maintenance' | 'mould' | 'plantpro'
+export type Department = 'rebar' | 'cement' | 'security' | 'maintenance' | 'mould' | 'plantpro' | 'meetings'
 export type DepartmentAccess = { department: Department; role: string }
 export type NavPermission = { department: Department; role: string; nav_key: string }
 
@@ -41,6 +41,7 @@ const DEPARTMENT_LABEL: Record<Department, string> = {
   maintenance: 'Maintenance',
   mould: 'Mould',
   plantpro: 'HR',
+  meetings: 'Meetings',
 }
 
 const DEPARTMENT_HOME: Record<Department, string> = {
@@ -50,6 +51,7 @@ const DEPARTMENT_HOME: Record<Department, string> = {
   maintenance: '/maintenance',
   mould: '/mould',
   plantpro: '/plantpro/ot',
+  meetings: '/meetings',
 }
 
 const SETTINGS_HREF: Record<Department, string> = {
@@ -59,6 +61,7 @@ const SETTINGS_HREF: Record<Department, string> = {
   maintenance: '/maintenance/settings',
   mould: '/mould/settings',
   plantpro: '/plantpro/config',
+  meetings: '/meetings/settings',
 }
 
 // Cement's real pages land here module-by-module (see the merge plan's build order).
@@ -132,6 +135,10 @@ export const NAV_ITEMS: Record<Department, NavItem[]> = {
     { href: '/plantpro/claims', label: 'Claims & Reports', icon: Receipt },
     { href: '/plantpro/config', label: 'Config', icon: Settings },
   ],
+  meetings: [
+    { href: '/meetings', label: 'Meetings', icon: CalendarDays },
+    { href: '/meetings/settings', label: 'Settings', icon: Settings },
+  ],
 }
 
 export default function AppNavigation({ userEmail, fullName, departments, navPermissions, canUseAiHelper, children }: Props) {
@@ -151,6 +158,8 @@ export default function AppNavigation({ userEmail, fullName, departments, navPer
     ? 'mould'
     : pathname.startsWith('/plantpro')
     ? 'plantpro'
+    : pathname.startsWith('/meetings')
+    ? 'meetings'
     : departments[0]?.department ?? null
 
   const activeRole = departments.find(d => d.department === activeDept)?.role
