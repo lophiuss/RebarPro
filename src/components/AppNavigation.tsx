@@ -9,7 +9,7 @@ import {
   ArrowLeftRight, ClipboardList, AlertTriangle, Factory, DoorClosed, KeyRound,
   Radio, Siren, ClipboardEdit, User, Sparkles, Wrench, CalendarClock,
   PackageSearch, Inbox, History, HelpCircle, Navigation, Hammer,
-  Users, Lock, FileBarChart, Clock, BedDouble, FileText, Upload, Target, Receipt, DollarSign, LayoutDashboard, CalendarDays, ListChecks
+  Users, Lock, FileBarChart, Clock, BedDouble, FileText, Upload, Target, Receipt, DollarSign, LayoutDashboard, CalendarDays, ListChecks, Network, MessagesSquare, UserCheck, LifeBuoy
 } from 'lucide-react'
 
 export type Department = 'rebar' | 'cement' | 'security' | 'maintenance' | 'mould' | 'plantpro' | 'meetings'
@@ -139,6 +139,14 @@ export const NAV_ITEMS: Record<Department, NavItem[]> = {
     { href: '/meetings', label: 'Meetings', icon: CalendarDays },
     { href: '/meetings/workspace', label: 'My Workspace', icon: LayoutDashboard },
     { href: '/meetings/todos', label: 'To-dos', icon: ListChecks },
+    { href: '/meetings/growth-plan', label: 'Growth Plan', icon: Target },
+    { href: '/meetings/org-chart', label: 'Org Chart', icon: Network },
+    { href: '/meetings/direct-reports', label: 'Direct Reports', icon: Users },
+    { href: '/meetings/one-on-one', label: 'Quarterly 1:1', icon: MessagesSquare },
+    { href: '/meetings/rprs', label: 'Right Person Right Seat', icon: UserCheck },
+    { href: '/meetings/session-prep', label: 'Session Prep', icon: ClipboardList },
+    { href: '/meetings/documents', label: 'Documents', icon: FileText },
+    { href: '/meetings/resources', label: 'Resource Center', icon: LifeBuoy },
     { href: '/meetings/settings', label: 'Settings', icon: Settings },
   ],
 }

@@ -1,32 +1,9 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { PAGE_TYPES, type PageType, type IssueStatus, type Cadence } from '@/lib/meetings'
-
-// Same shape as mould/actions.ts. RLS on every mtg_* table is
-// has_dept_access('meetings') for ALL roles; role checks below are an
-// additional app-level guard for the few actions where role matters.
-async function requireMeetingsAccess() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not signed in')
-  const { data: hasAccess } = await supabase.rpc('has_dept_access', { dept: 'meetings' })
-  if (!hasAccess) throw new Error('Not authorized')
-  return { supabase, user }
-}
-
-async function requireMeetingsAdmin() {
-  const ctx = await requireMeetingsAccess()
-  const { data: access } = await ctx.supabase
-    .from('user_department_access')
-    .select('role')
-    .eq('user_id', ctx.user.id)
-    .eq('department', 'meetings')
-    .maybeSingle()
-  if (access?.role !== 'admin') throw new Error('Requires role: admin')
-  return ctx
-}
+import { requireMeetingsAccess, requireMeetingsAdmin } from './guard'
+import { insertMeeting } from './meetingFactory'
 
 function refresh(meetingId?: string) {
   revalidatePath('/meetings')
@@ -46,37 +23,9 @@ export async function createMeeting(input: {
   attendee_ids: string[]
 }) {
   const { supabase, user } = await requireMeetingsAccess()
-  const name = input.name.trim()
-  if (!name) throw new Error('Meeting name is required')
-
-  const leaderId = input.leader_id || user.id
-  const { data: meeting, error } = await supabase
-    .from('mtg_meetings')
-    .insert({ name, description: input.description?.trim() || null, leader_id: leaderId, created_by: user.id })
-    .select('id')
-    .single()
-  if (error) throw error
-
-  // Creator and leader are always attendees.
-  const attendeeIds = Array.from(new Set([user.id, leaderId, ...input.attendee_ids]))
-  const { error: attErr } = await supabase
-    .from('mtg_attendees')
-    .insert(attendeeIds.map(user_id => ({ meeting_id: meeting.id, user_id })))
-  if (attErr) throw attErr
-
-  // Copy the default agenda.
-  const { data: settings } = await supabase.from('mtg_settings').select('default_agenda').eq('id', 1).maybeSingle()
-  const agenda: { page_type: string; title: string; minutes: number }[] = Array.isArray(settings?.default_agenda) ? settings.default_agenda : []
-  const rows = agenda
-    .filter(a => (PAGE_TYPES as string[]).includes(a.page_type))
-    .map((a, i) => ({ meeting_id: meeting.id, page_type: a.page_type, title: a.title, minutes: a.minutes, position: i }))
-  if (rows.length) {
-    const { error: agErr } = await supabase.from('mtg_agenda_items').insert(rows)
-    if (agErr) throw agErr
-  }
-
+  const id = await insertMeeting(supabase, user.id, input)
   refresh()
-  return meeting.id as string
+  return id
 }
 
 export async function setMeetingAttendees(meetingId: string, userIds: string[]) {
@@ -113,6 +62,41 @@ export async function toggleFavourite(meetingId: string) {
     .eq('user_id', user.id)
   if (error) throw error
   refresh()
+}
+
+// Per-meeting settings: name, description, leader and the agenda for this meeting.
+export async function updateMeeting(meetingId: string, input: {
+  name: string
+  description: string
+  leader_id: string | null
+  agenda: { id: string; title: string; minutes: number }[]
+}) {
+  const { supabase } = await requireMeetingsAccess()
+  const name = input.name.trim()
+  if (!name) throw new Error('Meeting name is required')
+
+  const { error } = await supabase
+    .from('mtg_meetings')
+    .update({ name: name.slice(0, 120), description: input.description.trim().slice(0, 500) || null, leader_id: input.leader_id })
+    .eq('id', meetingId)
+  if (error) throw error
+
+  // The leader is always an attendee.
+  if (input.leader_id) {
+    await supabase.from('mtg_attendees').upsert({ meeting_id: meetingId, user_id: input.leader_id }, { onConflict: 'meeting_id,user_id', ignoreDuplicates: true })
+  }
+
+  // Agenda order follows the array order; only titles/minutes of existing items change.
+  for (let i = 0; i < input.agenda.length; i++) {
+    const a = input.agenda[i]
+    const { error: agErr } = await supabase
+      .from('mtg_agenda_items')
+      .update({ title: a.title.trim().slice(0, 60) || 'Untitled', minutes: Math.max(0, Math.round(a.minutes || 0)), position: i })
+      .eq('id', a.id)
+      .eq('meeting_id', meetingId)
+    if (agErr) throw agErr
+  }
+  refresh(meetingId)
 }
 
 export async function archiveMeeting(meetingId: string) {
@@ -367,7 +351,11 @@ export async function addGoal(meetingId: string, input: { title: string; owner_i
 
 export async function setGoalStatus(meetingId: string, id: string, status: 'on' | 'off' | 'done') {
   const { supabase } = await requireMeetingsAccess()
-  const { error } = await supabase.from('mtg_goals').update({ status }).eq('id', id)
+  // completed_at feeds the Direct reports progress charts.
+  const { error } = await supabase
+    .from('mtg_goals')
+    .update({ status, completed_at: status === 'done' ? new Date().toISOString() : null })
+    .eq('id', id)
   if (error) throw error
   refresh(meetingId)
 }
@@ -378,7 +366,8 @@ export async function toggleGoalMilestone(meetingId: string, id: string, index: 
   if (error) throw error
   const milestones = Array.isArray(goal.milestones) ? [...goal.milestones] : []
   if (!milestones[index]) return
-  milestones[index] = { ...milestones[index], done: !milestones[index].done }
+  const nowDone = !milestones[index].done
+  milestones[index] = { ...milestones[index], done: nowDone, done_at: nowDone ? new Date().toISOString() : null }
   const { error: upErr } = await supabase.from('mtg_goals').update({ milestones }).eq('id', id)
   if (upErr) throw upErr
   refresh(meetingId)
@@ -427,6 +416,58 @@ export async function setKpiValue(meetingId: string, kpiId: string, periodStart:
 export async function deleteKpi(meetingId: string, id: string) {
   const { supabase } = await requireMeetingsAccess()
   const { error } = await supabase.from('mtg_kpis').delete().eq('id', id)
+  if (error) throw error
+  refresh(meetingId)
+}
+
+// ---------------------------------------------------------------------------
+// Inline edits
+// ---------------------------------------------------------------------------
+
+const text = (v: string, max = 500) => {
+  const t = v.trim().slice(0, max)
+  if (!t) throw new Error('Text cannot be empty')
+  return t
+}
+
+export async function updateTodo(meetingId: string, id: string, patch: { title?: string; due_date?: string | null; owner_id?: string | null }) {
+  const { supabase } = await requireMeetingsAccess()
+  const update: Record<string, unknown> = {}
+  if (patch.title !== undefined) update.title = text(patch.title)
+  if (patch.due_date !== undefined) update.due_date = patch.due_date || null
+  if (patch.owner_id !== undefined) update.owner_id = patch.owner_id
+  const { error } = await supabase.from('mtg_todos').update(update).eq('id', id)
+  if (error) throw error
+  refresh(meetingId)
+}
+
+export async function updateHeadline(meetingId: string, id: string, patch: { title?: string; owner_id?: string | null }) {
+  const { supabase } = await requireMeetingsAccess()
+  const update: Record<string, unknown> = {}
+  if (patch.title !== undefined) update.title = text(patch.title)
+  if (patch.owner_id !== undefined) update.owner_id = patch.owner_id
+  const { error } = await supabase.from('mtg_headlines').update(update).eq('id', id)
+  if (error) throw error
+  refresh(meetingId)
+}
+
+export async function updateIssue(meetingId: string, id: string, patch: { title?: string; owner_id?: string | null }) {
+  const { supabase } = await requireMeetingsAccess()
+  const update: Record<string, unknown> = {}
+  if (patch.title !== undefined) update.title = text(patch.title)
+  if (patch.owner_id !== undefined) update.owner_id = patch.owner_id
+  const { error } = await supabase.from('mtg_issues').update(update).eq('id', id)
+  if (error) throw error
+  refresh(meetingId)
+}
+
+export async function updateGoal(meetingId: string, id: string, patch: { title?: string; due_date?: string | null; owner_id?: string | null }) {
+  const { supabase } = await requireMeetingsAccess()
+  const update: Record<string, unknown> = {}
+  if (patch.title !== undefined) update.title = text(patch.title)
+  if (patch.due_date !== undefined) update.due_date = patch.due_date || null
+  if (patch.owner_id !== undefined) update.owner_id = patch.owner_id
+  const { error } = await supabase.from('mtg_goals').update(update).eq('id', id)
   if (error) throw error
   refresh(meetingId)
 }

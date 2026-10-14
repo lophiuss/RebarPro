@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Play, AlertTriangle, Crown, Radio, NotebookPen, Users, X } from 'lucide-react'
+import { Play, AlertTriangle, Crown, Radio, NotebookPen, Users, X, Settings as SettingsIcon } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { startMeeting, setRunPage, saveRunNotes } from '../actions'
 import { MeetingProvider, type Run } from './context'
@@ -14,6 +14,7 @@ import {
 } from './Sections'
 import { SummaryTab, ArchiveTab, type SummaryRow } from './SummaryArchive'
 import { MeetingWorkspace, GrowthPlan } from './Overview'
+import MeetingSettings from './MeetingSettings'
 import {
   MEETING_TABS, PAGE_LABEL, PAGE_TYPES, formatSeconds, type MeetingTab, type PageType, type Person,
 } from '@/lib/meetings'
@@ -58,6 +59,7 @@ export default function MeetingShell(props: ShellProps) {
   const [showNotes, setShowNotes] = useState(false)
   const [tangent, setTangent] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
 
   const isLeader = !!run && run.leader_id === myId
@@ -175,6 +177,7 @@ export default function MeetingShell(props: ShellProps) {
             <span className="text-gray-300">/</span>
             <h1 className="text-xl font-bold truncate">{meeting.name}</h1>
             {run && <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded"><Radio className="w-3 h-3" /> LIVE</span>}
+            <button onClick={() => setShowSettings(true)} aria-label="Meeting settings" title="Meeting settings" className="ml-auto text-gray-400 hover:text-blue-600"><SettingsIcon className="w-5 h-5" /></button>
           </div>
           <nav className="flex gap-1 mt-3 -mb-px">
             {MEETING_TABS.map(t => (
@@ -301,6 +304,16 @@ export default function MeetingShell(props: ShellProps) {
           </div>
         )}
       </div>
+      {showSettings && (
+        <MeetingSettings
+          meeting={meeting}
+          agenda={agenda.map(a => ({ id: a.id, title: a.title, minutes: a.minutes }))}
+          people={people}
+          attendeeIds={attendeeIds}
+          onClose={() => setShowSettings(false)}
+          onSaved={changed}
+        />
+      )}
     </MeetingProvider>
   )
 }

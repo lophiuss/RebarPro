@@ -10,7 +10,7 @@ export default async function MeetingsPage() {
   const { data: { user } } = await supabase.auth.getUser()
 
   const [{ data: meetings }, { data: attendees }, { data: people }, { data: activeRuns }] = await Promise.all([
-    supabase.from('mtg_meetings').select('id, name, description, leader_id').eq('is_archived', false).order('name'),
+    supabase.from('mtg_meetings').select('id, name, description, leader_id, meeting_type').eq('is_archived', false).order('name'),
     supabase.from('mtg_attendees').select('meeting_id, user_id, is_favourite'),
     supabase.from('profiles').select('id, full_name, avatar_url').neq('is_active', false).order('full_name'),
     supabase.from('mtg_runs').select('meeting_id').is('ended_at', null),

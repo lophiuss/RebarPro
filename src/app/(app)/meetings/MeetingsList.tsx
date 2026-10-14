@@ -8,14 +8,15 @@ import { createMeeting, toggleFavourite } from './actions'
 import { AvatarStack } from './Avatar'
 import type { Person } from '@/lib/meetings'
 
-type Meeting = { id: string; name: string; description: string | null; leader_id: string | null }
+type Meeting = { id: string; name: string; description: string | null; leader_id: string | null; meeting_type?: 'weekly' | 'quarterly_alignment' }
+type Tab = 'mine' | 'qa' | 'others'
 type Attendee = { meeting_id: string; user_id: string; is_favourite: boolean }
 
 export default function MeetingsList({
   meetings, attendees, people, liveMeetingIds, myId,
 }: { meetings: Meeting[]; attendees: Attendee[]; people: Person[]; liveMeetingIds: string[]; myId: string }) {
   const router = useRouter()
-  const [tab, setTab] = useState<'mine' | 'others'>('mine')
+  const [tab, setTab] = useState<Tab>('mine')
   const [query, setQuery] = useState('')
   const [showNew, setShowNew] = useState(false)
   const [form, setForm] = useState({ name: '', description: '', leader_id: myId, attendee_ids: [] as string[] })
@@ -33,7 +34,12 @@ export default function MeetingsList({
       const att = attendeesByMeeting.get(m.id) ?? []
       return { ...m, att, mine: att.some(a => a.user_id === myId), fav: att.some(a => a.user_id === myId && a.is_favourite) }
     })
-    .filter(m => (tab === 'mine' ? m.mine : !m.mine))
+    .filter(m => {
+      const qa = m.meeting_type === 'quarterly_alignment'
+      if (tab === 'mine') return m.mine && !qa
+      if (tab === 'qa') return m.mine && qa
+      return !m.mine
+    })
     .filter(m => {
       const q = query.trim().toLowerCase()
       if (!q) return true
@@ -41,7 +47,10 @@ export default function MeetingsList({
     })
     .sort((a, b) => Number(b.fav) - Number(a.fav) || a.name.localeCompare(b.name))
 
-  const mineCount = meetings.filter(m => (attendeesByMeeting.get(m.id) ?? []).some(a => a.user_id === myId)).length
+  const attending = meetings.filter(m => (attendeesByMeeting.get(m.id) ?? []).some(a => a.user_id === myId))
+  const qaCount = attending.filter(m => m.meeting_type === 'quarterly_alignment').length
+  const mineCount = attending.length - qaCount
+  const othersCount = meetings.length - attending.length
 
   async function submitNew(e: React.FormEvent) {
     e.preventDefault()
@@ -90,7 +99,7 @@ export default function MeetingsList({
       </div>
 
       <div className="flex gap-1 border-b mb-4">
-        {([['mine', `My meetings (${mineCount})`], ['others', `Others (${meetings.length - mineCount})`]] as const).map(([key, label]) => (
+        {([['mine', `My meetings (${mineCount})`], ['qa', `Quarterly Alignment (${qaCount})`], ['others', `Others (${othersCount})`]] as const).map(([key, label]) => (
           <button
             key={key}
             onClick={() => setTab(key)}

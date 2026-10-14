@@ -65,6 +65,43 @@ export function weekStart(d: Date) {
   return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`
 }
 
+// Quarterly 1:1 conversation template. Both people answer the same questions
+// (answers = { manager: {...}, report: {...} }), then compare side by side.
+export type OneOnOneQuestion = { id: string; section: string; label: string; type: 'text' | 'rating' }
+export const ONE_ON_ONE_QUESTIONS: OneOnOneQuestion[] = [
+  { id: 'role', section: 'Role & expectations', label: 'In your own words, what is the role and what is expected of it?', type: 'text' },
+  { id: 'clarity', section: 'Role & expectations', label: 'How clear are the expectations? (1-10)', type: 'rating' },
+  { id: 'wins', section: 'Last quarter', label: 'What were the biggest wins?', type: 'text' },
+  { id: 'misses', section: 'Last quarter', label: 'What did not go as planned, and why?', type: 'text' },
+  { id: 'feedback', section: 'Feedback', label: 'What should the other person start, stop or continue doing?', type: 'text' },
+  { id: 'growth', section: 'Growth', label: 'What should be learned or achieved in the next 12 months?', type: 'text' },
+  { id: 'next', section: 'Next quarter', label: 'What are the top priorities for the next 90 days?', type: 'text' },
+  { id: 'support', section: 'Next quarter', label: 'What support is needed to deliver them?', type: 'text' },
+]
+
+export type OneOnOneSide = {
+  [questionId: string]: unknown
+  core_values?: Record<string, string>
+  gwc?: { gets_it?: boolean | null; wants_it?: boolean | null; capacity?: boolean | null }
+}
+export type OneOnOneAnswers = { manager?: OneOnOneSide; report?: OneOnOneSide }
+
+export function currentQuarter(d = new Date()) {
+  return `${d.getFullYear()}-Q${Math.floor(d.getMonth() / 3) + 1}`
+}
+
+// Organisation-wide Growth Plan document (mtg_growth_plan.content).
+export type GrowthPlanContent = {
+  what?: string
+  how?: string
+  why?: string
+  five_year_vision?: string
+  marketing?: { ideal_client?: string; differentiators?: string[]; proven_process?: string; guarantee?: string }
+  three_year?: { date?: string; goals?: string[]; possibilities?: string[] }
+  one_year?: { date?: string; goals?: string[]; annual_goals?: string[] }
+  ninety_day?: { date?: string; goals?: string[] }
+}
+
 // Local YYYY-MM-DD.
 export function ymd(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`

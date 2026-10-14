@@ -5,7 +5,7 @@ import { Plus, Trash2, Check, Lightbulb, MessageSquareQuote } from 'lucide-react
 import {
   addHeadline, deleteHeadline, addTodo, setTodoDone, deleteTodo, addIssue, setIssueStatus, deleteIssue,
   addGoal, setGoalStatus, toggleGoalMilestone, deleteGoal, addKpi, setKpiValue, deleteKpi,
-  saveRating, revealRatings, concludeMeeting,
+  saveRating, revealRatings, concludeMeeting, updateTodo, updateHeadline, updateIssue, updateGoal,
 } from '../actions'
 import { useMeeting, useRun } from './context'
 import { emailSummary } from './emailSummary'
@@ -42,6 +42,50 @@ function OwnerSelect({ value, onChange }: { value: string; onChange: (v: string)
       {options.map(p => <option key={p.id} value={p.id}>{p.full_name || p.id.slice(0, 8)}</option>)}
     </select>
   )
+}
+
+// Click-to-edit text. Saves on blur/Enter, cancels on Escape, ignores no-ops.
+function EditableText({ value, onSave, className = '' }: { value: string; onSave: (v: string) => void; className?: string }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value)
+  if (!editing) {
+    return (
+      <button type="button" onClick={() => { setDraft(value); setEditing(true) }} title="Click to edit" className={`text-left rounded px-1 -mx-1 hover:bg-gray-100 ${className}`}>
+        {value}
+      </button>
+    )
+  }
+  const commit = () => {
+    setEditing(false)
+    if (draft.trim() && draft.trim() !== value) onSave(draft.trim())
+  }
+  return (
+    <input
+      autoFocus
+      value={draft}
+      onChange={e => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false) }}
+      className="w-full border rounded px-2 py-0.5 text-sm bg-white"
+    />
+  )
+}
+
+type SortKey = 'default' | 'owner'
+
+function SortSelect({ value, onChange, defaultLabel = 'Oldest' }: { value: SortKey; onChange: (v: SortKey) => void; defaultLabel?: string }) {
+  return (
+    <select value={value} onChange={e => onChange(e.target.value as SortKey)} className="border rounded-lg px-2 py-1 text-xs bg-white text-gray-600" aria-label="Sort">
+      <option value="default">{defaultLabel}</option>
+      <option value="owner">Owner: A-Z</option>
+    </select>
+  )
+}
+
+// Stable sort by owner name (items without an owner last).
+function sortByOwner<T extends { owner_id: string | null }>(items: T[], peopleById: Map<string, { full_name: string | null }>): T[] {
+  const name = (id: string | null) => (id ? peopleById.get(id)?.full_name ?? '~' : '~~')
+  return [...items].sort((a, b) => name(a.owner_id).localeCompare(name(b.owner_id)))
 }
 
 function SectionTitle({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
@@ -143,7 +187,9 @@ export function Goals({ goals }: { goals: Goal[] }) {
   const [expand, setExpand] = useState(false)
   const [mine, setMine] = useState(false)
   const [form, setForm] = useState({ title: '', owner_id: myId, due_date: '', milestones: '' })
-  const shown = goals.filter(g => !mine || g.owner_id === myId)
+  const [sort, setSort] = useState<SortKey>('default')
+  const filtered = goals.filter(g => !mine || g.owner_id === myId)
+  const shown = sort === 'owner' ? sortByOwner(filtered, peopleById) : filtered
 
   async function add(e: React.FormEvent) {
     e.preventDefault()
@@ -159,6 +205,7 @@ export function Goals({ goals }: { goals: Goal[] }) {
     <div>
       <SectionTitle right={
         <div className="flex items-center gap-3 text-sm">
+          <SortSelect value={sort} onChange={setSort} />
           <label className="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" checked={mine} onChange={e => setMine(e.target.checked)} /> Mine only</label>
           <label className="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" checked={expand} onChange={e => setExpand(e.target.checked)} /> Expand milestones</label>
         </div>
@@ -173,7 +220,7 @@ export function Goals({ goals }: { goals: Goal[] }) {
               <div className="flex items-center gap-3">
                 <Avatar person={peopleById.get(g.owner_id ?? '')} />
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate">{g.title}</div>
+                  <EditableText className="font-medium block truncate" value={g.title} onSave={v => run(() => updateGoal(meetingId, g.id, { title: v }))} />
                   {g.due_date && <div className="text-xs text-gray-500">Due {g.due_date}</div>}
                 </div>
                 <select
@@ -352,6 +399,8 @@ export function Headlines({ headlines }: { headlines: Headline[] }) {
   const run = useRun()
   const [title, setTitle] = useState('')
   const [owner, setOwner] = useState(myId)
+  const [sort, setSort] = useState<SortKey>('default')
+  const sortedHeadlines = sort === 'owner' ? sortByOwner(headlines, peopleById) : headlines
 
   async function add(e: React.FormEvent) {
     e.preventDefault()
@@ -362,15 +411,15 @@ export function Headlines({ headlines }: { headlines: Headline[] }) {
 
   return (
     <div>
-      <SectionTitle>Headlines <span className="text-gray-400 font-normal text-base">({headlines.length})</span></SectionTitle>
+      <SectionTitle right={<SortSelect value={sort} onChange={setSort} />}>Headlines <span className="text-gray-400 font-normal text-base">({headlines.length})</span></SectionTitle>
       {headlines.length === 0 ? (
         <Empty title="No headlines yet" hint="Share customer or employee news in one sentence." />
       ) : (
         <ul className={`${card} divide-y`}>
-          {headlines.map(h => (
+          {sortedHeadlines.map(h => (
             <li key={h.id} className="flex items-center gap-3 px-3 py-2.5">
               <Avatar person={peopleById.get(h.owner_id ?? '')} />
-              <span className="flex-1 min-w-0">{h.title}</span>
+              <span className="flex-1 min-w-0"><EditableText value={h.title} onSave={v => run(() => updateHeadline(meetingId, h.id, { title: v }))} /></span>
               <button onClick={() => run(() => deleteHeadline(meetingId, h.id))} aria-label="Delete" className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
             </li>
           ))}
@@ -396,7 +445,9 @@ export function Todos({ todos }: { todos: Todo[] }) {
   const [showDone, setShowDone] = useState(true)
   const done = todos.filter(t => t.done_at).length
   const pct = todos.length ? Math.round((done / todos.length) * 100) : 0
-  const sorted = [...todos].sort((a, b) => (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999'))
+  const [sort, setSort] = useState<SortKey>('default')
+  const byDue = [...todos].sort((a, b) => (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999'))
+  const sorted = sort === 'owner' ? sortByOwner(byDue, peopleById) : byDue
   const shown = sorted.filter(t => showDone || !t.done_at)
 
   async function add(e: React.FormEvent) {
@@ -410,6 +461,7 @@ export function Todos({ todos }: { todos: Todo[] }) {
     <div>
       <SectionTitle right={
         <div className="flex items-center gap-4 text-sm">
+          <SortSelect value={sort} onChange={setSort} defaultLabel="Due date" />
           <label className="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" checked={showDone} onChange={e => setShowDone(e.target.checked)} /> Show completed</label>
           <span className="font-semibold text-blue-700">{pct}% completed</span>
         </div>
@@ -432,7 +484,7 @@ export function Todos({ todos }: { todos: Todo[] }) {
                   {t.done_at && <Check className="w-3 h-3" />}
                 </button>
                 <Avatar person={peopleById.get(t.owner_id ?? '')} size="sm" />
-                <span className={`flex-1 min-w-0 ${t.done_at ? 'line-through text-gray-400' : ''}`}>{t.title}</span>
+                <span className={`flex-1 min-w-0 ${t.done_at ? 'line-through text-gray-400' : ''}`}><EditableText value={t.title} onSave={v => run(() => updateTodo(meetingId, t.id, { title: v }))} /></span>
                 <span className={`text-xs whitespace-nowrap ${overdue ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>{t.due_date ?? ''}</span>
                 <button onClick={() => run(() => deleteTodo(meetingId, t.id))} aria-label="Delete" className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
               </li>
@@ -463,7 +515,9 @@ export function Issues({ issues }: { issues: Issue[] }) {
   const [tab, setTab] = useState<IssueStatus>('short_term')
   const [title, setTitle] = useState('')
   const [owner, setOwner] = useState(myId)
-  const shown = issues.filter(i => i.status === tab)
+  const [sort, setSort] = useState<SortKey>('default')
+  const inTab = issues.filter(i => i.status === tab)
+  const shown = sort === 'owner' ? sortByOwner(inTab, peopleById) : inTab
 
   async function add(e: React.FormEvent) {
     e.preventDefault()
@@ -474,7 +528,7 @@ export function Issues({ issues }: { issues: Issue[] }) {
 
   return (
     <div>
-      <SectionTitle>Issues</SectionTitle>
+      <SectionTitle right={<SortSelect value={sort} onChange={setSort} />}>Issues</SectionTitle>
       <div className="flex gap-1 border-b mb-4 overflow-x-auto">
         {ISSUE_TABS.map(s => (
           <button key={s} onClick={() => setTab(s)} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px whitespace-nowrap ${tab === s ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-800'}`}>
@@ -490,7 +544,7 @@ export function Issues({ issues }: { issues: Issue[] }) {
           {shown.map(i => (
             <li key={i.id} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
               <Avatar person={peopleById.get(i.owner_id ?? '')} size="sm" />
-              <span className={`flex-1 min-w-[10rem] ${i.status === 'solved' ? 'line-through text-gray-400' : ''}`}>{i.title}</span>
+              <span className={`flex-1 min-w-[10rem] ${i.status === 'solved' ? 'line-through text-gray-400' : ''}`}><EditableText value={i.title} onSave={v => run(() => updateIssue(meetingId, i.id, { title: v }))} /></span>
               <div className="flex items-center gap-1.5 text-xs">
                 {i.status !== 'solved' && <button onClick={() => run(() => setIssueStatus(meetingId, i.id, 'solved', liveRun?.id))} className="px-2 py-1 rounded-md bg-green-50 text-green-700 font-semibold hover:bg-green-100">Solved</button>}
                 {i.status !== 'short_term' && <button onClick={() => run(() => setIssueStatus(meetingId, i.id, 'short_term'))} className="px-2 py-1 rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200">Short term</button>}
