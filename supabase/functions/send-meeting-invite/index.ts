@@ -149,36 +149,21 @@ Deno.serve(async (req: Request) => {
         }
 
         // 4. the e-mail
-        const intro = `<p>Hi ${esc(c.full_name)},</p>
-          <p><b>${esc(inviterName)}</b> has invited you to <b>AlphaVision Meetings</b>, where your team runs its weekly meetings: to-dos, issues, KPIs, quarterly priorities and the org chart. Your existing items from the old system are already waiting for you.</p>
-          ${message ? `<p style="padding:10px 12px;background:#eff6ff;border-left:4px solid #2563eb;white-space:pre-wrap">${esc(message)}</p>` : ""}`;
-        const wrap = (inner: string) => `<div style="font-family:Arial,sans-serif;font-size:14px;color:#0f172a;max-width:560px"><div style="font-size:22px;font-weight:700;margin-bottom:4px">AlphaVision</div>${intro}${inner}<p style="color:#94a3b8;font-size:12px">If you weren't expecting this e-mail, you can ignore it.</p></div>`;
+        const btn = (href: string, label: string) => `<p style="margin:0 0 18px"><a href="${esc(href)}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-weight:700;padding:11px 22px;border-radius:8px">${label}</a></p>`;
+        const wrap = (inner: string) => `<div style="background:#f1f5f9;padding:24px 12px;font-family:Arial,Helvetica,sans-serif;color:#0f172a"><div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0"><div style="background:#1e3a8a;padding:20px 28px"><div style="font-size:22px;font-weight:700;color:#ffffff;letter-spacing:.3px">AlphaVision</div><div style="font-size:13px;color:#bfdbfe;margin-top:2px">Meetings</div></div><div style="padding:28px;font-size:14px;line-height:1.6"><p style="margin:0 0 12px">Hi ${esc(c.full_name)},</p><p style="margin:0 0 12px"><b>${esc(inviterName)}</b> has invited you to <b>AlphaVision Meetings</b>, where your team runs its weekly meetings: to-dos, issues, KPIs, quarterly priorities and the org chart. Your existing items from the old system are already waiting for you.</p>${message ? `<p style="margin:0 0 14px;padding:10px 12px;background:#f8fafc;border-left:4px solid #94a3b8;white-space:pre-wrap">${esc(message)}</p>` : ""}${inner}<p style="margin:16px 0 0;color:#94a3b8;font-size:12px">If you weren't expecting this e-mail, you can ignore it.</p></div></div></div>`;
         let html: string;
         if (temp) {
-          html = wrap(`<p>Sign in at <a href="${esc(origin)}/login">${esc(origin)}/login</a> with:</p>
-            <table style="border-collapse:collapse;margin:8px 0 12px"><tr><td style="padding:4px 12px 4px 0;color:#475569">E-mail</td><td><b>${esc(email)}</b></td></tr>
-            <tr><td style="padding:4px 12px 4px 0;color:#475569">Temporary password</td><td><code style="font-size:16px;background:#f1f5f9;padding:3px 8px;border-radius:6px;letter-spacing:.5px">${esc(temp)}</code></td></tr></table>
-            <p><b>You will be asked to choose a new password right after you sign in.</b> Please do not share this temporary one.</p>`);
+          html = wrap(`<p style="margin:0 0 8px">Sign in with:</p><table style="border-collapse:collapse;width:100%;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;margin:0 0 16px"><tr><td style="padding:10px 14px;color:#475569;width:150px">E-mail</td><td style="padding:10px 14px"><b>${esc(email)}</b></td></tr><tr><td style="padding:10px 14px;color:#475569;border-top:1px solid #e2e8f0">Temporary password</td><td style="padding:10px 14px;border-top:1px solid #e2e8f0"><code style="font-size:16px;background:#e2e8f0;padding:3px 9px;border-radius:6px;letter-spacing:.5px">${esc(temp)}</code></td></tr></table>${btn(`${origin}/login`, "Sign in to AlphaVision")}<p style="margin:0;padding:10px 12px;background:#eff6ff;border-left:4px solid #2563eb"><b>You will be asked to choose a new password right after you sign in.</b> Please do not share the temporary one.</p>`);
         } else if (mode === "password") {
           // This e-mail address already had a login: nothing about it was changed.
-          html = wrap(`<p>You can now use the Meetings module. Sign in at <a href="${esc(origin)}/login">${esc(origin)}/login</a> with your existing e-mail address and password.</p>`);
+          html = wrap(`<p style="margin:0 0 14px">You can now use the Meetings module. Sign in with your existing e-mail address and password.</p>${btn(`${origin}/login`, "Sign in to AlphaVision")}`);
         } else {
           const link = await admin.auth.admin.generateLink({ type: "recovery", email });
           const hashed = link.data?.properties?.hashed_token;
           if (link.error || !hashed) throw link.error ?? new Error("Could not create the sign-in link");
           const url = `${origin}/auth/confirm?token_hash=${encodeURIComponent(hashed)}&type=recovery&next=${encodeURIComponent("/auth/set-password?welcome=1")}`;
-          html = wrap(`<p><a href="${esc(url)}" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;font-weight:700;padding:10px 18px;border-radius:8px">Choose your password</a></p>
-            <p style="color:#475569">After that, sign in any time at <a href="${esc(origin)}/login">${esc(origin)}/login</a> with this e-mail address (${esc(email)}) and your new password. The button works once and for a limited time; if it has expired, ask ${esc(inviterName)} to send a new invitation.</p>`);
+          html = wrap(`${btn(url, "Choose your password")}<p style="margin:0;color:#475569">After that, sign in any time at <a href="${esc(origin)}/login">${esc(origin)}/login</a> with ${esc(email)} and your new password. The button works once and for a limited time; if it has expired, ask ${esc(inviterName)} to send a new invitation.</p>`);
         }
-        const _unused = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#0f172a;max-width:560px">
-          <div style="font-size:22px;font-weight:700;margin-bottom:4px">AlphaVision</div>
-          <p>Hi ${esc(c.full_name)},</p>
-          <p><b>${esc(inviterName)}</b> has invited you to <b>AlphaVision Meetings</b>, where your team runs its weekly meetings: to-dos, issues, KPIs, quarterly priorities and the org chart. Your existing items from the old system are already waiting for you.</p>
-          ${message ? `<p style="padding:10px 12px;background:#eff6ff;border-left:4px solid #2563eb;white-space:pre-wrap">${esc(message)}</p>` : ""}
-          <p><a href="${esc(url)}" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;font-weight:700;padding:10px 18px;border-radius:8px">Choose your password</a></p>
-          <p style="color:#475569">After that, sign in any time at <a href="${esc(origin)}/login">${esc(origin)}/login</a> with this e-mail address (${esc(email)}) and your new password.</p>
-          <p style="color:#94a3b8;font-size:12px">The button above works once and for a limited time. If it has expired, ask ${esc(inviterName)} to send a new invitation. If you weren't expecting this e-mail, you can ignore it.</p>
-        </div>`;
         await transporter!.sendMail({ from: `"AlphaVision" <${mailUser}>`, to: email, subject: "You're invited to AlphaVision Meetings", html });
         results.push({ ...base, status: c.user_id ? "resent" : "invited" });
       } catch (err) {

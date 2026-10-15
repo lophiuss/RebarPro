@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { UserPlus } from 'lucide-react'
 import PeopleView from './PeopleView'
 
@@ -28,6 +29,12 @@ export default async function PeoplePage() {
   const seats = count(seatLinks), meetings = count(meetingLinks)
   const openTodos: Record<string, number> = {}
   for (const t of todos ?? []) openTodos[t.owner_name as string] = (openTodos[t.owner_name as string] ?? 0) + 1
+  // Logins that exist but whose owner has never signed in yet (invitation still outstanding)
+  const neverSignedIn = new Set<string>()
+  if (isAdmin) {
+    const { data: list } = await createAdminClient().auth.admin.listUsers({ perPage: 1000 })
+    for (const u of list?.users ?? []) if (!u.last_sign_in_at) neverSignedIn.add(u.id)
+  }
   const nameOf = new Map((loginProfiles ?? []).map(p => [p.id as string, p.full_name as string]))
 
   return (
@@ -39,6 +46,7 @@ export default async function PeoplePage() {
         people={(contacts ?? []).map(c => ({
           id: c.id as string, name: c.full_name as string, email: (c.email as string | null) ?? '',
           login: c.user_id ? (nameOf.get(c.user_id as string) ?? 'Has a login') : null,
+          pending: !!c.user_id && neverSignedIn.has(c.user_id as string),
           seats: seats[c.id as string] ?? 0, meetings: meetings[c.id as string] ?? 0, todos: openTodos[c.full_name as string] ?? 0,
         }))}
       />

@@ -816,13 +816,20 @@ export async function createLinkedItem(
   to: 'todo' | 'issue',
   input: { title: string; details: string | null; owner_id: string | null; due_date: string | null },
   source?: { headlineId?: string },
+  // Create it in a different meeting than the one the source is in (headline -> other meeting)
+  targetMeetingId?: string,
 ) {
   const { supabase, user } = await requireMeetingsAccess()
+  const sourceMeetingId = meetingId
+  if (targetMeetingId && targetMeetingId !== meetingId) {
+    await requireOpenMeeting(supabase, targetMeetingId)
+    meetingId = targetMeetingId
+  }
   const title = text(input.title, 300)
   const details = sanitizeRich(input.details) || null
-  const link = source?.headlineId ? { source_headline_id: source.headlineId } : {}
+  const link = source?.headlineId && meetingId === sourceMeetingId ? { source_headline_id: source.headlineId } : {}
   if (source?.headlineId) {
-    const { data: h } = await supabase.from('mtg_headlines').select('id').eq('id', source.headlineId).eq('meeting_id', meetingId).maybeSingle()
+    const { data: h } = await supabase.from('mtg_headlines').select('id').eq('id', source.headlineId).eq('meeting_id', sourceMeetingId).maybeSingle()
     if (!h) throw new Error('Headline not found')
   }
 
@@ -842,6 +849,7 @@ export async function createLinkedItem(
     if (error) throw error
   }
   refresh(meetingId)
+  if (sourceMeetingId !== meetingId) refresh(sourceMeetingId)
 }
 
 // Replaces a priority's milestone list (add / rename / reorder / remove / tick).
@@ -897,6 +905,31 @@ export async function archiveItem(kind: 'todo' | 'headline', id: string, meeting
 // ---------------------------------------------------------------------------
 // Private notes (row-private: RLS limits every query to the caller's own rows)
 // ---------------------------------------------------------------------------
+
+// Personal to-dos: yours alone, not tied to any meeting (My Workspace).
+export async function addPersonalTodo(title: string, due_date: string | null) {
+  const { supabase, user } = await requireMeetingsAccess()
+  const t = text(title, 300)
+  if (!t) throw new Error('Write the to-do first')
+  const due = due_date && /^\d{4}-\d{2}-\d{2}$/.test(due_date) ? due_date : null
+  const { error } = await supabase.from('mtg_personal_todos').insert({ user_id: user.id, title: t, due_date: due })
+  if (error) throw error
+  refresh()
+}
+
+export async function setPersonalTodoDone(id: string, done: boolean) {
+  const { supabase } = await requireMeetingsAccess()
+  const { error } = await supabase.from('mtg_personal_todos').update({ done_at: done ? new Date().toISOString() : null }).eq('id', id)
+  if (error) throw error
+  refresh()
+}
+
+export async function deletePersonalTodo(id: string) {
+  const { supabase } = await requireMeetingsAccess()
+  const { error } = await supabase.from('mtg_personal_todos').delete().eq('id', id)
+  if (error) throw error
+  refresh()
+}
 
 export async function addPrivateNote(body: string) {
   const { supabase, user } = await requireMeetingsAccess()

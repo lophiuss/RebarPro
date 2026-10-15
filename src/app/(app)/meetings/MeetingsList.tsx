@@ -15,8 +15,8 @@ type Tab = 'mine' | 'qa' | 'others'
 type Attendee = { meeting_id: string; user_id: string; is_favourite: boolean }
 
 export default function MeetingsList({
-  meetings, attendees, people, liveMeetingIds, myId,
-}: { meetings: Meeting[]; attendees: Attendee[]; people: Person[]; liveMeetingIds: string[]; myId: string }) {
+  meetings, attendees, people, liveMeetingIds, myId, lastRun,
+}: { meetings: Meeting[]; attendees: Attendee[]; people: Person[]; liveMeetingIds: string[]; myId: string; lastRun: Record<string, string> }) {
   const router = useRouter()
   const [tab, setTab] = useState<Tab>('mine')
   const [query, setQuery] = useState('')
@@ -140,6 +140,12 @@ export default function MeetingsList({
                 </div>
                 {m.description && <div className="text-xs text-gray-500 truncate">{m.description}</div>}
               </Link>
+              <div className="hidden sm:block shrink-0 w-32 text-right text-xs leading-tight" title="Date of the last meeting held">
+                <div className="text-[10px] uppercase tracking-wide text-gray-400">Last meeting</div>
+                <div className={lastRun[m.id] ? 'font-medium text-slate-700' : 'text-gray-400'}>
+                  {lastRun[m.id] ? new Date(lastRun[m.id]).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : 'Not held yet'}
+                </div>
+              </div>
               <AvatarStack people={m.att.map(a => peopleById.get(a.user_id))} />
             </li>
           ))}

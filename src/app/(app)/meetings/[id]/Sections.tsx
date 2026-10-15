@@ -82,6 +82,7 @@ export function Headlines({ headlines, todos, issues, otherMeetings }: { headlin
           key={`${draft.kind}-${draft.headline.id}`}
           kind={draft.kind}
           headlineId={draft.headline.id}
+          otherMeetings={otherMeetings}
           draft={{ title: draft.headline.title, details: draft.headline.details, owner_id: draft.headline.owner_id, due_date: null }}
           sourceLabel={`Copied from the headline “${draft.headline.title}”.`}
           onClose={() => setDraft(null)}

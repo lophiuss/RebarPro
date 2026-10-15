@@ -12,7 +12,7 @@ export default async function MeetingsWorkspacePage() {
 
   const [
     { data: attendance }, { data: todos }, { data: goals }, { data: kpis }, { data: settings },
-    { data: notes }, { data: profile }, { data: people }, { data: allMeetings }, { data: pref }, { data: issues },
+    { data: notes }, { data: profile }, { data: people }, { data: allMeetings }, { data: pref }, { data: issues }, { data: personalTodos },
   ] = await Promise.all([
     supabase.from('mtg_attendees').select('meeting_id, meeting:mtg_meetings(id, name, is_archived, schedule)').eq('user_id', myId),
     supabase.from('mtg_todos')
@@ -33,6 +33,7 @@ export default async function MeetingsWorkspacePage() {
     supabase.from('mtg_issues')
       .select('id, title, details, owner_id, status, created_at, due_date, meeting_id')
       .eq('owner_id', myId).in('status', ['short_term', 'parking_lot']).order('created_at'),
+    supabase.from('mtg_personal_todos').select('id, title, due_date, done_at').order('created_at', { ascending: false }),
   ])
 
   const sinceDate = new Date()
@@ -97,6 +98,7 @@ export default async function MeetingsWorkspacePage() {
         calMeetings={calMeetings}
         calHeld={calHeld}
         calItems={calItems}
+        personalTodos={(personalTodos ?? []) as any}
       />
     </div>
   )

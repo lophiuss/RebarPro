@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { Check, Plus, Trash2, StickyNote, FileText, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react'
-import { addTodo, setTodoDone, setKpiValue, addPrivateNote, updatePrivateNote, deletePrivateNote } from './actions'
+import { addTodo, setTodoDone, setKpiValue, addPrivateNote, updatePrivateNote, deletePrivateNote, addPersonalTodo, setPersonalTodoDone, deletePersonalTodo } from './actions'
 import { act } from './act'
 import Avatar from './Avatar'
 import { NewBadge, effectiveGoal, type Kpi, type KpiCustomGoal, type KpiValue } from './[id]/shared'
@@ -15,6 +15,7 @@ import { evaluateGoal, formatGoal, formatKpiValue, ymd, type Cadence, type Issue
 export type WTodo = { id: string; title: string; details: string | null; due_date: string | null; done_at: string | null; status: TodoStatus; meeting_id: string; owner_id: string | null; created_at: string }
 export type WGoal = { id: string; title: string; details: string | null; status: 'on' | 'off' | 'done'; due_date: string | null; milestones: { title: string; done: boolean }[]; meeting_id: string; owner_id: string | null; created_at: string; meeting: { name: string } | null }
 export type WKpi = Omit<Kpi, 'meeting_ids'> & { meeting_id: string; meeting: { name: string } | null }
+export type WPersonalTodo = { id: string; title: string; due_date: string | null; done_at: string | null }
 export type WNote = { id: string; body: string; updated_at: string }
 export type WMeeting = { id: string; name: string }
 export type WHeadline = { id: string; title: string; details: string | null; owner_id: string | null; created_at: string }
@@ -196,6 +197,46 @@ export function GoalsBody({ goals, onOpen, emptyText = 'No priorities assigned t
 export function CoreValuesBody({ values }: { values: string[] }) {
   if (values.length === 0) return <Empty>No core values yet. A Meetings admin can add them in Settings.</Empty>
   return <ol className="space-y-2 list-decimal list-inside">{values.map((v, i) => <li key={i} className="text-sm text-slate-800">{v}</li>)}</ol>
+}
+
+export function PersonalTodosBody({ todos }: { todos: WPersonalTodo[] }) {
+  const [title, setTitle] = useState('')
+  const [due, setDue] = useState('')
+  const [showDone, setShowDone] = useState(false)
+  const today = ymd(new Date())
+  const active = todos.filter(t => !t.done_at)
+  const shown = showDone ? todos : active
+
+  async function add(e: React.FormEvent) {
+    e.preventDefault()
+    if (!title.trim()) return
+    const ok = await act(async () => { await addPersonalTodo(title, due || null); return true })
+    if (ok) { setTitle(''); setDue('') }
+  }
+
+  return (
+    <>
+      <p className="text-[11px] text-gray-400 mb-2">Only you can see these. They are not tied to any meeting.</p>
+      <form onSubmit={add} className="grid gap-2 grid-cols-[1fr_auto_auto] mb-3">
+        <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Add a personal to-do" className={input} aria-label="New personal to-do" />
+        <input type="date" value={due} onChange={e => setDue(e.target.value)} className={input} aria-label="Due date" />
+        <button className={`${primary} px-3`} aria-label="Add personal to-do"><Plus className="w-4 h-4" /></button>
+      </form>
+      <label className="flex items-center gap-2 text-xs text-gray-500 mb-2"><input type="checkbox" checked={showDone} onChange={e => setShowDone(e.target.checked)} /> Show completed ({todos.length - active.length})</label>
+      {shown.length === 0 ? <Empty>Nothing here. Add your first personal to-do above.</Empty> : (
+        <ul className="divide-y">
+          {shown.map(t => (
+            <li key={t.id} className="flex items-center gap-2 py-2">
+              <input type="checkbox" checked={!!t.done_at} onChange={e => act(() => setPersonalTodoDone(t.id, e.target.checked))} aria-label={`Mark "${t.title}" done`} />
+              <span className={`flex-1 text-sm ${t.done_at ? 'line-through text-gray-400' : ''}`}>{t.title}</span>
+              {t.due_date && <span className={`text-[11px] whitespace-nowrap ${!t.done_at && t.due_date < today ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>{t.due_date}</span>}
+              <button onClick={() => confirm('Delete this to-do?') && act(() => deletePersonalTodo(t.id))} aria-label="Delete to-do" className="text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  )
 }
 
 export function NotesBody({ notes }: { notes: WNote[] }) {

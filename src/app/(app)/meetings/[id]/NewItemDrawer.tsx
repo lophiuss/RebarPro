@@ -23,12 +23,14 @@ export function plusDays(n: number) {
 // the wording, owner, due date and details first; nothing exists until they
 // press Create. The source itself is never changed.
 export default function NewItemDrawer({
-  kind, draft, sourceLabel, headlineId, onClose,
+  kind, draft, sourceLabel, headlineId, otherMeetings, onClose,
 }: {
   kind: 'todo' | 'issue'
   draft: Draft
   sourceLabel: string
   headlineId?: string
+  // When given, the new item can be created in any of these meetings instead
+  otherMeetings?: { id: string; name: string }[]
   onClose: () => void
 }) {
   const { meetingId, people, myId } = useMeeting()
@@ -38,6 +40,7 @@ export default function NewItemDrawer({
   const [due, setDue] = useState(draft.due_date ?? (kind === 'todo' ? plusDays(7) : ''))
   const details = useRef<string | null>(draft.details)
   const [busy, setBusy] = useState(false)
+  const [target, setTarget] = useState('')
   const Icon = kind === 'todo' ? ListChecks : AlertCircle
   const label = kind === 'todo' ? 'to-do' : 'issue'
 
@@ -51,7 +54,7 @@ export default function NewItemDrawer({
     if (!title.trim()) return
     setBusy(true)
     const ok = await run(async () => {
-      await createLinkedItem(meetingId, kind, { title, details: details.current, owner_id: owner || null, due_date: due || null }, { headlineId })
+      await createLinkedItem(meetingId, kind, { title, details: details.current, owner_id: owner || null, due_date: due || null }, { headlineId }, target || undefined)
       return true
     })
     setBusy(false)
@@ -73,6 +76,15 @@ export default function NewItemDrawer({
           <p className="text-xs text-gray-600 rounded-lg bg-blue-50 border border-blue-100 px-3 py-2">
             {sourceLabel} Edit anything you like, then press <b>Create {label}</b>. The original stays as it is.
           </p>
+          {otherMeetings && otherMeetings.length > 0 && (
+            <div>
+              <div className={sectionTitle}>Create in meeting</div>
+              <select value={target} onChange={e => setTarget(e.target.value)} className={field} aria-label="Create in meeting">
+                <option value="">This meeting</option>
+                {otherMeetings.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            </div>
+          )}
           <div>
             <div className={sectionTitle}>{kind === 'todo' ? 'To-do' : 'Issue'}</div>
             <input value={title} onChange={e => setTitle(e.target.value)} className={field} aria-label="Title" autoFocus />

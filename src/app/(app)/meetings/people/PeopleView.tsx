@@ -7,7 +7,7 @@ import { saveContactEmail, importEmails } from './actions'
 import { act } from '../act'
 import Avatar from '../Avatar'
 
-type P = { id: string; name: string; email: string; login: string | null; seats: number; meetings: number; todos: number }
+type P = { id: string; name: string; email: string; login: string | null; pending: boolean; seats: number; meetings: number; todos: number }
 type Result = { contact_id: string; name: string; email: string | null; status: 'invited' | 'resent' | 'skipped' | 'failed' | 'would_invite'; reason?: string }
 
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
@@ -27,6 +27,7 @@ export default function PeopleView({ people, isAdmin }: { people: P[]; isAdmin: 
   const rows = useMemo(() => people.filter(p => filter === 'all' || !p.login), [people, filter])
   const waiting = people.filter(p => !p.login)
   const ready = waiting.filter(p => EMAIL.test(emailOf(p)))
+  const outstanding = people.filter(p => p.login && p.pending && EMAIL.test(emailOf(p)))
 
   if (!isAdmin) {
     return <div className="border border-dashed rounded-xl p-10 text-center bg-white text-sm text-gray-500">Only a Meetings admin can invite people.</div>
@@ -75,6 +76,9 @@ export default function PeopleView({ people, isAdmin }: { people: P[]; isAdmin: 
           ))}
         </div>
         <button onClick={() => { setPaste(''); setPasteResult(null) }} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white text-sm font-medium hover:bg-gray-50"><ClipboardPaste className="w-4 h-4" /> Paste e-mail list</button>
+        {outstanding.length > 0 && (
+          <button onClick={() => invite(outstanding.map(p => p.id), true)} disabled={busy} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white text-sm font-medium hover:bg-gray-50 disabled:opacity-50"><Mail className="w-4 h-4" /> Send again to everyone who has not signed in ({outstanding.length})</button>
+        )}
         <button onClick={() => invite(ready.map(p => p.id))} disabled={busy || ready.length === 0} className="ml-auto inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">
           <Send className="w-4 h-4" /> {busy ? 'Sending…' : `Invite everyone with an e-mail (${ready.length})`}
         </button>
@@ -134,7 +138,7 @@ export default function PeopleView({ people, isAdmin }: { people: P[]; isAdmin: 
                   </td>
                   <td className="px-3 py-2 text-center text-xs text-gray-500 whitespace-nowrap">{p.seats} seat{p.seats === 1 ? '' : 's'} · {p.meetings} meeting{p.meetings === 1 ? '' : 's'} · {p.todos} open to-do{p.todos === 1 ? '' : 's'}</td>
                   <td className="px-3 py-2 whitespace-nowrap">
-                    {p.login ? <span className="inline-flex items-center gap-1 text-xs font-semibold rounded-full px-2.5 py-1 bg-green-100 text-green-700"><Check className="w-3 h-3" /> Has a login</span> : <span className="text-xs font-semibold rounded-full px-2.5 py-1 bg-gray-100 text-gray-600">No login yet</span>}
+                    {p.login ? <span className={`inline-flex items-center gap-1 text-xs font-semibold rounded-full px-2.5 py-1 ${p.pending ? 'bg-amber-100 text-amber-700' : 'bg-green-100 text-green-700'}`}>{p.pending ? 'Invited, not signed in' : <><Check className="w-3 h-3" /> Has a login</>}</span> : <span className="text-xs font-semibold rounded-full px-2.5 py-1 bg-gray-100 text-gray-600">No login yet</span>}
                   </td>
                   <td className="px-3 py-2 text-right whitespace-nowrap">
                     {!p.login && <button onClick={() => invite([p.id])} disabled={busy || !valid} title={valid ? 'Create the login and send the invitation' : 'Add an e-mail first'} className="inline-flex items-center gap-1 px-3 py-1 text-xs font-semibold rounded-lg border bg-white hover:bg-gray-50 disabled:opacity-40"><Mail className="w-3.5 h-3.5" /> Send invitation</button>}
