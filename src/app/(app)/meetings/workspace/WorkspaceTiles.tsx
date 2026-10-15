@@ -47,7 +47,7 @@ export default function WorkspaceTiles({
     { id: 'todos', title: 'To-dos', count: todos.filter(t => !t.done_at).length, node: <TodosBody todos={todos} meetings={meetings} onOpen={t => setOpen({ kind: 'todo', id: t.id })} /> },
     { id: 'goals', title: 'Quarterly Priorities', count: goals.filter(g => g.status !== 'done').length, node: <GoalsBody goals={goals} onOpen={g => setOpen({ kind: 'goal', id: g.id })} /> },
     { id: 'kpis', title: 'My KPIs', count: kpis.length, node: <KpisBody kpis={kpis} values={kpiValues} custom={kpiGoals} emptyText="No KPIs are assigned to you. A KPI shows here when you are its owner." /> },
-    { id: 'board', title: 'To-do board', count: todos.filter(t => !t.done_at).length, node: <TodoBoard todos={todos} meetingNames={meetingNames} peopleById={peopleById} onOpen={t => setOpen({ kind: 'todo', id: t.id })} /> },
+    { id: 'board', title: 'To-do board', count: todos.filter(t => !t.done_at).length, node: <TodoBoard todos={todos} meetingNames={meetingNames} peopleById={peopleById} addIn={meetings} onOpen={t => setOpen({ kind: 'todo', id: t.id })} /> },
     { id: 'issues', title: 'My issues', count: issues.filter(i => i.status === 'short_term' || i.status === 'parking_lot').length, node: <IssuesBody issues={issues} peopleById={peopleById} onOpen={i => setOpen({ kind: 'issue', id: i.id })} /> },
     { id: 'values', title: 'Core Values', node: <CoreValuesBody values={coreValues} /> },
     { id: 'notes', title: 'Private Notes', count: notes.length, node: <NotesBody notes={notes} /> },

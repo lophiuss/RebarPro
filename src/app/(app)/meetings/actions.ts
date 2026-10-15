@@ -328,7 +328,7 @@ export async function deleteHeadline(meetingId: string, id: string) {
 // To-dos
 // ---------------------------------------------------------------------------
 
-export async function addTodo(meetingId: string, input: { title: string; owner_id: string | null; due_date: string | null; run_id?: string | null }) {
+export async function addTodo(meetingId: string, input: { title: string; owner_id: string | null; due_date: string | null; run_id?: string | null; status?: TodoStatus }) {
   const { supabase, user } = await requireMeetingsAccess()
   if (!input.title.trim()) throw new Error('To-do cannot be empty')
   // Default deadline: 7 days out (the "tip of the week" convention).
@@ -340,6 +340,10 @@ export async function addTodo(meetingId: string, input: { title: string; owner_i
     owner_id: input.owner_id || user.id,
     due_date: due,
     created_by: user.id,
+    // Added straight into a board column (To do, In progress, Blocked or Done).
+    ...(input.status && ['todo', 'in_progress', 'blocked', 'done'].includes(input.status)
+      ? { status: input.status, done_at: input.status === 'done' ? new Date().toISOString() : null }
+      : {}),
   })
   if (error) throw error
   refresh(meetingId)

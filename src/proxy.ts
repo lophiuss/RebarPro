@@ -65,6 +65,19 @@ export async function proxy(request: NextRequest) {
     }
   }
 
+  // A person who was given a temporary password must choose their own before anything else.
+  if (
+    user &&
+    (user.app_metadata as { must_change_password?: boolean } | undefined)?.must_change_password === true &&
+    !request.nextUrl.pathname.startsWith('/auth') &&
+    !request.nextUrl.pathname.startsWith('/login')
+  ) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/auth/set-password'
+    url.search = '?force=1'
+    return NextResponse.redirect(url)
+  }
+
   // If user is logged in and tries to access /login, send them to their department home
   if (user && request.nextUrl.pathname === '/login') {
       const url = request.nextUrl.clone()

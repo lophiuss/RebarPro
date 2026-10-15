@@ -60,7 +60,7 @@ export function MeetingWorkspace({
     { id: 'kpis', title: 'KPIs', count: kpis.length, node: <KpisBody kpis={wKpis} values={kpiValues} custom={kpiGoals} emptyText="No KPIs in this meeting yet." /> },
     { id: 'goals', title: 'Quarterly Priorities', count: goals.filter(g => g.status !== 'done').length, node: <GoalsBody goals={wGoals} onOpen={g => setOpen({ kind: 'goal', id: g.id })} emptyText="No priorities yet." /> },
     { id: 'headlines', title: 'Headlines', count: headlines.length, node: <HeadlinesBody headlines={wHeadlines} peopleById={peopleById} onOpen={h => setOpen({ kind: 'headline', id: h.id })} /> },
-    { id: 'board', title: 'To-do board', count: todos.filter(t => !t.done_at).length, node: <TodoBoard todos={wTodos} meetingNames={meetingNames} peopleById={peopleById} onOpen={t => setOpen({ kind: 'todo', id: t.id })} /> },
+    { id: 'board', title: 'To-do board', count: todos.filter(t => !t.done_at).length, node: <TodoBoard todos={wTodos} meetingNames={meetingNames} peopleById={peopleById} addIn={[{ id: meetingId, name: meetingName }]} onOpen={t => setOpen({ kind: 'todo', id: t.id })} /> },
     {
       id: 'info', title: 'Meeting', node: (
         <div>

@@ -75,6 +75,8 @@ function tile(label: string, value: string | number, colour = INK) {
 export function buildMinutesHtml(input: MinutesInput): string {
   const s = input.snapshot ?? {}
   const name = (id: string | null | undefined) => (id ? input.names[id] ?? '—' : '—')
+  // Items from people without a login carry their name in owner_name.
+  const who = (o: { owner_id?: string | null; owner_name?: string | null }) => o.owner_name ?? name(o.owner_id)
   const details = (h: string | null | undefined) => {
     if (!input.includeDetails) return ''
     const html = richFromStored(h)
@@ -115,7 +117,7 @@ export function buildMinutesHtml(input: MinutesInput): string {
       const latest = vals[0]?.value
       const hit = evaluateGoal(goal, latest)
       const result = hit === null ? pill('No data', '#f1f5f9', '#64748b') : hit ? pill('Goal met', '#dcfce7', '#15803d') : pill('Missed', '#fee2e2', '#b91c1c')
-      return `<tr>${td(`<b>${esc(k.name)}</b><div style="font-size:11px;color:#94a3b8;text-transform:capitalize">${esc(k.cadence)} · ${esc(name(k.owner_id))}</div>`)}${td(esc(formatGoal(goal, unit)), 'white-space:nowrap')}${td(`<b>${esc(formatKpiValue(latest, unit))}</b>`, 'text-align:right')}${td(esc(vals.slice(1, 5).map(v => formatKpiValue(v.value, unit)).join(' · ') || '—'), 'text-align:right;color:#64748b')}${td(result)}</tr>`
+      return `<tr>${td(`<b>${esc(k.name)}</b><div style="font-size:11px;color:#94a3b8;text-transform:capitalize">${esc(k.cadence)} · ${esc(who(k))}</div>`)}${td(esc(formatGoal(goal, unit)), 'white-space:nowrap')}${td(`<b>${esc(formatKpiValue(latest, unit))}</b>`, 'text-align:right')}${td(esc(vals.slice(1, 5).map(v => formatKpiValue(v.value, unit)).join(' · ') || '—'), 'text-align:right;color:#64748b')}${td(result)}</tr>`
     }).join('')
     out.push(section(++n, 'KPI scorecard', table(th('KPI') + th('Goal') + th('Latest', true) + th('Previous', true) + th('Result'), rows)))
   }
@@ -123,19 +125,19 @@ export function buildMinutesHtml(input: MinutesInput): string {
   out.push(section(++n, 'Quarterly priorities', goals.length === 0 ? none : table(th('Priority') + th('Owner') + th('Due') + th('Milestones') + th('Status'), goals.map(g => {
     const ms: { done: boolean }[] = Array.isArray(g.milestones) ? g.milestones : []
     const status = g.status === 'off' ? pill('Off track', '#fee2e2', '#b91c1c') : g.status === 'done' ? pill('Done', '#dbeafe', '#1d4ed8') : pill('On track', '#dcfce7', '#15803d')
-    return `<tr>${td(`<b>${esc(g.title)}</b>${details(g.details)}`)}${td(esc(name(g.owner_id)))}${td(esc(g.due_date ?? '—'), 'white-space:nowrap')}${td(ms.length ? `${ms.filter(m => m.done).length}/${ms.length}` : '—')}${td(status)}</tr>`
+    return `<tr>${td(`<b>${esc(g.title)}</b>${details(g.details)}`)}${td(esc(who(g)))}${td(esc(g.due_date ?? '—'), 'white-space:nowrap')}${td(ms.length ? `${ms.filter(m => m.done).length}/${ms.length}` : '—')}${td(status)}</tr>`
   }).join(''))))
 
   out.push(section(++n, 'Headlines', headlines.length === 0 ? none
-    : `<ul style="margin:0;padding-left:18px">${headlines.map(h => `<li style="margin:0 0 7px;font-size:13px"><b>${esc(h.title)}</b> <span style="color:#64748b">— ${esc(name(h.owner_id))}</span>${details(h.details)}</li>`).join('')}</ul>`))
+    : `<ul style="margin:0;padding-left:18px">${headlines.map(h => `<li style="margin:0 0 7px;font-size:13px"><b>${esc(h.title)}</b> <span style="color:#64748b">— ${esc(who(h))}</span>${details(h.details)}</li>`).join('')}</ul>`))
 
   const todoRows = (list: any[], withStatus = false) => table(
     th('To-do') + th('Owner') + th('Due') + (withStatus ? th('Board status') : ''),
-    list.map(t => `<tr>${td(`<b>${esc(t.title)}</b>${details(t.details)}`)}${td(esc(name(t.owner_id)))}${td(esc(t.due_date ?? '—'), 'white-space:nowrap')}${withStatus ? td(esc(TODO_COLUMNS.find(c => c.key === (t.status ?? 'todo'))?.label ?? 'To do')) : ''}</tr>`).join(''),
+    list.map(t => `<tr>${td(`<b>${esc(t.title)}</b>${details(t.details)}`)}${td(esc(who(t)))}${td(esc(t.due_date ?? '—'), 'white-space:nowrap')}${withStatus ? td(esc(TODO_COLUMNS.find(c => c.key === (t.status ?? 'todo'))?.label ?? 'To do')) : ''}</tr>`).join(''),
   )
   out.push(section(++n, 'Action items (to-dos)',
     sub(`Created in this meeting (${created.length})`) + (created.length ? todoRows(created) : none) +
-    sub(`Completed (${completed.length})`) + (completed.length ? `<ul style="margin:0;padding-left:18px">${completed.map(t => `<li style="margin:0 0 4px;font-size:13px">${esc(t.title)} <span style="color:#64748b">— ${esc(name(t.owner_id))}</span></li>`).join('')}</ul>` : none) +
+    sub(`Completed (${completed.length})`) + (completed.length ? `<ul style="margin:0;padding-left:18px">${completed.map(t => `<li style="margin:0 0 4px;font-size:13px">${esc(t.title)} <span style="color:#64748b">— ${esc(who(t))}</span></li>`).join('')}</ul>` : none) +
     sub(`Still open (${open.length})`) + (open.length ? todoRows(open, true) : none)))
 
   out.push(section(++n, 'Issues',

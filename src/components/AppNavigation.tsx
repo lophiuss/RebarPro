@@ -9,7 +9,7 @@ import {
   ArrowLeftRight, ClipboardList, AlertTriangle, Factory, DoorClosed, KeyRound,
   Radio, Siren, ClipboardEdit, User, Sparkles, Wrench, CalendarClock,
   PackageSearch, Inbox, History, HelpCircle, Navigation, Hammer,
-  Users, Lock, FileBarChart, Clock, BedDouble, FileText, Upload, Target, Receipt, DollarSign, LayoutDashboard, CalendarDays, ListChecks, Network, MessagesSquare, UserCheck, LifeBuoy, PanelLeftClose, PanelLeftOpen, PenTool
+  Users, Lock, FileBarChart, Clock, BedDouble, FileText, Upload, Target, Receipt, DollarSign, LayoutDashboard, CalendarDays, ListChecks, Network, MessagesSquare, UserCheck, LifeBuoy, PanelLeftClose, PanelLeftOpen, PenTool, UserPlus
 } from 'lucide-react'
 
 export type Department = 'rebar' | 'cement' | 'security' | 'maintenance' | 'mould' | 'plantpro' | 'meetings'
@@ -149,6 +149,7 @@ export const NAV_ITEMS: Record<Department, NavItem[]> = {
     { href: '/meetings/coach', label: 'Coach (Whiteboard)', icon: PenTool },
     { href: '/meetings/documents', label: 'Documents', icon: FileText },
     { href: '/meetings/resources', label: 'Resource Center', icon: LifeBuoy },
+    { href: '/meetings/people', label: 'People & Invitations', icon: UserPlus },
     { href: '/meetings/settings', label: 'Settings', icon: Settings },
   ],
 }

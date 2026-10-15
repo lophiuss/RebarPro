@@ -82,7 +82,7 @@ export default function TodosBoard({ todos, meetings, people, myId }: { todos: B
 
       {isBoard ? (
         <div className="h-[34rem]">
-          <TodoBoard todos={shown} meetingNames={meetingsById} peopleById={peopleById} onOpen={t => setOpenId(t.id)} />
+          <TodoBoard todos={shown} meetingNames={meetingsById} peopleById={peopleById} addIn={meetings} onOpen={t => setOpenId(t.id)} />
         </div>
       ) : shown.length === 0 ? (
         <div className="border border-dashed rounded-xl p-10 text-center bg-white text-sm text-gray-500">No to-dos match these filters.</div>

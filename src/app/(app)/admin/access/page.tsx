@@ -97,6 +97,7 @@ export default function AccessControlPage() {
   const [viewAsPerson, setViewAsPerson] = useState<Person | null>(null)
   const [viewAsDept, setViewAsDept] = useState<Department | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [waiting, setWaiting] = useState<{ id: string; full_name: string; email: string | null }[]>([])
 
   const supabase = createClient()
 
@@ -123,6 +124,9 @@ export default function AccessControlPage() {
       ])
 
       setProfiles(people)
+      // Meetings people imported from the old system who do not have a login yet
+      const { data: pending } = await supabase.from('mtg_contacts').select('id, full_name, email').is('user_id', null).order('full_name')
+      setWaiting((pending ?? []) as { id: string; full_name: string; email: string | null }[])
       if (accessRes.error) throw accessRes.error
       if (accessRes.data) setAccess(accessRes.data)
       if (navPermRes.error) throw navPermRes.error
@@ -412,6 +416,25 @@ export default function AccessControlPage() {
                 {grantablePeople.length === 0 && <span className="text-xs text-gray-400">Everyone with an account already has {DEPT_LABEL[dept]} access.</span>}
               </div>
             </div>
+
+            {dept === 'meetings' && waiting.length > 0 && (
+              <div className="mb-8 bg-white border rounded-xl shadow-sm overflow-x-auto">
+                <div className="px-4 py-3 border-b bg-amber-50 flex items-center justify-between gap-3 flex-wrap">
+                  <h2 className="text-sm font-bold text-slate-700">Meetings — {waiting.length} waiting for an invitation <span className="font-normal text-gray-500">(no login yet)</span></h2>
+                  <a href="/meetings/people" className="text-sm font-semibold text-blue-600 hover:underline">Invite them →</a>
+                </div>
+                <table className="min-w-full divide-y divide-gray-200">
+                  <tbody className="divide-y divide-gray-200">
+                    {waiting.map(w => (
+                      <tr key={w.id}>
+                        <td className="px-4 py-2 text-sm font-medium">{w.full_name}</td>
+                        <td className="px-4 py-2 text-sm text-gray-500">{w.email || <span className="text-amber-600">no e-mail yet</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
             {/* People with access to this department */}
             <div className="bg-white border rounded-xl shadow-sm overflow-x-auto mb-10">
