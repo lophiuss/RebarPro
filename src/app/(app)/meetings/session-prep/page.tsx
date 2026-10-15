@@ -36,7 +36,7 @@ export default async function SessionPrepPage() {
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-4xl mx-auto">
+    <div className="p-4 md:p-6 xl:p-8 max-w-6xl mx-auto">
       <h1 className="text-3xl font-bold mb-1 flex items-center gap-2"><ClipboardList className="w-7 h-7 text-blue-600" /> Session prep</h1>
       <p className="text-sm text-gray-500 mb-6">Gather everyone&apos;s thoughts before a meeting so it stays focused and efficient.</p>
       <SessionPrepView

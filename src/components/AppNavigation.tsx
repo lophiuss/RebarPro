@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useSyncExternalStore } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
@@ -9,7 +9,7 @@ import {
   ArrowLeftRight, ClipboardList, AlertTriangle, Factory, DoorClosed, KeyRound,
   Radio, Siren, ClipboardEdit, User, Sparkles, Wrench, CalendarClock,
   PackageSearch, Inbox, History, HelpCircle, Navigation, Hammer,
-  Users, Lock, FileBarChart, Clock, BedDouble, FileText, Upload, Target, Receipt, DollarSign, LayoutDashboard, CalendarDays, ListChecks, Network, MessagesSquare, UserCheck, LifeBuoy
+  Users, Lock, FileBarChart, Clock, BedDouble, FileText, Upload, Target, Receipt, DollarSign, LayoutDashboard, CalendarDays, ListChecks, Network, MessagesSquare, UserCheck, LifeBuoy, PanelLeftClose, PanelLeftOpen, PenTool
 } from 'lucide-react'
 
 export type Department = 'rebar' | 'cement' | 'security' | 'maintenance' | 'mould' | 'plantpro' | 'meetings'
@@ -51,7 +51,8 @@ const DEPARTMENT_HOME: Record<Department, string> = {
   maintenance: '/maintenance',
   mould: '/mould',
   plantpro: '/plantpro/ot',
-  meetings: '/meetings',
+  // Meetings opens on My Workspace (your to-dos, KPIs and priorities), not the list.
+  meetings: '/meetings/workspace',
 }
 
 const SETTINGS_HREF: Record<Department, string> = {
@@ -136,8 +137,8 @@ export const NAV_ITEMS: Record<Department, NavItem[]> = {
     { href: '/plantpro/config', label: 'Config', icon: Settings },
   ],
   meetings: [
-    { href: '/meetings', label: 'Meetings', icon: CalendarDays },
     { href: '/meetings/workspace', label: 'My Workspace', icon: LayoutDashboard },
+    { href: '/meetings', label: 'Meetings', icon: CalendarDays },
     { href: '/meetings/todos', label: 'To-dos', icon: ListChecks },
     { href: '/meetings/growth-plan', label: 'Growth Plan', icon: Target },
     { href: '/meetings/org-chart', label: 'Org Chart', icon: Network },
@@ -145,14 +146,33 @@ export const NAV_ITEMS: Record<Department, NavItem[]> = {
     { href: '/meetings/one-on-one', label: 'Quarterly 1:1', icon: MessagesSquare },
     { href: '/meetings/rprs', label: 'Right Person Right Seat', icon: UserCheck },
     { href: '/meetings/session-prep', label: 'Session Prep', icon: ClipboardList },
+    { href: '/meetings/coach', label: 'Coach (Whiteboard)', icon: PenTool },
     { href: '/meetings/documents', label: 'Documents', icon: FileText },
     { href: '/meetings/resources', label: 'Resource Center', icon: LifeBuoy },
     { href: '/meetings/settings', label: 'Settings', icon: Settings },
   ],
 }
 
+// Desktop sidebar collapse, remembered across pages and visits. Read through
+// useSyncExternalStore so the server render (expanded) and the first client
+// render agree, then the stored choice applies without a hydration mismatch.
+const SIDEBAR_KEY = 'av-sidebar-collapsed'
+function subscribeSidebar(cb: () => void) {
+  window.addEventListener('storage', cb)
+  window.addEventListener('av-sidebar', cb)
+  return () => { window.removeEventListener('storage', cb); window.removeEventListener('av-sidebar', cb) }
+}
+function readSidebar() {
+  try { return window.localStorage.getItem(SIDEBAR_KEY) === '1' } catch { return false }
+}
+function writeSidebar(collapsed: boolean) {
+  try { window.localStorage.setItem(SIDEBAR_KEY, collapsed ? '1' : '0') } catch { /* private mode: still works for this page view */ }
+  window.dispatchEvent(new Event('av-sidebar'))
+}
+
 export default function AppNavigation({ userEmail, fullName, departments, navPermissions, canUseAiHelper, children }: Props) {
   const [isOpen, setIsOpen] = useState(false)
+  const collapsed = useSyncExternalStore(subscribeSidebar, readSidebar, () => false)
   const pathname = usePathname()
   const firstName = (fullName || userEmail.split('@')[0]).split(' ')[0]
 
@@ -213,13 +233,28 @@ export default function AppNavigation({ userEmail, fullName, departments, navPer
         />
       )}
 
+      {/* Slim rail shown on desktop while the sidebar is collapsed */}
+      {collapsed && (
+        <div className="hidden md:flex w-10 shrink-0 bg-slate-900 flex-col items-center pt-4 print:hidden">
+          <button
+            onClick={() => writeSidebar(false)}
+            className="p-1.5 rounded-lg text-slate-300 hover:bg-slate-800 hover:text-white transition"
+            aria-label="Show sidebar"
+            title="Show sidebar"
+          >
+            <PanelLeftOpen className="w-5 h-5" />
+          </button>
+        </div>
+      )}
+
       {/* Sidebar Drawer */}
       <aside
         className={`
           fixed md:static inset-y-0 left-0 z-50
-          w-64 bg-slate-900 text-white flex flex-col
+          w-64 bg-slate-900 text-white flex flex-col print:hidden
           transform transition-transform duration-200 ease-in-out
           ${isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+          ${collapsed ? 'md:hidden' : ''}
           shadow-xl md:shadow-none
         `}
       >
@@ -235,6 +270,14 @@ export default function AppNavigation({ userEmail, fullName, departments, navPer
             className="md:hidden p-1 text-slate-400 hover:text-white"
           >
             <X className="w-5 h-5" />
+          </button>
+          <button
+            onClick={() => writeSidebar(true)}
+            className="hidden md:inline-flex p-1.5 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition"
+            aria-label="Hide sidebar"
+            title="Hide sidebar"
+          >
+            <PanelLeftClose className="w-5 h-5" />
           </button>
         </div>
 

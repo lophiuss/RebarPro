@@ -68,3 +68,63 @@ export async function deleteSeat(id: string) {
   revalidatePath('/meetings/org-chart')
   revalidatePath('/meetings/direct-reports')
 }
+
+// ---------------------------------------------------------------------------
+// Moving seats around the chart
+// ---------------------------------------------------------------------------
+
+type Supa = Awaited<ReturnType<typeof requireMeetingsManager>>['supabase']
+
+async function childrenOf(supabase: Supa, parentId: string | null) {
+  let q = supabase.from('mtg_seats').select('id').order('position').order('id')
+  q = parentId ? q.eq('parent_id', parentId) : q.is('parent_id', null)
+  const { data, error } = await q
+  if (error) throw error
+  return (data ?? []).map(r => r.id as string)
+}
+
+// Rewrites positions 0..n-1 in the given order (also tidies any duplicates).
+async function renumber(supabase: Supa, ids: string[]) {
+  for (let i = 0; i < ids.length; i++) {
+    const { error } = await supabase.from('mtg_seats').update({ position: i }).eq('id', ids[i])
+    if (error) throw error
+  }
+}
+
+// left / right: swap with the neighbouring seat on the same row.
+// up: move out to the parent's level, right after the parent.
+// down: tuck under the seat beside it (the one before, else the one after).
+export async function moveSeat(id: string, dir: 'left' | 'right' | 'up' | 'down') {
+  const { supabase } = await requireMeetingsManager()
+  const { data: seat } = await supabase.from('mtg_seats').select('id, parent_id').eq('id', id).maybeSingle()
+  if (!seat) throw new Error('Seat not found')
+  const parentId = (seat.parent_id as string | null) ?? null
+  const siblings = await childrenOf(supabase, parentId)
+  const idx = siblings.indexOf(id)
+
+  if (dir === 'left' || dir === 'right') {
+    const to = dir === 'left' ? idx - 1 : idx + 1
+    if (to < 0 || to >= siblings.length) throw new Error(dir === 'left' ? 'Already the first seat in this row' : 'Already the last seat in this row')
+    ;[siblings[idx], siblings[to]] = [siblings[to], siblings[idx]]
+    await renumber(supabase, siblings)
+  } else if (dir === 'up') {
+    if (!parentId) throw new Error('This seat is already at the top level')
+    const { data: parent } = await supabase.from('mtg_seats').select('id, parent_id').eq('id', parentId).maybeSingle()
+    const grand = (parent?.parent_id as string | null) ?? null
+    const { error } = await supabase.from('mtg_seats').update({ parent_id: grand }).eq('id', id)
+    if (error) throw error
+    const row = (await childrenOf(supabase, grand)).filter(x => x !== id)
+    row.splice(row.indexOf(parentId) + 1, 0, id)
+    await renumber(supabase, row)
+    await renumber(supabase, siblings.filter(x => x !== id))
+  } else {
+    const target = siblings[idx - 1] ?? siblings[idx + 1]
+    if (!target) throw new Error('There is no seat beside this one to move it under')
+    const { error } = await supabase.from('mtg_seats').update({ parent_id: target }).eq('id', id)
+    if (error) throw error
+    await renumber(supabase, [...(await childrenOf(supabase, target)).filter(x => x !== id), id])
+    await renumber(supabase, siblings.filter(x => x !== id))
+  }
+  revalidatePath('/meetings/org-chart')
+  revalidatePath('/meetings/direct-reports')
+}

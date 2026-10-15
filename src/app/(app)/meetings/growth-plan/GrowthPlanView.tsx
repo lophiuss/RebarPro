@@ -9,7 +9,7 @@ import type { GrowthPlanContent, Person } from '@/lib/meetings'
 type Goal = { id: string; title: string; status: string; due_date: string | null; owner_id: string | null; milestones: { title: string; done: boolean }[]; meeting: { name: string } | null }
 type Parked = { id: string; title: string; owner_id: string | null }
 
-const card = 'border rounded-xl bg-white p-5'
+const card = 'border rounded-xl bg-white shadow-sm p-5'
 const input = 'w-full border rounded-lg px-3 py-2 text-sm bg-white'
 
 function fmtDate(d?: string) {

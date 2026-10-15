@@ -7,7 +7,18 @@ import { Plus, Trash2, Pencil, X, ArrowRight, Eye } from 'lucide-react'
 import { createPrepSession, deletePrepSession, savePrepDoc, deletePrepDoc } from './actions'
 import { act } from '../act'
 
-type Q = { id?: string; label: string; type: 'text' | 'rating' }
+type QType = 'text' | 'rating' | 'number' | 'yesno' | 'choice' | 'multi' | 'vote' | 'date'
+type Q = { id?: string; label: string; type: QType; options?: string[]; unit?: string; required?: boolean }
+// A question while it is being edited (options are one per line).
+type EQ = { id?: string; label: string; type: QType; optText: string; unit: string; required: boolean }
+
+export const QTYPE_LABEL: Record<QType, string> = {
+  text: 'Text answer', rating: 'Rating 1-10', number: 'Value (number)', yesno: 'Yes / No', choice: 'Pick one option',
+  multi: 'Pick several options', vote: 'Vote on options (for / against / abstain)', date: 'Date',
+}
+const NEEDS_OPTIONS: QType[] = ['choice', 'multi', 'vote']
+const blankQ = (): EQ => ({ label: '', type: 'text', optText: '', unit: '', required: false })
+const toEQ = (q: Q): EQ => ({ id: q.id, label: q.label, type: q.type, optText: (q.options ?? []).join('\n'), unit: q.unit ?? '', required: !!q.required })
 type Doc = { id: string; name: string; questions: Q[] }
 type Session = { id: string; meeting_id: string; due_date: string; created_by: string | null; meeting_name: string; doc_name: string; submitted: number; total: number; mine: boolean; mySubmitted: boolean }
 
@@ -21,7 +32,7 @@ export default function SessionPrepView({ sessions, docs, meetings, myId, canMan
   const [form, setForm] = useState({ meeting_id: '', doc_id: docs[0]?.id ?? '', due_date: '', add_todos: true })
   const [preview, setPreview] = useState<Doc | null>(null)
   const [busy, setBusy] = useState(false)
-  const [docForm, setDocForm] = useState<{ id?: string; name: string; questions: Q[] } | null>(null)
+  const [docForm, setDocForm] = useState<{ id?: string; name: string; questions: EQ[] } | null>(null)
 
   async function create(e: React.FormEvent) {
     e.preventDefault()
@@ -35,7 +46,7 @@ export default function SessionPrepView({ sessions, docs, meetings, myId, canMan
     e.preventDefault()
     if (!docForm) return
     setBusy(true)
-    const ok = await act(async () => { await savePrepDoc(docForm); return true })
+    const ok = await act(async () => { await savePrepDoc({ id: docForm.id, name: docForm.name, questions: docForm.questions.map(q => ({ id: q.id, label: q.label, type: q.type, options: NEEDS_OPTIONS.includes(q.type) ? q.optText.split('\n') : undefined, unit: q.unit, required: q.required })) }); return true })
     setBusy(false)
     if (ok) setDocForm(null)
   }
@@ -47,12 +58,12 @@ export default function SessionPrepView({ sessions, docs, meetings, myId, canMan
       <section>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-bold">Prep sessions</h2>
-          <button onClick={() => setShowCreate(true)} className="inline-flex items-center gap-1 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700"><Plus className="w-4 h-4" /> Create session prep</button>
+          <button onClick={() => setShowCreate(true)} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 hover:bg-blue-700"><Plus className="w-3.5 h-3.5" /> Create session prep</button>
         </div>
         {sessions.length === 0 ? (
           <div className="border border-dashed rounded-xl p-10 text-center bg-white text-sm text-gray-500">No prep sessions yet.</div>
         ) : (
-          <ul className="border rounded-xl bg-white divide-y">
+          <ul className="border rounded-xl bg-white shadow-sm divide-y">
             {sessions.map(s => (
               <li key={s.id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50">
                 <Link href={`/meetings/session-prep/${s.id}`} className="flex-1 min-w-0">
@@ -73,16 +84,16 @@ export default function SessionPrepView({ sessions, docs, meetings, myId, canMan
       <section>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-bold">Prep docs</h2>
-          {canManageDocs && <button onClick={() => setDocForm({ name: '', questions: [{ label: '', type: 'text' }] })} className="inline-flex items-center gap-1 text-sm font-semibold text-blue-600 hover:text-blue-800"><Plus className="w-4 h-4" /> New prep doc</button>}
+          {canManageDocs && <button onClick={() => setDocForm({ name: '', questions: [blankQ()] })} className="inline-flex items-center gap-1 text-sm font-semibold text-blue-600 hover:text-blue-800"><Plus className="w-4 h-4" /> New prep doc</button>}
         </div>
-        <ul className="border rounded-xl bg-white divide-y">
+        <ul className="border rounded-xl bg-white shadow-sm divide-y">
           {docs.map(d => (
             <li key={d.id} className="flex items-center gap-3 px-4 py-3">
               <div className="flex-1 min-w-0"><div className="font-medium truncate">{d.name}</div><div className="text-xs text-gray-500">{d.questions.length} question{d.questions.length === 1 ? '' : 's'}</div></div>
               <button onClick={() => setPreview(d)} aria-label="Preview" className="text-gray-400 hover:text-blue-600"><Eye className="w-4 h-4" /></button>
               {canManageDocs && (
                 <>
-                  <button onClick={() => setDocForm({ id: d.id, name: d.name, questions: d.questions.map(q => ({ label: q.label, type: q.type })) })} aria-label="Edit" className="text-gray-400 hover:text-blue-600"><Pencil className="w-4 h-4" /></button>
+                  <button onClick={() => setDocForm({ id: d.id, name: d.name, questions: d.questions.map(toEQ) })} aria-label="Edit" className="text-gray-400 hover:text-blue-600"><Pencil className="w-4 h-4" /></button>
                   <button onClick={() => confirm(`Delete "${d.name}"?`) && act(() => deletePrepDoc(d.id))} aria-label="Delete" className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
                 </>
               )}
@@ -132,7 +143,7 @@ export default function SessionPrepView({ sessions, docs, meetings, myId, canMan
           <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-5 py-4 border-b"><h2 className="font-bold text-lg">{preview.name}</h2><button onClick={() => setPreview(null)} aria-label="Close"><X className="w-5 h-5 text-gray-400" /></button></div>
             <ol className="p-5 space-y-3 list-decimal list-inside">
-              {preview.questions.map((q, i) => <li key={i} className="text-sm">{q.label} <span className="text-xs text-gray-400">({q.type === 'rating' ? '1-10' : 'text'})</span></li>)}
+              {preview.questions.map((q, i) => <li key={i} className="text-sm">{q.label}{q.required ? ' *' : ''} <span className="text-xs text-gray-400">({QTYPE_LABEL[q.type] ?? q.type}{q.options ? `: ${q.options.join(' / ')}` : ''}{q.unit ? `, ${q.unit}` : ''})</span></li>)}
             </ol>
           </div>
         </div>
@@ -151,18 +162,30 @@ export default function SessionPrepView({ sessions, docs, meetings, myId, canMan
               </label>
               <div>
                 <div className="text-sm font-medium mb-1">Questions</div>
-                <ul className="space-y-2">
-                  {docForm.questions.map((q, i) => (
-                    <li key={i} className="flex gap-2">
-                      <input value={q.label} onChange={e => setDocForm({ ...docForm, questions: docForm.questions.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x)) })} placeholder={`Question ${i + 1}`} className={`${input} flex-1`} />
-                      <select value={q.type} onChange={e => setDocForm({ ...docForm, questions: docForm.questions.map((x, idx) => (idx === i ? { ...x, type: e.target.value as Q['type'] } : x)) })} className={input} aria-label="Answer type">
-                        <option value="text">Text</option><option value="rating">Rating 1-10</option>
-                      </select>
-                      <button type="button" onClick={() => setDocForm({ ...docForm, questions: docForm.questions.filter((_, idx) => idx !== i) })} aria-label="Remove" className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
-                    </li>
-                  ))}
+                <ul className="space-y-3">
+                  {docForm.questions.map((q, i) => {
+                    const set = (patch: Partial<EQ>) => setDocForm({ ...docForm, questions: docForm.questions.map((x, idx) => (idx === i ? { ...x, ...patch } : x)) })
+                    return (
+                      <li key={i} className="rounded-lg border p-2.5 space-y-2 bg-gray-50/50">
+                        <div className="flex gap-2">
+                          <input value={q.label} onChange={e => set({ label: e.target.value })} placeholder={`Question ${i + 1}`} className={`${input} flex-1`} />
+                          <button type="button" onClick={() => setDocForm({ ...docForm, questions: docForm.questions.filter((_, idx) => idx !== i) })} aria-label="Remove question" className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <select value={q.type} onChange={e => set({ type: e.target.value as QType })} className={input} aria-label="Answer type">
+                            {(Object.keys(QTYPE_LABEL) as QType[]).map(t => <option key={t} value={t}>{QTYPE_LABEL[t]}</option>)}
+                          </select>
+                          {q.type === 'number' && <input value={q.unit} onChange={e => set({ unit: e.target.value })} placeholder="Unit (e.g. RM, days)" className={`${input} w-40`} aria-label="Unit" />}
+                          <label className="flex items-center gap-1.5 text-sm"><input type="checkbox" checked={q.required} onChange={e => set({ required: e.target.checked })} /> Required</label>
+                        </div>
+                        {NEEDS_OPTIONS.includes(q.type) && (
+                          <textarea value={q.optText} onChange={e => set({ optText: e.target.value })} rows={3} placeholder={'One option per line\nOption A\nOption B'} className={`${input} w-full`} aria-label="Options" />
+                        )}
+                      </li>
+                    )
+                  })}
                 </ul>
-                <button type="button" onClick={() => setDocForm({ ...docForm, questions: [...docForm.questions, { label: '', type: 'text' }] })} className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-blue-600 hover:text-blue-800"><Plus className="w-4 h-4" /> Add question</button>
+                <button type="button" onClick={() => setDocForm({ ...docForm, questions: [...docForm.questions, blankQ()] })} className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-blue-600 hover:text-blue-800"><Plus className="w-4 h-4" /> Add question</button>
               </div>
             </div>
             <div className="flex justify-end gap-2 px-5 py-4 border-t bg-gray-50 rounded-b-xl">

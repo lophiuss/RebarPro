@@ -55,7 +55,7 @@ export default async function DirectReportsPage() {
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-5xl mx-auto">
+    <div className="p-4 md:p-6 xl:p-8 max-w-[1500px] mx-auto">
       <h1 className="text-3xl font-bold mb-6 flex items-center gap-2"><Users className="w-7 h-7 text-blue-600" /> Direct reports</h1>
       <DirectReportsView reports={reports} todos={(todos ?? []) as any} goals={(goals ?? []) as any} qaByReport={qaByReport} />
     </div>

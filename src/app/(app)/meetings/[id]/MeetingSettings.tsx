@@ -2,18 +2,22 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { X, ArrowUp, ArrowDown, Archive } from 'lucide-react'
+import { X, Archive } from 'lucide-react'
 import { updateMeeting, setMeetingAttendees, archiveMeeting } from '../actions'
 import { act } from '../act'
+import { SortableList } from '../Sortable'
+import { PersonSelect, PeopleChecklist } from '../PersonPicker'
 import type { Person } from '@/lib/meetings'
+import type { Schedule } from '../WorkspaceBodies'
 
 type AgendaRow = { id: string; title: string; minutes: number }
 const input = 'w-full border rounded-lg px-3 py-2 text-sm bg-white'
 
 export default function MeetingSettings({
-  meeting, agenda, people, attendeeIds, onClose, onSaved,
+  meeting, agenda, people, attendeeIds, schedule, onClose, onSaved,
 }: {
   meeting: { id: string; name: string; description: string | null; leader_id: string | null }
+  schedule: Schedule | null
   agenda: AgendaRow[]
   people: Person[]
   attendeeIds: string[]
@@ -27,22 +31,15 @@ export default function MeetingSettings({
   const [attendees, setAttendees] = useState<string[]>(attendeeIds)
   const [rows, setRows] = useState<AgendaRow[]>(agenda)
   const [saving, setSaving] = useState(false)
+  const [sched, setSched] = useState<Schedule>(schedule ?? { days: [], time: '09:00', every: 1 })
 
   const patch = (i: number, p: Partial<AgendaRow>) => setRows(rows.map((r, idx) => (idx === i ? { ...r, ...p } : r)))
-  const move = (i: number, dir: -1 | 1) => {
-    const j = i + dir
-    if (j < 0 || j >= rows.length) return
-    const next = [...rows]
-    ;[next[i], next[j]] = [next[j], next[i]]
-    setRows(next)
-  }
-
   async function save(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
     const ok = await act(async () => {
       const withLeader = leader && !attendees.includes(leader) ? [...attendees, leader] : attendees
-      await updateMeeting(meeting.id, { name, description, leader_id: leader || null, agenda: rows })
+      await updateMeeting(meeting.id, { name, description, leader_id: leader || null, agenda: rows, schedule: sched.days.length ? sched : null })
       await setMeetingAttendees(meeting.id, withLeader)
       return true
     })
@@ -71,47 +68,63 @@ export default function MeetingSettings({
             <label className="block text-sm font-medium md:col-span-2">Description
               <input value={description} onChange={e => setDescription(e.target.value)} className={`${input} mt-1 font-normal`} />
             </label>
-            <label className="block text-sm font-medium">Leader
-              <select value={leader} onChange={e => setLeader(e.target.value)} className={`${input} mt-1 font-normal`}>
-                <option value="">(none)</option>
-                {people.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
-              </select>
-            </label>
+            <div>
+              <div className="text-sm font-medium mb-1">Leader</div>
+              <PersonSelect people={people} value={leader} onChange={setLeader} emptyLabel="(none)" className="w-full" ariaLabel="Leader" />
+            </div>
           </div>
 
           <div>
             <div className="text-sm font-semibold mb-2">Agenda</div>
-            <ul className="border rounded-lg divide-y">
-              {rows.map((r, i) => (
-                <li key={r.id} className="flex items-center gap-2 px-3 py-2">
-                  <div className="flex flex-col">
-                    <button type="button" onClick={() => move(i, -1)} disabled={i === 0} aria-label="Move up" className="text-gray-400 hover:text-gray-800 disabled:opacity-30"><ArrowUp className="w-3.5 h-3.5" /></button>
-                    <button type="button" onClick={() => move(i, 1)} disabled={i === rows.length - 1} aria-label="Move down" className="text-gray-400 hover:text-gray-800 disabled:opacity-30"><ArrowDown className="w-3.5 h-3.5" /></button>
-                  </div>
+            <SortableList
+              items={rows}
+              getKey={r => r.id}
+              onChange={setRows}
+              className="border rounded-lg divide-y"
+              itemClassName="px-3 py-2"
+              render={(r, i) => (
+                <>
                   <input value={r.title} onChange={e => patch(i, { title: e.target.value })} className={`${input} flex-1`} aria-label="Title" />
                   <input type="number" min={0} value={r.minutes} onChange={e => patch(i, { minutes: Number(e.target.value) })} className="w-16 border rounded-lg px-2 py-2 text-sm text-right" aria-label="Minutes" />
                   <span className="text-sm text-gray-500">min</span>
-                </li>
+                </>
+              )}
+            />
+            <p className="text-xs text-gray-500 mt-1">Drag the handle to reorder. Total {rows.reduce((s, r) => s + (Number(r.minutes) || 0), 0)} min. Sections cannot be removed, only renamed, reordered and re-timed.</p>
+          </div>
+
+          <div>
+            <div className="text-sm font-semibold mb-1">Schedule</div>
+            <p className="text-xs text-gray-500 mb-2">Shows this meeting on everyone&apos;s calendar. Leave every day off for no schedule.</p>
+            <div className="flex flex-wrap items-center gap-1.5 mb-2">
+              {[1, 2, 3, 4, 5, 6, 0].map(d => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => setSched(prev => ({ ...prev, days: prev.days.includes(d) ? prev.days.filter(x => x !== d) : [...prev.days, d] }))}
+                  className={`w-11 py-1.5 rounded-lg border text-sm font-medium ${sched.days.includes(d) ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white hover:bg-gray-50'}`}
+                  aria-pressed={sched.days.includes(d)}
+                >{['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d]}</button>
               ))}
-            </ul>
-            <p className="text-xs text-gray-500 mt-1">Total {rows.reduce((s, r) => s + (Number(r.minutes) || 0), 0)} min. Sections cannot be removed, only renamed, reordered and re-timed.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              <label className="flex items-center gap-2">At <input type="time" value={sched.time} onChange={e => setSched({ ...sched, time: e.target.value })} className="border rounded-lg px-2 py-1.5 text-sm" /></label>
+              <label className="flex items-center gap-2">Every
+                <select value={sched.every} onChange={e => setSched({ ...sched, every: Number(e.target.value) })} className="border rounded-lg px-2 py-1.5 text-sm bg-white">
+                  <option value={1}>week</option><option value={2}>2 weeks</option><option value={3}>3 weeks</option><option value={4}>4 weeks</option>
+                </select>
+              </label>
+            </div>
           </div>
 
           <div>
             <div className="text-sm font-semibold mb-2">Attendees ({attendees.length})</div>
-            <div className="border rounded-lg max-h-48 overflow-y-auto divide-y">
-              {people.map(p => (
-                <label key={p.id} className="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50">
-                  <input
-                    type="checkbox"
-                    checked={attendees.includes(p.id) || p.id === leader}
-                    disabled={p.id === leader}
-                    onChange={() => setAttendees(attendees.includes(p.id) ? attendees.filter(x => x !== p.id) : [...attendees, p.id])}
-                  />
-                  {p.full_name || p.id.slice(0, 8)}
-                </label>
-              ))}
-            </div>
+            <PeopleChecklist
+              people={people}
+              selected={attendees}
+              locked={leader ? [leader] : []}
+              onToggle={id => setAttendees(attendees.includes(id) ? attendees.filter(x => x !== id) : [...attendees, id])}
+            />
           </div>
 
           <div className="border-t pt-4">

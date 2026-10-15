@@ -13,6 +13,8 @@ export type Run = {
   page_seconds: Record<string, number>
   notes: string
   ratings_revealed: boolean
+  // { [user id]: true | false } as ticked on the Check-in page.
+  attendance: Record<string, boolean>
 }
 
 export type MeetingCtx = {

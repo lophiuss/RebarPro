@@ -1,11 +1,14 @@
 'use client'
 
-import { useState } from 'react'
-import { ArrowLeft, Star, FileText, Mail } from 'lucide-react'
-import Avatar from '../Avatar'
+import { useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { ArrowLeft, Star, FileText, Mail, Printer, Eye, X, Send } from 'lucide-react'
 import { emailSummary } from './emailSummary'
-import { formatSeconds, PAGE_LABEL, PAGE_TYPES, type Person } from '@/lib/meetings'
-import type { Headline, Todo, Issue } from './Sections'
+import { useMeeting } from './context'
+import { PeopleChecklist } from '../PersonPicker'
+import { card, Empty } from './shared'
+import { buildMinutesHtml } from '@/lib/minutesHtml'
+import type { Person } from '@/lib/meetings'
 
 export type SummaryRow = {
   id: string
@@ -16,178 +19,174 @@ export type SummaryRow = {
   emailed_at?: string | null
 }
 
-function EmailButton({ summaryId, emailedAt }: { summaryId: string; emailedAt?: string | null }) {
-  const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+function when(iso: string) {
+  return new Date(iso).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })
+}
+function day(iso: string) {
+  return new Date(iso).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+}
 
-  async function send() {
-    if (!confirm('Email this summary to all attendees?')) return
+// ------------------------------------------------------------- send dialog
+
+function SendDialog({ summary, meetingName, onClose }: { summary: SummaryRow; meetingName: string; onClose: () => void }) {
+  const { people, attendeeIds, myId } = useMeeting()
+  const [selected, setSelected] = useState<string[]>(attendeeIds)
+  const [subject, setSubject] = useState(`Meeting minutes: ${meetingName} (${new Date(summary.snapshot?.ended_at ?? summary.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })})`)
+  const [message, setMessage] = useState('')
+  const [includeDetails, setIncludeDetails] = useState(true)
+  const [includeNotes, setIncludeNotes] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
+
+  // Attendees first, then everyone else.
+  const ordered = useMemo(() => [...people].sort((a, b) => Number(attendeeIds.includes(b.id)) - Number(attendeeIds.includes(a.id))), [people, attendeeIds])
+
+  async function send(ids: string[]) {
+    if (ids.length === 0) return
     setBusy(true)
-    setMsg(null)
+    setResult(null)
     try {
-      const n = await emailSummary(summaryId, { includeDetails: true, includeNotes: false })
-      setMsg({ ok: true, text: `Sent to ${n} attendee${n === 1 ? '' : 's'}.` })
+      const r = await emailSummary(summary.id, { includeDetails, includeNotes, recipientIds: ids, subject, message })
+      const extra = [r.skipped.length ? `No e-mail address: ${r.skipped.join(', ')}.` : '', r.failed.length ? `Failed: ${r.failed.join(', ')}.` : ''].filter(Boolean).join(' ')
+      setResult({ ok: r.failed.length === 0 && r.sent > 0, text: `Sent ${r.sent} separate e-mail${r.sent === 1 ? '' : 's'}. ${extra}`.trim() })
     } catch (err: any) {
-      setMsg({ ok: false, text: err.message })
+      setResult({ ok: false, text: err.message })
     } finally {
       setBusy(false)
     }
   }
 
-  return (
-    <div className="flex items-center gap-3">
-      <button onClick={send} disabled={busy} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white text-sm font-medium hover:bg-gray-50 disabled:opacity-50">
-        <Mail className="w-4 h-4" /> {busy ? 'Sending…' : 'Email summary'}
-      </button>
-      {msg && <span className={`text-sm ${msg.ok ? 'text-green-700' : 'text-red-600'}`}>{msg.text}</span>}
-      {!msg && emailedAt && <span className="text-xs text-gray-500">Last emailed {new Date(emailedAt).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}</span>}
-    </div>
+  // Rendered on <body> so the meeting page's zoom setting cannot shift or clip it.
+  return createPortal(
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 no-print">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-5 py-4 border-b">
+          <h2 className="font-bold text-lg">Send meeting minutes</h2>
+          <button onClick={onClose} aria-label="Close"><X className="w-5 h-5 text-gray-400" /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <div className="text-sm font-medium mb-1">To ({selected.length} selected)</div>
+            <PeopleChecklist people={ordered} selected={selected} onToggle={id => setSelected(s => (s.includes(id) ? s.filter(x => x !== id) : [...s, id]))} maxHeight="max-h-52" />
+            <p className="text-xs text-gray-500 mt-1">Everyone gets their own separate e-mail, so nobody sees who else received it.</p>
+          </div>
+          <label className="block text-sm font-medium">Subject
+            <input value={subject} onChange={e => setSubject(e.target.value)} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm font-normal" />
+          </label>
+          <label className="block text-sm font-medium">Message (optional)
+            <textarea value={message} onChange={e => setMessage(e.target.value)} rows={3} placeholder="A short note shown above the minutes" className="mt-1 w-full border rounded-lg px-3 py-2 text-sm font-normal" />
+          </label>
+          <div className="space-y-1.5">
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={includeDetails} onChange={e => setIncludeDetails(e.target.checked)} /> Include item details</label>
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={includeNotes} onChange={e => setIncludeNotes(e.target.checked)} /> Include meeting notes</label>
+          </div>
+          {result && <p className={`text-sm ${result.ok ? 'text-green-700' : 'text-red-600'}`}>{result.text}</p>}
+          {summary.emailed_at && !result && <p className="text-xs text-gray-500">Last e-mailed {when(summary.emailed_at)}.</p>}
+        </div>
+        <div className="flex flex-wrap justify-end gap-2 px-5 py-4 border-t bg-gray-50 rounded-b-xl">
+          <button onClick={() => send([myId])} disabled={busy} className="px-3 py-2 text-sm rounded-lg border bg-white hover:bg-gray-50 disabled:opacity-50" title="Sends one copy to you only, to check how it looks">Send test to me</button>
+          <button onClick={() => send(selected)} disabled={busy || selected.length === 0} className="inline-flex items-center gap-1.5 px-4 py-2 text-sm rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50">
+            <Send className="w-4 h-4" /> {busy ? 'Sending…' : `Send to ${selected.length}`}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
   )
 }
 
-const card = 'border rounded-xl bg-white'
+// ------------------------------------------------------------------ report
 
-function when(iso: string) {
-  return new Date(iso).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })
-}
+// The report on screen IS the e-mail: the same HTML is previewed here, printed
+// from its own frame (so the website header and sidebar never appear), and sent.
+function Report({ summary, meetingName, peopleById, onBack }: {
+  summary: SummaryRow; meetingName: string; peopleById: Map<string, Person>; onBack: () => void
+}) {
+  const [includeDetails, setIncludeDetails] = useState(true)
+  const [includeNotes, setIncludeNotes] = useState(true)
+  const [sending, setSending] = useState(false)
+  const [height, setHeight] = useState(900)
+  const frame = useRef<HTMLIFrameElement>(null)
 
-export function SummaryTab({ summaries, peopleById }: { summaries: SummaryRow[]; peopleById: Map<string, Person> }) {
-  const [selected, setSelected] = useState<SummaryRow | null>(null)
+  const html = useMemo(() => buildMinutesHtml({
+    meetingName,
+    createdAt: summary.created_at,
+    averageRating: summary.average_rating,
+    snapshot: summary.snapshot,
+    names: Object.fromEntries([...peopleById.entries()].map(([id, p]) => [id, p.full_name ?? '—'])),
+    includeDetails,
+    includeNotes,
+    ref: summary.id,
+  }), [meetingName, summary, peopleById, includeDetails, includeNotes])
 
-  if (selected) {
-    const s = selected.snapshot ?? {}
-    const started = s.started_at ? new Date(s.started_at).getTime() : null
-    const ended = s.ended_at ? new Date(s.ended_at).getTime() : null
-    const duration = started && ended ? Math.round((ended - started) / 1000) : null
-    const sections: { title: string; items: { key: string; owner?: string | null; text: string; meta?: string }[] }[] = [
-      { title: 'Headlines', items: (s.headlines ?? []).map((h: any) => ({ key: h.id, owner: h.owner_id, text: h.title })) },
-      { title: 'To-dos created', items: (s.todos_created ?? []).map((t: any) => ({ key: t.id, owner: t.owner_id, text: t.title, meta: t.due_date })) },
-      { title: 'To-dos completed', items: (s.todos_completed ?? []).map((t: any) => ({ key: t.id, owner: t.owner_id, text: t.title })) },
-      { title: 'Issues solved', items: (s.issues_solved ?? []).map((i: any) => ({ key: i.id, text: i.title })) },
-    ]
-    return (
-      <div>
-        <button onClick={() => setSelected(null)} className="inline-flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900 mb-4"><ArrowLeft className="w-4 h-4" /> Back to summary list</button>
-        <div className="flex items-start justify-between gap-3 flex-wrap mb-1">
-          <h2 className="text-xl font-bold">{when(selected.created_at)}</h2>
-          <EmailButton summaryId={selected.id} emailedAt={selected.emailed_at} />
-        </div>
-        <div className="text-sm text-gray-500 mb-4 flex gap-4 flex-wrap">
-          {duration != null && <span>Duration {formatSeconds(duration)}</span>}
-          {selected.average_rating != null && <span className="flex items-center gap-1"><Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" /> Average rating {Number(selected.average_rating).toFixed(1)}</span>}
-        </div>
-
-        <div className="grid md:grid-cols-2 gap-4">
-          {sections.map(sec => (
-            <div key={sec.title} className={`${card} p-4`}>
-              <div className="font-semibold text-sm mb-2">{sec.title} <span className="text-gray-400 font-normal">({sec.items.length})</span></div>
-              {sec.items.length === 0 ? <p className="text-sm text-gray-400">None</p> : (
-                <ul className="space-y-1.5">
-                  {sec.items.map(it => (
-                    <li key={it.key} className="text-sm flex items-center gap-2">
-                      {it.owner !== undefined && <Avatar person={peopleById.get(it.owner ?? '')} size="sm" />}
-                      <span className="flex-1">{it.text}</span>
-                      {it.meta && <span className="text-xs text-gray-500">{it.meta}</span>}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ))}
-        </div>
-
-        {(s.ratings ?? []).length > 0 && (
-          <div className={`${card} p-4 mt-4`}>
-            <div className="font-semibold text-sm mb-2">Ratings</div>
-            <ul className="space-y-1.5">
-              {s.ratings.map((r: any) => (
-                <li key={r.user_id} className="text-sm flex items-start gap-2">
-                  <Avatar person={peopleById.get(r.user_id)} size="sm" />
-                  <span className="w-36 truncate">{peopleById.get(r.user_id)?.full_name}</span>
-                  <span className="font-semibold">{r.rating ?? '—'}</span>
-                  {r.feedback && <span className="text-gray-600">— {r.feedback}</span>}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {s.page_seconds && (
-          <div className={`${card} p-4 mt-4`}>
-            <div className="font-semibold text-sm mb-2">Time per section</div>
-            <ul className="grid sm:grid-cols-2 gap-x-6 gap-y-1">
-              {PAGE_TYPES.map(p => (
-                <li key={p} className="text-sm flex justify-between"><span>{PAGE_LABEL[p]}</span><span className="tabular-nums text-gray-600">{formatSeconds(Math.round(s.page_seconds[p] ?? 0))}</span></li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {s.notes && (
-          <div className={`${card} p-4 mt-4`}>
-            <div className="font-semibold text-sm mb-2">Meeting notes</div>
-            <p className="text-sm whitespace-pre-wrap">{s.notes}</p>
-          </div>
-        )}
-      </div>
-    )
+  function print() {
+    frame.current?.contentWindow?.focus()
+    frame.current?.contentWindow?.print()
   }
 
   return (
     <div>
-      <h2 className="text-xl font-bold mb-4">Summaries</h2>
-      {summaries.length === 0 ? (
-        <div className="border border-dashed rounded-xl p-8 text-center bg-white">
-          <div className="font-semibold text-slate-700">No meeting summary found for this meeting.</div>
-          <div className="text-sm text-gray-500 mt-1">A summary is saved each time a meeting is concluded.</div>
+      <div className="no-print flex flex-wrap items-center gap-3 mb-4">
+        <button onClick={onBack} className="inline-flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900"><ArrowLeft className="w-4 h-4" /> Back to summary list</button>
+        <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-gray-500"><Eye className="w-4 h-4" /> Preview: this is exactly what is printed and e-mailed</span>
+        <div className="ml-auto flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-1.5 text-sm"><input type="checkbox" checked={includeDetails} onChange={e => setIncludeDetails(e.target.checked)} /> Item details</label>
+          <label className="flex items-center gap-1.5 text-sm"><input type="checkbox" checked={includeNotes} onChange={e => setIncludeNotes(e.target.checked)} /> Notes</label>
+          <button onClick={print} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800"><Printer className="w-4 h-4" /> Print / Save as PDF</button>
+          <button onClick={() => setSending(true)} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border bg-white text-sm font-semibold hover:bg-gray-50"><Mail className="w-4 h-4" /> Send…</button>
         </div>
-      ) : (
-        <ul className={`${card} divide-y`}>
-          {summaries.map(s => (
-            <li key={s.id}>
-              <button onClick={() => setSelected(s)} className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-gray-50">
-                <FileText className="w-4 h-4 text-gray-400" />
-                <span className="flex-1 font-medium">{when(s.created_at)}</span>
-                {s.average_rating != null && <span className="text-sm text-gray-600 flex items-center gap-1"><Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />{Number(s.average_rating).toFixed(1)}</span>}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      </div>
+      <iframe
+        ref={frame}
+        title="Meeting minutes preview"
+        srcDoc={html}
+        // No scripts. Same-origin lets us size the frame and print it.
+        sandbox="allow-same-origin allow-modals"
+        onLoad={() => { const h = frame.current?.contentDocument?.documentElement.scrollHeight; if (h) setHeight(h + 8) }}
+        style={{ height }}
+        className="w-full border rounded-xl bg-slate-100"
+      />
+      {sending && <SendDialog summary={summary} meetingName={meetingName} onClose={() => setSending(false)} />}
     </div>
   )
 }
 
-export function ArchiveTab({ archived, peopleById }: { archived: { headlines: Headline[]; todos: Todo[]; issues: Issue[] }; peopleById: Map<string, Person> }) {
-  const groups = [
-    { title: 'Headlines', items: archived.headlines.map(h => ({ key: h.id, owner: h.owner_id, text: h.title })) },
-    { title: 'Completed to-dos', items: archived.todos.map(t => ({ key: t.id, owner: t.owner_id, text: t.title })) },
-    { title: 'Solved issues', items: archived.issues.map(i => ({ key: i.id, owner: i.owner_id, text: i.title })) },
-  ]
-  const empty = groups.every(g => g.items.length === 0)
+// --------------------------------------------------------------------- list
+
+export function SummaryTab({ summaries, peopleById, meetingName }: { summaries: SummaryRow[]; peopleById: Map<string, Person>; meetingName: string }) {
+  const [selected, setSelected] = useState<SummaryRow | null>(null)
+
+  if (selected) return <Report summary={selected} meetingName={meetingName} peopleById={peopleById} onBack={() => setSelected(null)} />
+
   return (
     <div>
-      <h2 className="text-xl font-bold mb-4">Archive</h2>
-      {empty ? (
-        <div className="border border-dashed rounded-xl p-8 text-center bg-white">
-          <div className="font-semibold text-slate-700">Nothing archived yet</div>
-          <div className="text-sm text-gray-500 mt-1">Completed to-dos, headlines and solved issues land here when a meeting is concluded.</div>
-        </div>
+      <h2 className="text-2xl font-bold mb-4">Summaries</h2>
+      {summaries.length === 0 ? (
+        <Empty title="No meeting summary found for this meeting." hint="A report is saved each time a meeting is concluded." />
       ) : (
-        <div className="space-y-4">
-          {groups.map(g => g.items.length > 0 && (
-            <div key={g.title} className={`${card} p-4`}>
-              <div className="font-semibold text-sm mb-2">{g.title} <span className="text-gray-400 font-normal">({g.items.length})</span></div>
-              <ul className="space-y-1.5">
-                {g.items.map(it => (
-                  <li key={it.key} className="text-sm flex items-center gap-2">
-                    <Avatar person={peopleById.get(it.owner ?? '')} size="sm" /> {it.text}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
+        <ul className={`${card} divide-y`}>
+          {summaries.map(s => {
+            const snap = s.snapshot ?? {}
+            const att: { present: boolean }[] = snap.attendance ?? []
+            return (
+              <li key={s.id}>
+                <button onClick={() => setSelected(s)} className="w-full flex items-center gap-4 px-4 py-3 text-left hover:bg-gray-50">
+                  <FileText className="w-5 h-5 text-blue-600 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold">{day(snap.ended_at ?? s.created_at)}</div>
+                    <div className="text-xs text-gray-500">
+                      {(snap.todos_created ?? []).length} to-dos created · {(snap.issues_solved ?? []).length} issues solved
+                      {att.length > 0 && ` · ${att.filter(a => a.present).length}/${att.length} present`}
+                      {s.emailed_at && ` · e-mailed ${when(s.emailed_at)}`}
+                    </div>
+                  </div>
+                  {s.average_rating != null && <span className="text-sm text-gray-700 flex items-center gap-1 font-semibold"><Star className="w-4 h-4 fill-amber-400 text-amber-400" />{Number(s.average_rating).toFixed(1)}</span>}
+                  <span className="text-xs font-semibold text-blue-600">View minutes</span>
+                </button>
+              </li>
+            )
+          })}
+        </ul>
       )}
     </div>
   )

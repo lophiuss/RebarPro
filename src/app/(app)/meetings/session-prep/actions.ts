@@ -3,19 +3,41 @@
 import { revalidatePath } from 'next/cache'
 import { requireMeetingsAccess, requireMeetingsManager } from '../guard'
 
-type Question = { id: string; label: string; type: 'text' | 'rating' }
+export type QType = 'text' | 'rating' | 'number' | 'yesno' | 'choice' | 'multi' | 'vote' | 'date'
+const QTYPES: QType[] = ['text', 'rating', 'number', 'yesno', 'choice', 'multi', 'vote', 'date']
+const HAS_OPTIONS: QType[] = ['choice', 'multi', 'vote']
+type Question = { id: string; label: string; type: QType; options?: string[]; unit?: string; required?: boolean }
+type QuestionInput = { id?: string; label: string; type: string; options?: string[]; unit?: string; required?: boolean }
 
-function cleanQuestions(input: { label: string; type: string }[]): Question[] {
+// Keeps each question's id when it has one (so answers already given stay
+// attached to the right question after the doc is edited).
+function cleanQuestions(input: QuestionInput[]): Question[] {
   const out: Question[] = []
-  input.forEach((q, i) => {
+  const used = new Set<string>()
+  for (const q of input) if (q.id && /^q\d+$/.test(q.id)) used.add(q.id)
+  const taken = new Set<string>()
+  let next = 1
+  for (const q of input) {
     const label = (q.label ?? '').trim().slice(0, 300)
-    if (!label) return
-    out.push({ id: `q${i + 1}`, label, type: q.type === 'rating' ? 'rating' : 'text' })
-  })
-  return out.slice(0, 25)
+    if (!label) continue
+    const type: QType = QTYPES.includes(q.type as QType) ? (q.type as QType) : 'text'
+    let id = q.id && /^q\d+$/.test(q.id) && !taken.has(q.id) ? q.id : ''
+    if (!id) { while (used.has(`q${next}`) || taken.has(`q${next}`)) next++; id = `q${next}` }
+    taken.add(id)
+    const item: Question = { id, label, type }
+    if (HAS_OPTIONS.includes(type)) {
+      const options = Array.from(new Set((q.options ?? []).map(o => String(o).trim().slice(0, 120)).filter(Boolean))).slice(0, 20)
+      if (options.length < 2) throw new Error(`“${label}” needs at least two options`)
+      item.options = options
+    }
+    if (type === 'number' && q.unit?.trim()) item.unit = q.unit.trim().slice(0, 20)
+    if (q.required) item.required = true
+    out.push(item)
+  }
+  return out.slice(0, 40)
 }
 
-export async function savePrepDoc(input: { id?: string; name: string; questions: { label: string; type: string }[] }) {
+export async function savePrepDoc(input: { id?: string; name: string; questions: QuestionInput[] }) {
   const { supabase, user } = await requireMeetingsManager()
   const name = input.name.trim()
   if (!name) throw new Error('Name is required')
@@ -110,12 +132,39 @@ export async function savePrepResponse(sessionId: string, answers: Record<string
   if (!attendee) throw new Error('Only attendees of this meeting can respond')
 
   const questions = ((session as any).doc?.questions ?? []) as Question[]
-  const clean: Record<string, string | number> = {}
+  const clean: Record<string, unknown> = {}
+  const missing: string[] = []
   for (const q of questions) {
     const v = answers[q.id]
-    if (q.type === 'text' && typeof v === 'string' && v.trim()) clean[q.id] = v.trim().slice(0, 4000)
-    if (q.type === 'rating' && typeof v === 'number' && v >= 1 && v <= 10) clean[q.id] = Math.round(v)
+    let ok: unknown
+    switch (q.type) {
+      case 'text': if (typeof v === 'string' && v.trim()) ok = v.trim().slice(0, 4000); break
+      case 'rating': if (typeof v === 'number' && v >= 1 && v <= 10) ok = Math.round(v); break
+      case 'number': if (typeof v === 'number' && Number.isFinite(v) && Math.abs(v) < 1e12) ok = v; break
+      case 'yesno': if (v === 'yes' || v === 'no') ok = v; break
+      case 'date': if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) ok = v; break
+      case 'choice': if (typeof v === 'string' && q.options?.includes(v)) ok = v; break
+      case 'multi': {
+        const picked = Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && !!q.options?.includes(x)) : []
+        if (picked.length) ok = Array.from(new Set(picked))
+        break
+      }
+      case 'vote': {
+        const votes: Record<string, string> = {}
+        if (v && typeof v === 'object' && !Array.isArray(v)) {
+          for (const o of q.options ?? []) {
+            const x = (v as Record<string, unknown>)[o]
+            if (x === 'for' || x === 'against' || x === 'abstain') votes[o] = x
+          }
+        }
+        if (Object.keys(votes).length) ok = votes
+        break
+      }
+    }
+    if (ok !== undefined) clean[q.id] = ok
+    else if (q.required) missing.push(q.label)
   }
+  if (submit && missing.length) throw new Error(`Please answer: ${missing.join('; ')}`)
 
   const { error } = await supabase.from('mtg_prep_responses').upsert({
     session_id: sessionId,

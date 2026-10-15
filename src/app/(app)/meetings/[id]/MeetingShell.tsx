@@ -3,18 +3,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Play, AlertTriangle, Crown, Radio, NotebookPen, Users, X, Settings as SettingsIcon } from 'lucide-react'
+import {
+  Play, AlertTriangle, Crown, Radio, NotebookPen, Users, X, Settings as SettingsIcon,
+  PanelLeftClose, PanelLeftOpen, Minus, Plus, Presentation, ChevronLeft, ChevronRight,
+} from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { startMeeting, setRunPage, saveRunNotes } from '../actions'
 import { MeetingProvider, type Run } from './context'
 import Avatar from '../Avatar'
+import { CheckIn } from './CheckIn'
+import { Goals } from './Priorities'
+import { Metrics } from './Kpis'
 import {
-  CheckIn, Goals, Metrics, Headlines, Todos, Issues, WrapUp,
-  type Headline, type Todo, type Issue, type Goal, type Kpi, type KpiValue, type Rating,
+  Headlines, Todos, Issues, WrapUp,
+  type Headline, type Todo, type Issue, type Goal, type Kpi, type KpiValue, type KpiCustomGoal, type Rating,
 } from './Sections'
-import { SummaryTab, ArchiveTab, type SummaryRow } from './SummaryArchive'
+import { SummaryTab, type SummaryRow } from './SummaryArchive'
+import { ArchiveTab, type History } from './ArchiveRange'
 import { MeetingWorkspace, GrowthPlan } from './Overview'
 import MeetingSettings from './MeetingSettings'
+import type { Schedule } from '../WorkspaceBodies'
+import { useLocalPref, setAppSidebarCollapsed, readAppSidebarCollapsed } from '../usePref'
 import {
   MEETING_TABS, PAGE_LABEL, PAGE_TYPES, formatSeconds, type MeetingTab, type PageType, type Person,
 } from '@/lib/meetings'
@@ -36,15 +45,23 @@ export type ShellProps = {
   goals: Goal[]
   kpis: Kpi[]
   kpiValues: KpiValue[]
+  kpiGoals: KpiCustomGoal[]
   ratings: Rating[]
   lastFeedback: Rating[]
   summaries: SummaryRow[]
-  archived: { headlines: Headline[]; todos: Todo[]; issues: Issue[] }
+  history: History | null
   coreValues: string[]
+  otherMeetings: { id: string; name: string }[]
   isAdmin: boolean
+  schedule: Schedule | null
+  workspaceLayout: unknown
+  icebreakerNotes: string
 }
 
 type LiveState = { current_page: PageType; page_seconds: Record<string, number> }
+
+const ZOOM_MIN = 80
+const ZOOM_MAX = 200
 
 export default function MeetingShell(props: ShellProps) {
   const { meeting, tab, agenda, run, people, attendeeIds, myId } = props
@@ -58,9 +75,19 @@ export default function MeetingShell(props: ShellProps) {
   const [notes, setNotes] = useState(run?.notes ?? '')
   const [showNotes, setShowNotes] = useState(false)
   const [tangent, setTangent] = useState<string | null>(null)
+  const [ice, setIce] = useState<{ text: string; label: string; n: number; total: number } | null>(null)
   const [starting, setStarting] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
+
+  // Projector / TV display: hide the agenda panel and zoom the content. Both are
+  // remembered on this device.
+  const [agendaHiddenPref, setAgendaHidden] = useLocalPref('av-agenda-hidden', '0')
+  const [zoomPref, setZoomPref] = useLocalPref('av-meeting-zoom', '100')
+  const agendaHidden = agendaHiddenPref === '1'
+  const zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Number(zoomPref) || 100))
+  const [presenting, setPresenting] = useState(false)
+  const before = useRef<{ agenda: string; zoom: string; sidebar: boolean } | null>(null)
 
   const isLeader = !!run && run.leader_id === myId
   const leader = peopleById.get(run?.leader_id ?? meeting.leader_id ?? '')
@@ -98,6 +125,7 @@ export default function MeetingShell(props: ShellProps) {
         showPage(payload.page)
       })
       .on('broadcast', { event: 'refresh' }, () => router.refresh())
+      .on('broadcast', { event: 'ice' }, ({ payload }) => setIce(payload))
       .on('broadcast', { event: 'tangent' }, ({ payload }) => {
         setTangent(payload.by)
         setTimeout(() => setTangent(null), 10000)
@@ -106,6 +134,12 @@ export default function MeetingShell(props: ShellProps) {
     channelRef.current = channel
     return () => { supabase.removeChannel(channel); channelRef.current = null }
   }, [meeting.id, supabase, router, showPage])
+
+  // The icebreaker someone just generated appears on everyone's Check-in page.
+  const shareIce = useCallback((v: { text: string; label: string; n: number; total: number }) => {
+    setIce(v)
+    channelRef.current?.send({ type: 'broadcast', event: 'ice', payload: v })
+  }, [])
 
   const changed = useCallback(() => {
     channelRef.current?.send({ type: 'broadcast', event: 'refresh', payload: {} })
@@ -162,29 +196,99 @@ export default function MeetingShell(props: ShellProps) {
     setTimeout(() => setTangent(null), 10000)
   }
 
+  // ----- projector controls
+
+  const setZoom = (n: number) => setZoomPref(String(Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, n))))
+
+  function enterPresentation() {
+    before.current = { agenda: agendaHiddenPref, zoom: zoomPref, sidebar: readAppSidebarCollapsed() }
+    setAgendaHidden('1')
+    setAppSidebarCollapsed(true)
+    if (zoom < 125) setZoom(125)
+    setPresenting(true)
+    document.documentElement.requestFullscreen?.().catch(() => { /* fullscreen is optional */ })
+  }
+
+  const exitPresentation = useCallback(() => {
+    const b = before.current
+    if (b) {
+      setAgendaHidden(b.agenda)
+      setZoomPref(b.zoom)
+      setAppSidebarCollapsed(b.sidebar)
+    }
+    before.current = null
+    setPresenting(false)
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {})
+  }, [setAgendaHidden, setZoomPref])
+
+  // Leaving fullscreen with Esc also leaves presentation mode.
+  useEffect(() => {
+    if (!presenting) return
+    const onChange = () => { if (!document.fullscreenElement) exitPresentation() }
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [presenting, exitPresentation])
+
   const elapsed = run ? Math.max(0, Math.floor((now - new Date(run.started_at).getTime()) / 1000)) : 0
   const totalPlanned = agenda.reduce((s, a) => s + a.minutes, 0)
   const ctx = { meetingId: meeting.id, run, people, peopleById, attendeeIds, myId, isLeader, changed }
   // WrapUp calls this when concluding, so the summary records time per section.
   const pageSeconds = () => pageSecondsAt(new Date().getTime())
 
+  const pageIndex = agenda.findIndex(a => a.page_type === page)
+  const currentItem = agenda[pageIndex]
+  const stepTo = (delta: number) => {
+    const next = agenda[pageIndex + delta]
+    if (next) goTo(next.page_type)
+  }
+
+  const zoomStyle = zoom === 100 ? undefined : ({ zoom: zoom / 100 } as React.CSSProperties)
+  const pad = 'p-4 md:p-6 xl:p-8'
+
   return (
     <MeetingProvider value={ctx}>
       <div className="min-h-full flex flex-col">
-        <div className="border-b bg-white px-4 md:px-8 pt-5">
+        <div className="border-b bg-white px-4 md:px-8 pt-5 pb-3 print:hidden">
           <div className="flex items-center gap-3 flex-wrap">
             <Link href="/meetings" className="text-sm text-gray-500 hover:text-gray-800">Meetings</Link>
             <span className="text-gray-300">/</span>
-            <h1 className="text-xl font-bold truncate">{meeting.name}</h1>
-            {run && <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded"><Radio className="w-3 h-3" /> LIVE</span>}
-            <button onClick={() => setShowSettings(true)} aria-label="Meeting settings" title="Meeting settings" className="ml-auto text-gray-400 hover:text-blue-600"><SettingsIcon className="w-5 h-5" /></button>
+            <h1 className="text-2xl font-bold truncate">{meeting.name}</h1>
+            {run && <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-600 bg-red-50 px-2 py-0.5 rounded-full"><Radio className="w-3 h-3" /> LIVE</span>}
+
+            <div className="ml-auto flex items-center gap-2">
+              {/* Zoom for a TV or projector */}
+              <div className="inline-flex items-center rounded-lg border bg-white text-sm overflow-hidden" role="group" aria-label="Zoom">
+                <button onClick={() => setZoom(zoom - 10)} disabled={zoom <= ZOOM_MIN} aria-label="Zoom out" title="Zoom out" className="px-2 py-1.5 hover:bg-gray-50 disabled:opacity-40"><Minus className="w-4 h-4" /></button>
+                <button onClick={() => setZoom(100)} title="Reset zoom" className="px-2 tabular-nums w-14 text-center text-xs font-semibold hover:bg-gray-50">{zoom}%</button>
+                <button onClick={() => setZoom(zoom + 10)} disabled={zoom >= ZOOM_MAX} aria-label="Zoom in" title="Zoom in" className="px-2 py-1.5 hover:bg-gray-50 disabled:opacity-40"><Plus className="w-4 h-4" /></button>
+              </div>
+              {tab === 'MEETING' && (
+                <button
+                  onClick={() => setAgendaHidden(agendaHidden ? '0' : '1')}
+                  title={agendaHidden ? 'Show the agenda panel' : 'Hide the agenda panel (more room on a TV or projector)'}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white text-sm font-medium hover:bg-gray-50"
+                >
+                  {agendaHidden ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+                  <span className="hidden sm:inline">{agendaHidden ? 'Show agenda' : 'Hide agenda'}</span>
+                </button>
+              )}
+              <button
+                onClick={presenting ? exitPresentation : enterPresentation}
+                title="Presentation mode: full screen, no side panels, larger text"
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold ${presenting ? 'bg-slate-900 text-white' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+              >
+                <Presentation className="w-4 h-4" /> <span className="hidden sm:inline">{presenting ? 'Exit' : 'Present'}</span>
+              </button>
+              <button onClick={() => setShowSettings(true)} aria-label="Meeting settings" title="Meeting settings" className="text-gray-400 hover:text-blue-600 p-1"><SettingsIcon className="w-5 h-5" /></button>
+            </div>
           </div>
-          <nav className="flex gap-1 mt-3 -mb-px">
+
+          <nav className="inline-flex flex-wrap gap-0.5 rounded-lg bg-gray-100 p-1 text-sm mt-3" aria-label="Meeting views">
             {MEETING_TABS.map(t => (
               <Link
                 key={t.key}
                 href={`/meetings/${meeting.id}?tab=${t.key}${t.key === 'MEETING' ? `&pageType=${page}` : ''}`}
-                className={`px-4 py-2 text-sm font-medium border-b-2 ${tab === t.key ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-800'}`}
+                className={`px-3.5 py-1.5 rounded-md font-medium transition ${tab === t.key ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
               >
                 {t.label}
               </Link>
@@ -193,119 +297,149 @@ export default function MeetingShell(props: ShellProps) {
         </div>
 
         {tangent && (
-          <div className="bg-amber-100 border-b border-amber-300 text-amber-900 px-4 md:px-8 py-2 text-sm flex items-center gap-2">
+          <div className="bg-amber-100 border-b border-amber-300 text-amber-900 px-4 md:px-8 py-2 text-sm flex items-center gap-2 print:hidden">
             <AlertTriangle className="w-4 h-4" /> <b>Tangent alert</b> from {tangent}. Park it as an issue and get back on track.
             <button onClick={() => setTangent(null)} className="ml-auto" aria-label="Dismiss"><X className="w-4 h-4" /></button>
           </div>
         )}
 
-        {tab === 'WORKSPACE' && (
-          <div className="p-4 md:p-8 max-w-6xl w-full mx-auto">
-            <MeetingWorkspace headlines={props.headlines} todos={props.todos} issues={props.issues} goals={props.goals} kpis={props.kpis} kpiValues={props.kpiValues} summaries={props.summaries} />
-          </div>
-        )}
-        {tab === 'GROWTH_PLAN' && (
-          <div className="p-4 md:p-8 max-w-5xl w-full mx-auto">
-            <GrowthPlan goals={props.goals} kpis={props.kpis} kpiValues={props.kpiValues} coreValues={props.coreValues} />
-          </div>
-        )}
-        {tab === 'MEETING_SUMMARIES' && <div className="p-4 md:p-8 max-w-5xl w-full mx-auto"><SummaryTab summaries={props.summaries} peopleById={peopleById} /></div>}
-        {tab === 'ARCHIVE' && <div className="p-4 md:p-8 max-w-5xl w-full mx-auto"><ArchiveTab archived={props.archived} peopleById={peopleById} /></div>}
+        <div className="flex-1 flex flex-col" style={zoomStyle}>
+          {tab === 'WORKSPACE' && (
+            <div className={`${pad} w-full`}>
+              <MeetingWorkspace meetingName={meeting.name} schedule={props.schedule} layout={props.workspaceLayout} coreValues={props.coreValues} otherMeetings={props.otherMeetings} headlines={props.headlines} todos={props.todos} issues={props.issues} goals={props.goals} kpis={props.kpis} kpiValues={props.kpiValues} kpiGoals={props.kpiGoals} summaries={props.summaries} />
+            </div>
+          )}
+          {tab === 'GROWTH_PLAN' && (
+            <div className={`${pad} w-full`}>
+              <GrowthPlan goals={props.goals} kpis={props.kpis} kpiValues={props.kpiValues} kpiGoals={props.kpiGoals} coreValues={props.coreValues} />
+            </div>
+          )}
+          {tab === 'MEETING_SUMMARIES' && <div className={`${pad} w-full`}><SummaryTab summaries={props.summaries} peopleById={peopleById} meetingName={meeting.name} /></div>}
+          {tab === 'ARCHIVE' && <div className={`${pad} w-full`}><ArchiveTab history={props.history} peopleById={peopleById} meetingName={meeting.name} /></div>}
 
-        {tab === 'MEETING' && (
-          <div className="flex-1 flex flex-col md:flex-row gap-0">
-            <aside className="md:w-72 shrink-0 border-b md:border-b-0 md:border-r bg-white p-4 space-y-4">
-              {!run ? (
-                <button onClick={start} disabled={starting} className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50">
-                  <Play className="w-4 h-4" /> {starting ? 'Starting…' : 'Start meeting'}
-                </button>
-              ) : (
-                <div className="rounded-lg bg-slate-900 text-white px-4 py-3 flex items-center justify-between">
-                  <span className="font-mono text-2xl tabular-nums">{formatSeconds(elapsed)}</span>
-                  <span className="text-xs text-slate-400">of {totalPlanned}m planned</span>
-                </div>
-              )}
-
-              <ol className="space-y-1">
-                {agenda.map(a => {
-                  const active = page === a.page_type
-                  const isCurrent = live?.current_page === a.page_type
-                  const spent = run ? pageElapsed(a.page_type, now) : 0
-                  const over = run && spent > a.minutes * 60
-                  return (
-                    <li key={a.id}>
-                      <button
-                        onClick={() => goTo(a.page_type)}
-                        className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm text-left transition ${active ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-700 hover:bg-gray-50'}`}
-                      >
-                        <span className="flex items-center gap-2 min-w-0">
-                          {run && isCurrent ? <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" /> : <span className="w-2 shrink-0" />}
-                          <span className="truncate">{a.title}</span>
-                        </span>
-                        <span className={`text-xs tabular-nums shrink-0 ${over ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>
-                          {run ? `${formatSeconds(spent)} / ${a.minutes}m` : `${a.minutes}m`}
-                        </span>
-                      </button>
-                    </li>
-                  )
-                })}
-              </ol>
-
-              {run && (
-                <div className="border-t pt-3 space-y-3">
-                  <div className="flex items-center gap-2 text-sm">
-                    <Avatar person={leader} />
-                    <div>
-                      <div className="font-semibold flex items-center gap-1"><Crown className="w-3.5 h-3.5 text-amber-500" /> {isLeader ? "You're the leader" : `${leader?.full_name ?? 'Leader'} is leading`}</div>
-                      {!isLeader && <div className="text-xs text-gray-500">Your page follows the leader.</div>}
+          {tab === 'MEETING' && (
+            <div className="flex-1 flex flex-col md:flex-row gap-0">
+              {!agendaHidden && (
+                <aside className="md:w-80 shrink-0 border-b md:border-b-0 md:border-r bg-white p-4 space-y-4">
+                  {!run ? (
+                    <button onClick={start} disabled={starting} className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50">
+                      <Play className="w-4 h-4" /> {starting ? 'Starting…' : 'Start meeting'}
+                    </button>
+                  ) : (
+                    <div className="rounded-lg bg-slate-900 text-white px-4 py-3 flex items-center justify-between">
+                      <span suppressHydrationWarning className="font-mono text-2xl tabular-nums">{formatSeconds(elapsed)}</span>
+                      <span className="text-xs text-slate-400">of {totalPlanned}m planned</span>
                     </div>
+                  )}
+
+                  <ol className="space-y-1">
+                    {agenda.map(a => {
+                      const active = page === a.page_type
+                      const isCurrent = live?.current_page === a.page_type
+                      const spent = run ? pageElapsed(a.page_type, now) : 0
+                      const over = run && spent > a.minutes * 60
+                      return (
+                        <li key={a.id}>
+                          <button
+                            onClick={() => goTo(a.page_type)}
+                            className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm text-left transition ${active ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-700 hover:bg-gray-50'}`}
+                          >
+                            <span className="flex items-center gap-2 min-w-0">
+                              {run && isCurrent ? <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" /> : <span className="w-2 shrink-0" />}
+                              <span className="truncate">{a.title}</span>
+                            </span>
+                            <span suppressHydrationWarning className={`text-xs tabular-nums shrink-0 ${over ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>
+                              {run ? `${formatSeconds(spent)} / ${a.minutes}m` : `${a.minutes}m`}
+                            </span>
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ol>
+
+                  {run && (
+                    <div className="border-t pt-3 space-y-3">
+                      <div className="flex items-center gap-2 text-sm">
+                        <Avatar person={leader} />
+                        <div>
+                          <div className="font-semibold flex items-center gap-1"><Crown className="w-3.5 h-3.5 text-amber-500" /> {isLeader ? "You're the leader" : `${leader?.full_name ?? 'Leader'} is leading`}</div>
+                          {!isLeader && <div className="text-xs text-gray-500">Your page follows the leader.</div>}
+                        </div>
+                      </div>
+                      <button onClick={sendTangent} className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 text-sm font-semibold hover:bg-amber-100">
+                        <AlertTriangle className="w-4 h-4" /> Tangent alert
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="border-t pt-3">
+                    <button onClick={() => setShowNotes(s => !s)} className="w-full flex items-center gap-2 text-sm font-semibold text-slate-700">
+                      <NotebookPen className="w-4 h-4" /> Meeting notes
+                    </button>
+                    {showNotes && (
+                      <div className="mt-2">
+                        <textarea
+                          value={notes}
+                          onChange={e => setNotes(e.target.value)}
+                          onBlur={() => run && saveRunNotes(run.id, notes).catch(err => alert('Error: ' + err.message))}
+                          disabled={!run}
+                          rows={6}
+                          placeholder={run ? 'Notes are saved when you click away.' : 'Start the meeting to take notes.'}
+                          className="w-full border rounded-lg px-3 py-2 text-sm disabled:bg-gray-50"
+                        />
+                      </div>
+                    )}
                   </div>
-                  <button onClick={sendTangent} className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 text-sm font-semibold hover:bg-amber-100">
-                    <AlertTriangle className="w-4 h-4" /> Tangent alert
-                  </button>
-                </div>
+
+                  <div className="border-t pt-3">
+                    <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1"><Users className="w-3.5 h-3.5" /> Attendees ({attendeeIds.length})</div>
+                    <div className="flex flex-wrap gap-1">{attendeeIds.map(id => <Avatar key={id} person={peopleById.get(id)} size="sm" />)}</div>
+                  </div>
+                </aside>
               )}
 
-              <div className="border-t pt-3">
-                <button onClick={() => setShowNotes(s => !s)} className="w-full flex items-center gap-2 text-sm font-semibold text-slate-700">
-                  <NotebookPen className="w-4 h-4" /> Meeting notes
-                </button>
-                {showNotes && (
-                  <div className="mt-2">
-                    <textarea
-                      value={notes}
-                      onChange={e => setNotes(e.target.value)}
-                      onBlur={() => run && saveRunNotes(run.id, notes).catch(err => alert('Error: ' + err.message))}
-                      disabled={!run}
-                      rows={6}
-                      placeholder={run ? 'Notes are saved when you click away.' : 'Start the meeting to take notes.'}
-                      className="w-full border rounded-lg px-3 py-2 text-sm disabled:bg-gray-50"
-                    />
+              <main className={`flex-1 min-w-0 w-full ${pad}`}>
+                {/* With the agenda panel hidden, keep the essentials on screen. */}
+                {agendaHidden && (
+                  <div className="mb-5 flex flex-wrap items-center gap-3 rounded-xl border bg-white shadow-sm px-4 py-2.5 print:hidden">
+                    {!run ? (
+                      <button onClick={start} disabled={starting} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"><Play className="w-4 h-4" /> {starting ? 'Starting…' : 'Start meeting'}</button>
+                    ) : (
+                      <span suppressHydrationWarning className="font-mono text-lg tabular-nums bg-slate-900 text-white rounded-md px-2.5 py-0.5">{formatSeconds(elapsed)}</span>
+                    )}
+                    <div className="text-sm">
+                      <span className="font-semibold">{currentItem?.title ?? PAGE_LABEL[page]}</span>
+                      {run && currentItem && (
+                        <span suppressHydrationWarning className={`ml-2 tabular-nums text-xs ${pageElapsed(page, now) > currentItem.minutes * 60 ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>
+                          {formatSeconds(pageElapsed(page, now))} / {currentItem.minutes}m
+                        </span>
+                      )}
+                    </div>
+                    <div className="ml-auto flex items-center gap-1">
+                      <button onClick={() => stepTo(-1)} disabled={pageIndex <= 0} aria-label="Previous section" className="p-1.5 rounded-lg border hover:bg-gray-50 disabled:opacity-40"><ChevronLeft className="w-4 h-4" /></button>
+                      <span className="text-xs text-gray-500 tabular-nums px-1">{pageIndex + 1}/{agenda.length}</span>
+                      <button onClick={() => stepTo(1)} disabled={pageIndex < 0 || pageIndex >= agenda.length - 1} aria-label="Next section" className="p-1.5 rounded-lg border hover:bg-gray-50 disabled:opacity-40"><ChevronRight className="w-4 h-4" /></button>
+                    </div>
+                    {run && <button onClick={sendTangent} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 text-sm font-semibold hover:bg-amber-100"><AlertTriangle className="w-4 h-4" /> Tangent</button>}
                   </div>
                 )}
-              </div>
 
-              <div className="border-t pt-3">
-                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1"><Users className="w-3.5 h-3.5" /> Attendees ({attendeeIds.length})</div>
-                <div className="flex flex-wrap gap-1">{attendeeIds.map(id => <Avatar key={id} person={peopleById.get(id)} size="sm" />)}</div>
-              </div>
-            </aside>
-
-            <main className="flex-1 min-w-0 p-4 md:p-8 max-w-4xl w-full">
-              {page === 'CHECK_IN' && <CheckIn lastFeedback={props.lastFeedback} />}
-              {page === 'GOALS' && <Goals goals={props.goals} />}
-              {page === 'METRICS' && <Metrics kpis={props.kpis} values={props.kpiValues} />}
-              {page === 'HEADLINES' && <Headlines headlines={props.headlines} />}
-              {page === 'TODOS' && <Todos todos={props.todos} />}
-              {page === 'ISSUES' && <Issues issues={props.issues} />}
-              {page === 'WRAP_UP' && <WrapUp todos={props.todos} issues={props.issues} ratings={props.ratings} pageSeconds={pageSeconds} />}
-              <p className="sr-only">{PAGE_LABEL[page]}</p>
-            </main>
-          </div>
-        )}
+                {page === 'CHECK_IN' && <CheckIn lastFeedback={props.lastFeedback} ice={ice} onIce={shareIce} notes={props.icebreakerNotes} />}
+                {page === 'GOALS' && <Goals goals={props.goals} otherMeetings={props.otherMeetings} />}
+                {page === 'METRICS' && <Metrics kpis={props.kpis} values={props.kpiValues} customGoals={props.kpiGoals} otherMeetings={props.otherMeetings} meetingName={meeting.name} />}
+                {page === 'HEADLINES' && <Headlines headlines={props.headlines} todos={props.todos} issues={props.issues} otherMeetings={props.otherMeetings} />}
+                {page === 'TODOS' && <Todos todos={props.todos} otherMeetings={props.otherMeetings} />}
+                {page === 'ISSUES' && <Issues issues={props.issues} otherMeetings={props.otherMeetings} />}
+                {page === 'WRAP_UP' && <WrapUp todos={props.todos} issues={props.issues} ratings={props.ratings} pageSeconds={pageSeconds} />}
+                <p className="sr-only">{PAGE_LABEL[page]}</p>
+              </main>
+            </div>
+          )}
+        </div>
       </div>
       {showSettings && (
         <MeetingSettings
+          schedule={props.schedule}
           meeting={meeting}
           agenda={agenda.map(a => ({ id: a.id, title: a.title, minutes: a.minutes }))}
           people={people}

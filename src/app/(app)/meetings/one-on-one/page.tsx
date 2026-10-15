@@ -17,7 +17,7 @@ export default async function OneOnOnePage() {
   const role = access?.role as string | undefined
 
   return (
-    <div className="p-4 md:p-8 max-w-4xl mx-auto">
+    <div className="p-4 md:p-6 xl:p-8 max-w-6xl mx-auto">
       <h1 className="text-3xl font-bold mb-1 flex items-center gap-2"><MessagesSquare className="w-7 h-7 text-blue-600" /> Quarterly 1:1</h1>
       <p className="text-sm text-gray-500 mb-6">A structured conversation between a manager and a team member each quarter. Both people answer the same questions, then compare. Only the two participants (and Meetings admins) can see it.</p>
       <OneOnOneList sessions={(sessions ?? []) as any} people={people ?? []} myId={user?.id ?? ''} canCreate={role === 'admin' || role === 'manager'} />

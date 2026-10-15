@@ -17,7 +17,7 @@ export default async function MeetingsSettingsPage() {
   const coreValues = (Array.isArray(cv?.core_values) ? cv.core_values : []) as string[]
 
   return (
-    <div className="p-4 md:p-8 max-w-3xl mx-auto space-y-10">
+    <div className="p-4 md:p-6 xl:p-8 max-w-4xl mx-auto space-y-10">
       <section>
         <h1 className="text-3xl font-bold mb-2 flex items-center gap-2"><Settings className="w-7 h-7 text-blue-600" /> Meetings settings</h1>
         <p className="text-sm text-gray-500 mb-6">The default agenda is copied into every new meeting. Existing meetings keep their own agenda.</p>

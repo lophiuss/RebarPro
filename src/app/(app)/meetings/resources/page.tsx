@@ -69,12 +69,12 @@ const TOPICS: { title: string; body: string[] }[] = [
 
 export default function ResourceCenterPage() {
   return (
-    <div className="p-4 md:p-8 max-w-3xl mx-auto">
+    <div className="p-4 md:p-6 xl:p-8 max-w-5xl mx-auto">
       <h1 className="text-3xl font-bold mb-1 flex items-center gap-2"><LifeBuoy className="w-7 h-7 text-blue-600" /> Resource center</h1>
       <p className="text-sm text-gray-500 mb-6">Short guides on running effective meetings with this module.</p>
       <div className="space-y-3">
         {TOPICS.map((t, i) => (
-          <details key={t.title} open={i === 0} className="border rounded-xl bg-white group">
+          <details key={t.title} open={i === 0} className="border rounded-xl bg-white shadow-sm group">
             <summary className="cursor-pointer select-none px-5 py-4 font-semibold text-slate-900 flex items-center justify-between">
               {t.title}
               <span className="text-gray-400 text-sm group-open:rotate-90 transition-transform">&rsaquo;</span>

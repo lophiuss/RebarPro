@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation'
 import { Plus, Search, Star, Radio, X } from 'lucide-react'
 import { createMeeting, toggleFavourite } from './actions'
 import { AvatarStack } from './Avatar'
+import { PersonSelect, PeopleChecklist } from './PersonPicker'
+import { Segmented } from './[id]/shared'
 import type { Person } from '@/lib/meetings'
 
 type Meeting = { id: string; name: string; description: string | null; leader_id: string | null; meeting_type?: 'weekly' | 'quarterly_alignment' }
@@ -98,24 +100,24 @@ export default function MeetingsList({
         </button>
       </div>
 
-      <div className="flex gap-1 border-b mb-4">
-        {([['mine', `My meetings (${mineCount})`], ['qa', `Quarterly Alignment (${qaCount})`], ['others', `Others (${othersCount})`]] as const).map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => setTab(key)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${tab === key ? 'border-blue-600 text-blue-700' : 'border-transparent text-gray-500 hover:text-gray-800'}`}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="mb-4">
+        <Segmented
+          value={tab}
+          onChange={setTab}
+          options={[
+            { key: 'mine', label: `My meetings (${mineCount})` },
+            { key: 'qa', label: `Quarterly Alignment (${qaCount})` },
+            { key: 'others', label: `Others (${othersCount})` },
+          ]}
+        />
       </div>
 
       {rows.length === 0 ? (
-        <div className="border rounded-xl bg-white p-10 text-center text-sm text-gray-500">
+        <div className="border rounded-xl bg-white shadow-sm p-10 text-center text-sm text-gray-500">
           {meetings.length === 0 ? 'No meetings yet. Create the first one.' : 'No meetings match.'}
         </div>
       ) : (
-        <ul className="border rounded-xl bg-white divide-y">
+        <ul className="border rounded-xl bg-white shadow-sm divide-y">
           {rows.map(m => (
             <li key={m.id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50">
               {m.mine ? (
@@ -160,22 +162,13 @@ export default function MeetingsList({
                 Description <span className="text-gray-400 font-normal">(optional)</span>
                 <input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" />
               </label>
-              <label className="block text-sm font-medium">
-                Leader
-                <select value={form.leader_id} onChange={e => setForm({ ...form, leader_id: e.target.value })} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-white">
-                  {people.map(p => <option key={p.id} value={p.id}>{p.full_name || p.id.slice(0, 8)}</option>)}
-                </select>
-              </label>
+              <div>
+                <div className="text-sm font-medium mb-1">Leader</div>
+                <PersonSelect people={people} value={form.leader_id} onChange={id => setForm({ ...form, leader_id: id })} className="w-full" ariaLabel="Leader" />
+              </div>
               <div>
                 <div className="text-sm font-medium mb-1">Attendees</div>
-                <div className="border rounded-lg max-h-48 overflow-y-auto divide-y">
-                  {people.map(p => (
-                    <label key={p.id} className="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-50">
-                      <input type="checkbox" checked={form.attendee_ids.includes(p.id) || p.id === form.leader_id || p.id === myId} disabled={p.id === form.leader_id || p.id === myId} onChange={() => toggleAttendee(p.id)} />
-                      {p.full_name || p.id.slice(0, 8)}
-                    </label>
-                  ))}
-                </div>
+                <PeopleChecklist people={people} selected={form.attendee_ids} locked={[form.leader_id, myId].filter(Boolean)} onToggle={toggleAttendee} />
                 <p className="text-xs text-gray-500 mt-1">You and the leader are always included.</p>
               </div>
             </div>

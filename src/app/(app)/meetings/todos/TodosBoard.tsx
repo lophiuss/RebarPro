@@ -1,34 +1,42 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { Check, Plus, Trash2 } from 'lucide-react'
+import { Check, Plus, Trash2, FileText, List, Columns3 } from 'lucide-react'
 import { addTodo, setTodoDone, deleteTodo } from '../actions'
 import { act } from '../act'
 import Avatar from '../Avatar'
+import { PersonSelect } from '../PersonPicker'
+import TodoBoard, { type BoardTodo } from '../TodoBoard'
+import StandaloneDrawer from '../StandaloneDrawer'
+import { useLocalPref } from '../usePref'
 import { ymd, type Person } from '@/lib/meetings'
 
-type Todo = { id: string; title: string; owner_id: string | null; due_date: string | null; done_at: string | null; meeting_id: string; created_at: string }
 type Meeting = { id: string; name: string }
 
-const card = 'border rounded-xl bg-white'
+const card = 'border rounded-xl bg-white shadow-sm'
 const input = 'border rounded-lg px-3 py-2 text-sm bg-white'
 
-export default function TodosBoard({ todos, meetings, people, myId }: { todos: Todo[]; meetings: Meeting[]; people: Person[]; myId: string }) {
+export default function TodosBoard({ todos, meetings, people, myId }: { todos: BoardTodo[]; meetings: Meeting[]; people: Person[]; myId: string }) {
   const [owner, setOwner] = useState<string>(myId)           // user id | 'all'
   const [meetingId, setMeetingId] = useState<string>('all')
   const [status, setStatus] = useState<'active' | 'completed' | 'all'>('active')
+  const [view, setView] = useLocalPref('av-todos-view', 'list')
+  const [openId, setOpenId] = useState<string | null>(null)
   const [form, setForm] = useState({ title: '', meeting_id: meetings[0]?.id ?? '', owner_id: myId, due_date: '' })
 
   const peopleById = useMemo(() => new Map(people.map(p => [p.id, p])), [people])
   const meetingsById = useMemo(() => new Map(meetings.map(m => [m.id, m.name])), [meetings])
   const today = ymd(new Date())
+  const isBoard = view === 'board'
 
-  const shown = todos
+  const scoped = todos
     .filter(t => (owner === 'all' ? true : t.owner_id === owner))
     .filter(t => (meetingId === 'all' ? true : t.meeting_id === meetingId))
-    .filter(t => (status === 'all' ? true : status === 'completed' ? !!t.done_at : !t.done_at))
+  // The board always shows every column; the list can be narrowed by status.
+  const shown = isBoard ? scoped : scoped.filter(t => (status === 'all' ? true : status === 'completed' ? !!t.done_at : !t.done_at))
   const doneCount = shown.filter(t => t.done_at).length
   const pct = shown.length ? Math.round((doneCount / shown.length) * 100) : 0
+  const open = todos.find(t => t.id === openId)
 
   async function add(e: React.FormEvent) {
     e.preventDefault()
@@ -43,24 +51,40 @@ export default function TodosBoard({ todos, meetings, people, myId }: { todos: T
   return (
     <div>
       <div className="flex flex-wrap gap-2 items-center mb-4">
-        <select value={owner} onChange={e => setOwner(e.target.value)} className={input} aria-label="Owner">
-          <option value={myId}>My to-dos</option>
-          <option value="all">Everyone</option>
-          {people.filter(p => p.id !== myId).map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
-        </select>
+        <div className="inline-flex rounded-lg bg-gray-100 p-1 text-sm" role="tablist" aria-label="View">
+          {([['list', 'List', List], ['board', 'Board', Columns3]] as const).map(([key, label, Icon]) => (
+            <button key={key} role="tab" aria-selected={view === key} onClick={() => setView(key)} className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md font-medium transition ${view === key ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}>
+              <Icon className="w-4 h-4" /> {label}
+            </button>
+          ))}
+        </div>
+        <PersonSelect
+          people={people.filter(p => p.id !== myId)}
+          value={owner}
+          onChange={setOwner}
+          extra={[{ value: myId, label: 'My to-dos' }, { value: 'all', label: 'Everyone' }]}
+          className="w-48"
+          ariaLabel="Owner"
+        />
         <select value={meetingId} onChange={e => setMeetingId(e.target.value)} className={input} aria-label="Meeting">
           <option value="all">All meetings</option>
           {meetings.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
         </select>
-        <div className="flex rounded-lg border bg-white overflow-hidden text-sm">
-          {(['active', 'completed', 'all'] as const).map(s => (
-            <button key={s} onClick={() => setStatus(s)} className={`px-3 py-2 capitalize ${status === s ? 'bg-blue-600 text-white' : 'hover:bg-gray-50'}`}>{s}</button>
-          ))}
-        </div>
-        <span className="ml-auto text-sm text-gray-500">{shown.length} to-do{shown.length === 1 ? '' : 's'}{status === 'all' ? ` · ${pct}% completed` : ''}</span>
+        {!isBoard && (
+          <div className="inline-flex rounded-lg bg-gray-100 p-1 text-sm">
+            {(['active', 'completed', 'all'] as const).map(s => (
+              <button key={s} onClick={() => setStatus(s)} className={`px-3 py-1.5 rounded-md font-medium capitalize transition ${status === s ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}>{s}</button>
+            ))}
+          </div>
+        )}
+        <span className="ml-auto text-sm text-gray-500">{shown.length} to-do{shown.length === 1 ? '' : 's'}{!isBoard && status === 'all' ? ` · ${pct}% completed` : ''}</span>
       </div>
 
-      {shown.length === 0 ? (
+      {isBoard ? (
+        <div className="h-[34rem]">
+          <TodoBoard todos={shown} meetingNames={meetingsById} peopleById={peopleById} onOpen={t => setOpenId(t.id)} />
+        </div>
+      ) : shown.length === 0 ? (
         <div className="border border-dashed rounded-xl p-10 text-center bg-white text-sm text-gray-500">No to-dos match these filters.</div>
       ) : (
         <ul className={`${card} divide-y`}>
@@ -76,12 +100,12 @@ export default function TodosBoard({ todos, meetings, people, myId }: { todos: T
                   {t.done_at && <Check className="w-3 h-3" />}
                 </button>
                 <Avatar person={peopleById.get(t.owner_id ?? '')} size="sm" />
-                <div className="flex-1 min-w-0">
-                  <div className={`truncate ${t.done_at ? 'line-through text-gray-400' : ''}`}>{t.title}</div>
+                <button onClick={() => setOpenId(t.id)} className="flex-1 min-w-0 text-left" title="Open details">
+                  <div className={`truncate ${t.done_at ? 'line-through text-gray-400' : ''}`}>{t.title}{t.details && <FileText className="inline-block w-3.5 h-3.5 ml-1.5 text-gray-400 align-[-2px]" />}</div>
                   <div className="text-[11px] text-gray-400 uppercase tracking-wide truncate">{meetingsById.get(t.meeting_id)}</div>
-                </div>
+                </button>
                 <span className={`text-xs whitespace-nowrap ${overdue ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>{t.due_date ?? ''}</span>
-                <button onClick={() => act(() => deleteTodo(t.meeting_id, t.id))} aria-label="Delete" className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                <button onClick={() => confirm('Delete this to-do?') && act(() => deleteTodo(t.meeting_id, t.id))} aria-label="Delete" className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
               </li>
             )
           })}
@@ -89,17 +113,27 @@ export default function TodosBoard({ todos, meetings, people, myId }: { todos: T
       )}
 
       {meetings.length > 0 && (
-        <form onSubmit={add} className={`${card} p-3 mt-4 grid gap-2 md:grid-cols-[1fr_12rem_10rem_auto_auto]`}>
+        <form onSubmit={add} className={`${card} p-2 mt-3 grid gap-1.5 md:grid-cols-[1fr_12rem_10rem_auto_auto]`}>
           <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Add a to-do" className={input} />
           <select value={form.meeting_id} onChange={e => setForm({ ...form, meeting_id: e.target.value })} className={input} aria-label="Meeting">
             {meetings.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select>
-          <select value={form.owner_id} onChange={e => setForm({ ...form, owner_id: e.target.value })} className={input} aria-label="Owner">
-            {people.map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
-          </select>
+          <PersonSelect people={people} value={form.owner_id} onChange={id => setForm({ ...form, owner_id: id })} ariaLabel="Owner" />
           <input type="date" value={form.due_date} onChange={e => setForm({ ...form, due_date: e.target.value })} className={input} aria-label="Due date" title="Defaults to 7 days from today" />
-          <button className="inline-flex items-center justify-center gap-1 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold"><Plus className="w-4 h-4" /> Add</button>
+          <button className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-md bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 hover:bg-blue-700"><Plus className="w-3.5 h-3.5" /> Add</button>
         </form>
+      )}
+
+      {open && (
+        <StandaloneDrawer
+          kind="todo"
+          item={{ ...open, todo_status: open.done_at ? 'done' : open.status }}
+          meetingId={open.meeting_id}
+          meetings={meetings}
+          people={people}
+          myId={myId}
+          onClose={() => setOpenId(null)}
+        />
       )}
     </div>
   )

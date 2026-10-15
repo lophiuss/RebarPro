@@ -65,6 +65,78 @@ export function weekStart(d: Date) {
   return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`
 }
 
+// ---------------------------------------------------------------- KPI goals
+// Same rules and units as Bloom's KPI form.
+export type GoalRule = 'eq' | 'gt' | 'gte' | 'lt' | 'lte' | 'between'
+export const GOAL_RULES: { key: GoalRule; symbol: string; label: string }[] = [
+  { key: 'eq', symbol: '=', label: 'Equal to' },
+  { key: 'gt', symbol: '>', label: 'Greater than' },
+  { key: 'gte', symbol: '≥', label: 'Greater than or equal to' },
+  { key: 'lt', symbol: '<', label: 'Less than' },
+  { key: 'lte', symbol: '≤', label: 'Less than or equal to' },
+  { key: 'between', symbol: '⇔', label: 'Between' },
+]
+
+export type UnitType = 'number' | 'percent' | 'dollars' | 'euros' | 'pesos' | 'yen' | 'pounds' | 'inr' | 'rand' | 'aed' | 'xcg' | 'myr' | 'sgd' | 'yesno'
+export const UNIT_TYPES: { key: UnitType; label: string; prefix?: string; suffix?: string }[] = [
+  { key: 'number', label: 'Number' },
+  { key: 'percent', label: 'Percent', suffix: '%' },
+  { key: 'dollars', label: 'Dollars', prefix: '$' },
+  { key: 'euros', label: 'Euros', prefix: '€' },
+  { key: 'pesos', label: 'Pesos', prefix: '₱' },
+  { key: 'yen', label: 'Yen', prefix: '¥' },
+  { key: 'pounds', label: 'Pounds', prefix: '£' },
+  { key: 'inr', label: 'INR', prefix: '₹' },
+  { key: 'rand', label: 'South African Rand', prefix: 'R' },
+  { key: 'aed', label: 'AED', prefix: 'AED ' },
+  { key: 'xcg', label: 'XCG', prefix: 'XCG ' },
+  { key: 'myr', label: 'MYR (Malaysian Ringgit)', prefix: 'RM ' },
+  { key: 'sgd', label: 'SGD (Singapore Dollar)', prefix: 'S$' },
+  { key: 'yesno', label: 'Yes / No' },
+]
+
+export type Goal = { rule: GoalRule; value: number | null; max: number | null }
+
+export function formatKpiValue(v: number | null | undefined, unit: UnitType): string {
+  if (v === null || v === undefined || Number.isNaN(v)) return '—'
+  if (unit === 'yesno') return v >= 1 ? 'Yes' : 'No'
+  const u = UNIT_TYPES.find(x => x.key === unit)
+  const n = Number(v).toLocaleString('en-US', { maximumFractionDigits: 2 })
+  return `${u?.prefix ?? ''}${n}${u?.suffix ?? ''}`
+}
+
+export function formatGoal(goal: Goal, unit: UnitType): string {
+  const sym = GOAL_RULES.find(r => r.key === goal.rule)?.symbol ?? '≥'
+  if (goal.value === null || goal.value === undefined) return '—'
+  if (goal.rule === 'between') return `${formatKpiValue(goal.value, unit)} – ${formatKpiValue(goal.max, unit)}`
+  return `${sym} ${formatKpiValue(goal.value, unit)}`
+}
+
+// true = goal met, false = missed, null = nothing to compare.
+export function evaluateGoal(goal: Goal, value: number | null | undefined): boolean | null {
+  if (value === null || value === undefined || goal.value === null || goal.value === undefined) return null
+  switch (goal.rule) {
+    case 'eq': return value === goal.value
+    case 'gt': return value > goal.value
+    case 'gte': return value >= goal.value
+    case 'lt': return value < goal.value
+    case 'lte': return value <= goal.value
+    case 'between': {
+      if (goal.max === null || goal.max === undefined) return null
+      return value >= Math.min(goal.value, goal.max) && value <= Math.max(goal.value, goal.max)
+    }
+  }
+}
+
+// ---------------------------------------------------------------- To-do board
+export type TodoStatus = 'todo' | 'in_progress' | 'blocked' | 'done'
+export const TODO_COLUMNS: { key: TodoStatus; label: string; tone: string }[] = [
+  { key: 'todo', label: 'To do', tone: 'bg-slate-100 text-slate-700' },
+  { key: 'in_progress', label: 'In progress', tone: 'bg-blue-100 text-blue-700' },
+  { key: 'blocked', label: 'Blocked', tone: 'bg-red-100 text-red-700' },
+  { key: 'done', label: 'Done', tone: 'bg-green-100 text-green-700' },
+]
+
 // Quarterly 1:1 conversation template. Both people answer the same questions
 // (answers = { manager: {...}, report: {...} }), then compare side by side.
 export type OneOnOneQuestion = { id: string; section: string; label: string; type: 'text' | 'rating' }
@@ -112,3 +184,6 @@ export function formatSeconds(total: number) {
   const s = total % 60
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
+
+// Departments a document can be filed under (the Documents page groups by these automatically).
+export const DOC_DEPARTMENTS = ['BPlant', 'Maintenance', 'Mould', 'HR', 'Rebar', 'Security', 'Meetings', 'Other']

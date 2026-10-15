@@ -17,7 +17,7 @@ export default async function MeetingsPage() {
   ])
 
   return (
-    <div className="p-4 md:p-8 max-w-5xl mx-auto">
+    <div className="p-4 md:p-6 xl:p-8 max-w-7xl mx-auto">
       <h1 className="text-3xl font-bold mb-6 flex items-center gap-2">
         <CalendarDays className="w-7 h-7 text-blue-600" /> Meetings
       </h1>

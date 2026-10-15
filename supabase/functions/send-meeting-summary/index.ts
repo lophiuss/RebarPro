@@ -3,40 +3,31 @@
 // the JWT, and the code additionally requires has_dept_access('meetings') on the
 // caller's own session.
 // All summary reads go through the caller's client, so RLS applies. The service
-// role is used only to look up attendee e-mail addresses (auth.users) and to
+// role is used only to look up recipients' e-mail addresses (auth.users) and to
 // stamp mtg_summaries.emailed_at.
+//
+// The e-mail body is built HERE from the stored snapshot by the same builder the
+// on-screen preview uses (minutesHtml.ts, synced from src/lib by
+// scripts/sync-minutes-to-edge.mjs), so the caller can never send arbitrary HTML.
+//
+// Body: { summary_id, include_details?, include_notes?, recipient_ids?, subject?, message? }
+//   recipient_ids omitted -> every attendee of the meeting.
+//   Each recipient gets their own separate e-mail (nobody sees who else got it).
 //
 // Needs the same function secrets as send-variance-alerts:
 //   ALERT_EMAIL_USER / ALERT_EMAIL_PASS  (Gmail account + app password)
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import nodemailer from "npm:nodemailer@6.9.7";
+import { buildMinutesHtml } from "./minutesHtml.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-function escapeHtml(value: unknown): string {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-}
-
-type Named = Record<string, string>;
-
-function listHtml(title: string, items: string[]) {
-  if (items.length === 0) return "";
-  return `<h3 style="margin:20px 0 6px;font-size:15px">${escapeHtml(title)} (${items.length})</h3><ul style="margin:0;padding-left:20px">${items
-    .map((i) => `<li style="margin:3px 0">${i}</li>`)
-    .join("")}</ul>`;
 }
 
 Deno.serve(async (req: Request) => {
@@ -51,7 +42,11 @@ Deno.serve(async (req: Request) => {
     const { data: hasAccess, error: accessErr } = await caller.rpc("has_dept_access", { dept: "meetings" });
     if (accessErr || !hasAccess) return json({ error: "Not authorized" }, 403);
 
-    const { summary_id, include_details = true, include_notes = false } = await req.json();
+    const body = await req.json();
+    const { summary_id, include_details = true, include_notes = false } = body;
+    const recipientIds: string[] | undefined = Array.isArray(body.recipient_ids) ? body.recipient_ids.filter((x: unknown) => typeof x === "string").slice(0, 100) : undefined;
+    const subjectOverride = typeof body.subject === "string" ? body.subject.trim().slice(0, 200) : "";
+    const message = typeof body.message === "string" ? body.message : "";
     if (typeof summary_id !== "string") return json({ error: "summary_id is required" }, 400);
 
     const { data: summary, error: sumErr } = await caller
@@ -67,53 +62,63 @@ Deno.serve(async (req: Request) => {
 
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
-    const { data: attendees } = await caller.from("mtg_attendees").select("user_id").eq("meeting_id", summary.meeting_id);
-    const ids = (attendees ?? []).map((a: { user_id: string }) => a.user_id);
-    const { data: profiles } = await caller.from("profiles").select("id, full_name").in("id", ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
-    const names: Named = {};
+    // Everyone's display name (owners in the report, recipients below).
+    const { data: profiles } = await caller.from("profiles").select("id, full_name").neq("is_active", false);
+    const names: Record<string, string> = {};
     for (const p of profiles ?? []) names[p.id] = p.full_name ?? "Someone";
 
-    const emails: string[] = [];
+    let ids: string[];
+    if (recipientIds) {
+      ids = recipientIds.filter((id) => names[id] !== undefined); // active people only
+    } else {
+      const { data: attendees } = await caller.from("mtg_attendees").select("user_id").eq("meeting_id", summary.meeting_id);
+      ids = (attendees ?? []).map((a: { user_id: string }) => a.user_id);
+    }
+    if (ids.length === 0) return json({ error: "No recipients selected" }, 422);
+
+    const targets: { id: string; email: string }[] = [];
+    const skipped: string[] = [];
     for (const id of ids) {
       const { data } = await admin.auth.admin.getUserById(id);
       const email = data?.user?.email;
-      if (email) emails.push(email);
+      if (email) targets.push({ id, email });
+      else skipped.push(names[id] ?? id);
     }
-    if (emails.length === 0) return json({ error: "No attendee e-mail addresses found" }, 422);
+    if (targets.length === 0) return json({ error: "None of the selected people have an e-mail address" }, 422);
 
-    const snap = (summary.snapshot ?? {}) as Record<string, any>;
-    const owner = (id: string | null) => (id && names[id] ? ` — ${escapeHtml(names[id])}` : "");
     const meetingName = (summary as any).meeting?.name ?? "Meeting";
-    const when = new Date(summary.created_at).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kuala_Lumpur" });
-
-    let body = `<h2 style="margin:0 0 4px">${escapeHtml(meetingName)}</h2><div style="color:#555">${escapeHtml(when)}`;
-    if (summary.average_rating != null) body += ` · Average rating ${Number(summary.average_rating).toFixed(1)}/10`;
-    body += `</div>`;
-
-    body += listHtml("To-dos created", (snap.todos_created ?? []).map((t: any) => `${escapeHtml(t.title)}${owner(t.owner_id)}${t.due_date ? ` (due ${escapeHtml(t.due_date)})` : ""}`));
-    body += listHtml("Issues solved", (snap.issues_solved ?? []).map((i: any) => escapeHtml(i.title)));
-    if (include_details) {
-      body += listHtml("Headlines", (snap.headlines ?? []).map((h: any) => `${escapeHtml(h.title)}${owner(h.owner_id)}`));
-      body += listHtml("To-dos completed", (snap.todos_completed ?? []).map((t: any) => `${escapeHtml(t.title)}${owner(t.owner_id)}`));
-      body += listHtml("Open to-dos", (snap.todos_open ?? []).map((t: any) => `${escapeHtml(t.title)}${owner(t.owner_id)}${t.due_date ? ` (due ${escapeHtml(t.due_date)})` : ""}`));
-    }
-    if (include_notes && snap.notes) {
-      body += `<h3 style="margin:20px 0 6px;font-size:15px">Meeting notes</h3><div style="white-space:pre-wrap">${escapeHtml(snap.notes)}</div>`;
-    }
+    const html = buildMinutesHtml({
+      meetingName,
+      createdAt: summary.created_at,
+      averageRating: summary.average_rating,
+      snapshot: summary.snapshot ?? {},
+      names,
+      includeDetails: !!include_details,
+      includeNotes: !!include_notes,
+      message,
+      ref: summary.id,
+    });
+    const when = new Date((summary.snapshot as any)?.ended_at ?? summary.created_at).toLocaleDateString("en-GB", {
+      day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kuala_Lumpur",
+    });
+    const subject = subjectOverride || `Meeting minutes: ${meetingName} (${when})`;
 
     const transporter = nodemailer.createTransport({ service: "gmail", auth: { user: mailUser, pass } });
-    await transporter.sendMail({
-      from: `"Meetings" <${mailUser}>`,
-      to: mailUser,
-      bcc: emails,
-      subject: `Meeting summary: ${meetingName} (${when})`,
-      html: `<div style="font-family:Arial,sans-serif;font-size:14px;color:#111;max-width:640px">${body}</div>`,
-    });
+    let sent = 0;
+    const failed: string[] = [];
+    for (const t of targets) {
+      try {
+        await transporter.sendMail({ from: `"Meetings" <${mailUser}>`, to: t.email, subject, html });
+        sent++;
+      } catch (_e) {
+        failed.push(names[t.id] ?? t.email);
+      }
+    }
 
     // Best effort: the column arrives with migration v46.
-    await admin.from("mtg_summaries").update({ emailed_at: new Date().toISOString() }).eq("id", summary_id);
+    if (sent > 0) await admin.from("mtg_summaries").update({ emailed_at: new Date().toISOString() }).eq("id", summary_id);
 
-    return json({ sent: emails.length });
+    return json({ sent, skipped, failed });
   } catch (err) {
     return json({ error: err instanceof Error ? err.message : "Unexpected error" }, 500);
   }

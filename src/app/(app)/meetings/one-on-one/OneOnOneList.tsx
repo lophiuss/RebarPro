@@ -7,6 +7,7 @@ import { Plus, ArrowRight } from 'lucide-react'
 import { createOneOnOne } from './actions'
 import { act } from '../act'
 import Avatar from '../Avatar'
+import { PersonSelect } from '../PersonPicker'
 import { currentQuarter, type Person } from '@/lib/meetings'
 
 type Session = { id: string; manager_id: string; report_id: string; quarter: string; status: 'draft' | 'complete'; updated_at: string }
@@ -40,15 +41,12 @@ export default function OneOnOneList({ sessions, people, myId, canCreate }: { se
   return (
     <div>
       {canCreate && (
-        <form onSubmit={create} className="border rounded-xl bg-white p-3 mb-6 grid gap-2 md:grid-cols-[1fr_9rem_auto]">
-          <select value={report} onChange={e => setReport(e.target.value)} className="border rounded-lg px-3 py-2 text-sm bg-white" aria-label="Team member">
-            <option value="">Start a 1:1 with…</option>
-            {people.filter(p => p.id !== myId).map(p => <option key={p.id} value={p.id}>{p.full_name}</option>)}
-          </select>
+        <form onSubmit={create} className="border rounded-xl bg-white shadow-sm p-3 mb-6 grid gap-2 md:grid-cols-[1fr_9rem_auto]">
+          <PersonSelect people={people.filter(p => p.id !== myId)} value={report} onChange={setReport} placeholder="Start a 1:1 with…" ariaLabel="Team member" />
           <select value={quarter} onChange={e => setQuarter(e.target.value)} className="border rounded-lg px-3 py-2 text-sm bg-white" aria-label="Quarter">
             {quarterOptions().map(q => <option key={q} value={q}>{q.replace('-', ' ')}</option>)}
           </select>
-          <button disabled={!report || busy} className="inline-flex items-center justify-center gap-1 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold disabled:opacity-50"><Plus className="w-4 h-4" /> {busy ? 'Starting…' : 'Start'}</button>
+          <button disabled={!report || busy} className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-md bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-50"><Plus className="w-3.5 h-3.5" /> {busy ? 'Starting…' : 'Start'}</button>
         </form>
       )}
 
@@ -57,7 +55,7 @@ export default function OneOnOneList({ sessions, people, myId, canCreate }: { se
           No conversations yet.{canCreate ? ' Start one above.' : ' Your manager will start one for you.'}
         </div>
       ) : (
-        <ul className="border rounded-xl bg-white divide-y">
+        <ul className="border rounded-xl bg-white shadow-sm divide-y">
           {sessions.map(s => {
             const other = peopleById.get(s.manager_id === myId ? s.report_id : s.manager_id)
             const mine = s.manager_id === myId || s.report_id === myId

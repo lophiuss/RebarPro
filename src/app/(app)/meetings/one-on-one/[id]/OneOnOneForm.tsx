@@ -93,7 +93,7 @@ export default function OneOnOneForm({ session, people, coreValues, myId }: { se
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-6xl mx-auto">
+    <div className="p-4 md:p-6 xl:p-8 max-w-[1600px] mx-auto">
       <Link href="/meetings/one-on-one" className="inline-flex items-center gap-1.5 text-sm text-gray-600 hover:text-gray-900 mb-4"><ArrowLeft className="w-4 h-4" /> All conversations</Link>
       <div className="flex flex-wrap items-center gap-3 mb-1">
         <h1 className="text-2xl font-bold">{session.quarter.replace('-', ' ')} 1:1</h1>
@@ -109,7 +109,7 @@ export default function OneOnOneForm({ session, people, coreValues, myId }: { se
 
       <div className="grid lg:grid-cols-2 gap-4">
         {/* Your side (editable) or the manager's side when viewing as an admin */}
-        <section className="border rounded-xl bg-white p-5">
+        <section className="border rounded-xl bg-white shadow-sm p-5">
           <h2 className="font-bold mb-4 flex items-center gap-2">
             <Avatar person={peopleById.get(me ? myId : session.manager_id)} size="sm" /> {me ? 'Your answers' : `${nameOf(session.manager_id)}'s answers`}
           </h2>
@@ -176,7 +176,7 @@ export default function OneOnOneForm({ session, people, coreValues, myId }: { se
           )}
         </section>
 
-        <section className="border rounded-xl bg-white p-5">
+        <section className="border rounded-xl bg-white shadow-sm p-5">
           <h2 className="font-bold mb-4 flex items-center gap-2">
             <Avatar person={peopleById.get(me ? (me === 'manager' ? session.report_id : session.manager_id) : session.report_id)} size="sm" />
             {nameOf(me ? (me === 'manager' ? session.report_id : session.manager_id) : session.report_id)}&apos;s answers

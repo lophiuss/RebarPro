@@ -12,7 +12,7 @@ export default async function MeetingsTodosPage() {
   const [{ data: todos }, { data: meetings }, { data: people }] = await Promise.all([
     supabase
       .from('mtg_todos')
-      .select('id, title, owner_id, due_date, done_at, meeting_id, created_at')
+      .select('id, title, details, owner_id, due_date, done_at, meeting_id, created_at, status')
       .is('archived_at', null)
       .order('due_date', { ascending: true, nullsFirst: false })
       .limit(1000),
@@ -21,7 +21,7 @@ export default async function MeetingsTodosPage() {
   ])
 
   return (
-    <div className="p-4 md:p-8 max-w-5xl mx-auto">
+    <div className="p-4 md:p-6 xl:p-8 max-w-7xl mx-auto">
       <h1 className="text-3xl font-bold mb-6 flex items-center gap-2">
         <ListChecks className="w-7 h-7 text-blue-600" /> To-dos
       </h1>

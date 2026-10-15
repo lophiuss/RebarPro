@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { ArrowUp, ArrowDown, Plus, Trash2 } from 'lucide-react'
+import { Plus, Trash2 } from 'lucide-react'
+import { SortableList } from '../Sortable'
 import { saveDefaultAgenda, saveCoreValues } from '../actions'
 import { PAGE_LABEL, type PageType } from '@/lib/meetings'
 
@@ -31,7 +32,7 @@ export function CoreValuesForm({ initial }: { initial: string[] }) {
   }
 
   return (
-    <div className="border rounded-xl bg-white">
+    <div className="border rounded-xl bg-white shadow-sm">
       <ol className="divide-y">
         {values.map((v, i) => (
           <li key={i} className="flex items-center gap-3 px-4 py-3">
@@ -63,15 +64,6 @@ export default function SettingsForm({ initial }: { initial: Row[] }) {
     setSaved(false)
   }
 
-  function move(i: number, dir: -1 | 1) {
-    const j = i + dir
-    if (j < 0 || j >= rows.length) return
-    const next = [...rows]
-    ;[next[i], next[j]] = [next[j], next[i]]
-    setRows(next)
-    setSaved(false)
-  }
-
   async function save() {
     setSaving(true)
     try {
@@ -87,22 +79,24 @@ export default function SettingsForm({ initial }: { initial: Row[] }) {
   const total = rows.reduce((s, r) => s + (Number(r.minutes) || 0), 0)
 
   return (
-    <div className="border rounded-xl bg-white">
-      <ul className="divide-y">
-        {rows.map((r, i) => (
-          <li key={r.page_type} className="flex items-center gap-3 px-4 py-3">
-            <div className="flex flex-col">
-              <button onClick={() => move(i, -1)} disabled={i === 0} aria-label="Move up" className="text-gray-400 hover:text-gray-800 disabled:opacity-30"><ArrowUp className="w-4 h-4" /></button>
-              <button onClick={() => move(i, 1)} disabled={i === rows.length - 1} aria-label="Move down" className="text-gray-400 hover:text-gray-800 disabled:opacity-30"><ArrowDown className="w-4 h-4" /></button>
-            </div>
+    <div className="border rounded-xl bg-white shadow-sm">
+      <SortableList
+        items={rows}
+        getKey={r => r.page_type}
+        onChange={next => { setRows(next); setSaved(false) }}
+        className="divide-y"
+        itemClassName="gap-3 px-4 py-3"
+        render={(r, i) => (
+          <>
             <div className="w-40 text-xs text-gray-500 hidden sm:block">{PAGE_LABEL[r.page_type]}</div>
             <input value={r.title} onChange={e => patch(i, { title: e.target.value })} className="flex-1 border rounded-lg px-3 py-2 text-sm" aria-label="Title" />
             <label className="flex items-center gap-1 text-sm text-gray-600">
               <input type="number" min={0} value={r.minutes} onChange={e => patch(i, { minutes: Number(e.target.value) })} className="w-16 border rounded-lg px-2 py-2 text-sm text-right" aria-label="Minutes" /> min
             </label>
-          </li>
-        ))}
-      </ul>
+          </>
+        )}
+      />
+      <p className="px-4 py-2 text-xs text-gray-500 border-t">Drag the handle to change the order.</p>
       <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50 rounded-b-xl">
         <span className="text-sm text-gray-600">Total {total} min</span>
         <div className="flex items-center gap-3">
