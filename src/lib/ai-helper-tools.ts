@@ -59,6 +59,23 @@ const ALLOWED_TABLES: Record<string, string> = {
   plantpro_document_types: 'id, name (e.g. Passport, Permit, FOMEMA), scope (WORKER|HOSTEL|BOTH)',
   plantpro_monthly_targets: 'project_id, month (YYYY-MM), production_target, delivery_target, general_target (m³)',
   plantpro_claims: 'project_id, type (Production|Delivery|General), volume_or_trips (m³), amount (RM), date, remarks',
+  mtg_meetings: 'Weekly meetings — id, name, leader_id, is_archived, meeting_type (weekly|quarterly_alignment), schedule (days/time), created_at',
+  mtg_attendees: 'meeting_id, user_id (-> profiles) — who attends which meeting',
+  mtg_contacts: 'People imported from another system who have no login here — full_name, user_id (set when matched to a login)',
+  mtg_meeting_contacts: 'meeting_id, contact_id — imported attendees without a login',
+  mtg_todos: 'Meeting to-dos — meeting_id, title, owner_id (-> profiles) OR owner_name (a person with no login), due_date, done_at (non-null = completed), archived_at, status (todo|in_progress|blocked|done), created_at',
+  mtg_issues: 'Meeting issues — meeting_id, title, owner_id / owner_name, status (short_term|parking_lot|solved|sent), solved_at, due_date, created_at',
+  mtg_headlines: 'Meeting headlines — meeting_id, title, owner_id / owner_name, created_at, archived_at',
+  mtg_goals: 'Quarterly priorities — meeting_id, title, owner_id / owner_name, status (on|off|done), due_date, milestones (json list of {title, done}), completed_at',
+  mtg_kpis: 'Meeting KPIs — id, meeting_id, name, owner_id / owner_name, cadence (daily|weekly|monthly|quarterly), unit_type (number|percent|dollars|…|yesno), goal_rule (eq|gt|gte|lt|lte|between), goal_value, goal_value_max. A KPI meets its goal when its value satisfies goal_rule against goal_value (custom goals in mtg_kpi_goals override it for one period)',
+  mtg_kpi_values: 'KPI results — kpi_id (-> mtg_kpis), period_start (Monday for weekly, 1st for monthly), value',
+  mtg_kpi_goals: 'Per-period goal overrides — kpi_id, period_start, goal_rule, goal_value, goal_value_max',
+  mtg_runs: 'Each time a meeting was held — meeting_id, leader_id, started_at, ended_at (null = running now)',
+  mtg_summaries: 'Concluded-meeting reports — meeting_id, average_rating (1-10), created_at, snapshot (json: attendance, ratings, to-dos created/completed, issues solved, notes)',
+  mtg_seats: 'Org chart seats — id, parent_id, title, subtitle (department), roles (json list of responsibilities), gwc_pass_score',
+  mtg_seat_people: 'seat_id, user_id — who sits in a seat (people without a login are in mtg_seat_contacts)',
+  mtg_seat_contacts: 'seat_id, contact_id — imported seat holders without a login',
+  mtg_rprs: 'Right Person Right Seat assessments — person_id, assessor_id, core_values, gwc (scored Gets it / Wants it / Capacity with total and pass), created_at. RLS: only the assessor and Meetings admins see rows',
 }
 
 const ALLOWED_OPS = new Set(['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike', 'in', 'is'])

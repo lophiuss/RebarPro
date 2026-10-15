@@ -56,6 +56,8 @@ export type ShellProps = {
   schedule: Schedule | null
   workspaceLayout: unknown
   icebreakerNotes: string
+  // People in the meeting who have no login here (imported); shown by name.
+  contactNames: string[]
 }
 
 type LiveState = { current_page: PageType; page_seconds: Record<string, number> }
@@ -392,8 +394,9 @@ export default function MeetingShell(props: ShellProps) {
                   </div>
 
                   <div className="border-t pt-3">
-                    <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1"><Users className="w-3.5 h-3.5" /> Attendees ({attendeeIds.length})</div>
-                    <div className="flex flex-wrap gap-1">{attendeeIds.map(id => <Avatar key={id} person={peopleById.get(id)} size="sm" />)}</div>
+                    <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1"><Users className="w-3.5 h-3.5" /> Attendees ({attendeeIds.length + props.contactNames.length})</div>
+                    <div className="flex flex-wrap gap-1">{attendeeIds.map(id => <Avatar key={id} person={peopleById.get(id)} size="sm" />)}{props.contactNames.map(n => <Avatar key={n} person={{ id: 'name:' + n, full_name: n }} size="sm" />)}</div>
+                    {props.contactNames.length > 0 && <p className="text-[11px] text-gray-400 mt-1.5" title={props.contactNames.join(', ')}>{props.contactNames.length} without a login here: {props.contactNames.slice(0, 3).join(', ')}{props.contactNames.length > 3 ? '…' : ''}</p>}
                   </div>
                 </aside>
               )}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Minus, Search, Pencil, Trash2, Printer, Maximize2, X, UserRound, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, ChevronDown, ChevronRight, Eye, EyeOff } from 'lucide-react'
 import { saveSeat, deleteSeat, moveSeat } from './actions'
 import { act } from '../act'
@@ -47,16 +47,26 @@ const TREE_CSS = `
 @media print{.orgtree-scroll{overflow:visible !important}.orgtree-card .ot-tools{display:none !important}}
 `
 
-function buildTree(seats: Seat[], seatPeople: SeatPerson[], peopleById: Map<string, Person>): Node[] {
+type SeatContact = { seat_id: string; id: string; name: string }
+
+function buildTree(seats: Seat[], seatPeople: SeatPerson[], peopleById: Map<string, Person>, seatContacts: SeatContact[]): Node[] {
   const byParent = new Map<string | null, Seat[]>()
   for (const s of seats) byParent.set(s.parent_id, [...(byParent.get(s.parent_id) ?? []), s])
   const make = (s: Seat, depth: number): Node => ({
     ...s,
     roles: Array.isArray(s.roles) ? s.roles : [],
-    people: seatPeople.filter(sp => sp.seat_id === s.id).map(sp => peopleById.get(sp.user_id)).filter((p): p is Person => !!p),
+    // Logins first, then people from an import who have no login here.
+    people: [
+      ...seatPeople.filter(sp => sp.seat_id === s.id).map(sp => peopleById.get(sp.user_id)).filter((p): p is Person => !!p),
+      ...seatContacts.filter(c => c.seat_id === s.id).map(c => ({ id: 'contact:' + c.id, full_name: c.name, avatar_url: null })),
+    ],
     children: depth > 50 ? [] : (byParent.get(s.id) ?? []).sort((a, b) => a.position - b.position).map(c => make(c, depth + 1)),
   })
   return (byParent.get(null) ?? []).sort((a, b) => a.position - b.position).map(r => make(r, 0))
+}
+
+function leafCount(nodes: Node[]): number {
+  return nodes.reduce((sum, n) => sum + (n.children.length ? leafCount(n.children) : 1), 0)
 }
 
 function depthOf(nodes: Node[]): number {
@@ -77,12 +87,14 @@ function Tool({ onClick, label, children, danger }: { onClick: () => void; label
   )
 }
 
-export default function OrgChartView({ seats, seatPeople, people, canEdit }: { seats: Seat[]; seatPeople: SeatPerson[]; people: Person[]; canEdit: boolean }) {
+export default function OrgChartView({ seats, seatPeople, seatContacts, people, canEdit }: { seats: Seat[]; seatPeople: SeatPerson[]; seatContacts: SeatContact[]; people: Person[]; canEdit: boolean }) {
   const peopleById = useMemo(() => new Map(people.map(p => [p.id, p])), [people])
-  const tree = useMemo(() => buildTree(seats, seatPeople, peopleById), [seats, seatPeople, peopleById])
+  const tree = useMemo(() => buildTree(seats, seatPeople, peopleById, seatContacts), [seats, seatPeople, peopleById, seatContacts])
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [zoom, setZoom] = useState(100)
-  const [horizontal, setHorizontal] = useState(false)
+  // A chart with many seats side by side is far wider than the page; start it sideways (a column
+  // of branches) so it fits without shrinking the text.
+  const [horizontal, setHorizontal] = useState(() => leafCount(tree) > 10)
   const [query, setQuery] = useState('')
   const [rolesPref, setRolesPref] = useLocalPref('av-org-roles', '1')
   const [peoplePref, setPeoplePref] = useLocalPref('av-org-people', '1')
@@ -93,8 +105,16 @@ export default function OrgChartView({ seats, seatPeople, people, canEdit }: { s
   const [saving, setSaving] = useState(false)
   const scroller = useRef<HTMLDivElement>(null)
 
+  // A tall sideways chart puts the top seat in the middle of the page; bring it into view on load.
+  useEffect(() => {
+    if (!horizontal) return
+    const id = requestAnimationFrame(() => scroller.current?.querySelector('.orgtree-card')?.scrollIntoView({ block: 'center' }))
+    return () => cancelAnimationFrame(id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const q = query.trim().toLowerCase()
-  const usersInSeats = new Set(seatPeople.map(sp => sp.user_id)).size
+  const usersInSeats = new Set(seatPeople.map(sp => sp.user_id)).size + new Set(seatContacts.map(c => c.id)).size
   const levels = depthOf(tree)
   // 0 = every level; otherwise show only this many levels from the top.
   const maxLevels = Math.min(Number(levelsPref) || 0, levels) || 0
@@ -109,7 +129,7 @@ export default function OrgChartView({ seats, seatPeople, people, canEdit }: { s
     setEditing({ parent_id: parent, title: '', subtitle: '', roles: '', people_ids: [] })
   }
   function openEdit(n: Node) {
-    setEditing({ id: n.id, parent_id: n.parent_id, title: n.title, subtitle: n.subtitle ?? '', roles: n.roles.join('\n'), people_ids: n.people.map(p => p.id) })
+    setEditing({ id: n.id, parent_id: n.parent_id, title: n.title, subtitle: n.subtitle ?? '', roles: n.roles.join('\n'), people_ids: n.people.filter(p => !p.id.startsWith('contact:')).map(p => p.id) })
   }
 
   async function submit(e: React.FormEvent) {

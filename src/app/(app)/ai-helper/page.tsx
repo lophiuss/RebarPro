@@ -29,6 +29,9 @@ const SUGGESTED_PROMPTS = [
   'Who hasn’t done their job today?',
   'Generate a summary for yesterday.',
   'Give me a material forecast based on recent usage.',
+  'Which meeting to-dos are overdue, grouped by owner?',
+  'Which KPIs missed their goal in the latest period?',
+  'Summarise the open issues across all meetings.',
 ]
 
 export default function AiHelperPage() {

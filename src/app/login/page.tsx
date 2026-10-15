@@ -1,6 +1,6 @@
 import { login, signup } from './actions'
 import { Button } from '@/components/ui/button'
-import { Factory, Boxes, ShieldCheck, Wrench, Navigation } from 'lucide-react'
+import { Factory, Boxes, ShieldCheck, Wrench, Navigation, CalendarCheck, Sparkles } from 'lucide-react'
 
 export default async function LoginPage({
   searchParams,
@@ -29,7 +29,7 @@ export default async function LoginPage({
             One platform for<br />your entire operation.
           </h1>
           <p className="text-slate-400 text-lg max-w-md">
-            Rebar stock, cement batching, equipment maintenance, and site security — real-time balances, work orders, patrols, and reporting, all in one place.
+            Rebar stock, cement batching, equipment maintenance, site security, mould and workforce records, plus weekly team meetings — real-time balances, work orders, patrols, KPIs and reporting, all in one place.
           </p>
 
           <div className="mt-10 space-y-4">
@@ -50,6 +50,18 @@ export default async function LoginPage({
                 <Navigation className="w-4 h-4 text-cyan-400" />
               </div>
               <span className="text-sm">Gate entries, guard shifts &amp; GPS patrol checkpoints</span>
+            </div>
+            <div className="flex items-center gap-3 text-slate-300">
+              <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center flex-shrink-0">
+                <CalendarCheck className="w-4 h-4 text-violet-400" />
+              </div>
+              <span className="text-sm">Weekly meetings with live agendas, to-dos, issues, KPIs &amp; quarterly priorities</span>
+            </div>
+            <div className="flex items-center gap-3 text-slate-300">
+              <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center flex-shrink-0">
+                <Sparkles className="w-4 h-4 text-amber-400" />
+              </div>
+              <span className="text-sm">AI Helper that answers from your live data</span>
             </div>
             <div className="flex items-center gap-3 text-slate-300">
               <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center flex-shrink-0">

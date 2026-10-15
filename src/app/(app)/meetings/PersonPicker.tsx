@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from 'react'
 import { ChevronDown, Search, Check } from 'lucide-react'
 import Avatar from './Avatar'
 import type { Person } from '@/lib/meetings'
+import { isNameOwner } from '@/lib/owners'
 
 type Extra = { value: string; label: string }
 
@@ -36,7 +37,8 @@ export function PersonSelect({
   const selected = people.find(p => p.id === value)
   const extraSelected = extra.find(e => e.value === value)
   const q = query.trim().toLowerCase()
-  const filtered = useMemo(() => (q ? people.filter(p => matches(p, q)) : people), [people, q])
+  const offered = useMemo(() => people.filter(p => !isNameOwner(p.id)), [people])
+  const filtered = useMemo(() => (q ? offered.filter(p => matches(p, q)) : offered), [offered, q])
   const filteredExtra = q ? extra.filter(e => e.label.toLowerCase().includes(q)) : extra
 
   function openMenu() {
@@ -143,7 +145,7 @@ export function PeopleChecklist({
 }) {
   const [query, setQuery] = useState('')
   const q = query.trim().toLowerCase()
-  const shown = q ? people.filter(p => matches(p, q)) : people
+  const shown = (q ? people.filter(p => matches(p, q)) : people).filter(p => !isNameOwner(p.id))
   return (
     <div className="border rounded-lg">
       <div className="relative p-2 border-b">

@@ -185,3 +185,6 @@ export function formatSeconds(total: number) {
   const s = total % 60
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
+
+// Departments a document can be filed under (the Documents page groups by these automatically).
+export const DOC_DEPARTMENTS = ['BPlant', 'Maintenance', 'Mould', 'HR', 'Rebar', 'Security', 'Meetings', 'Other']

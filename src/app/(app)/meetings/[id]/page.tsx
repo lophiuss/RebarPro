@@ -4,6 +4,7 @@ export const revalidate = 0
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import MeetingShell from './MeetingShell'
+import { nameOwners, withNameOwners } from '@/lib/owners'
 import { PAGE_TYPES, MEETING_TABS, type MeetingTab, type PageType } from '@/lib/meetings'
 
 type SearchParams = { tab?: string; pageType?: string }
@@ -44,13 +45,13 @@ export default async function MeetingPage({
     supabase.from('mtg_attendees').select('user_id').eq('meeting_id', id),
     supabase.from('mtg_agenda_items').select('id, page_type, title, minutes, position').eq('meeting_id', id).order('position'),
     supabase.from('mtg_runs').select('id, leader_id, started_at, current_page, page_seconds, notes, ratings_revealed, attendance').eq('meeting_id', id).is('ended_at', null).maybeSingle(),
-    supabase.from('mtg_headlines').select('id, title, details, owner_id, created_at').eq('meeting_id', id).is('archived_at', null).order('created_at'),
-    supabase.from('mtg_todos').select('id, title, details, owner_id, due_date, done_at, run_id, created_at, status, source_headline_id').eq('meeting_id', id).is('archived_at', null).order('created_at'),
-    supabase.from('mtg_issues').select('id, title, details, owner_id, status, solved_run_id, created_at, due_date, source_headline_id').eq('meeting_id', id).order('created_at'),
-    supabase.from('mtg_goals').select('id, title, details, owner_id, status, due_date, milestones, created_at').eq('meeting_id', id).order('created_at'),
+    supabase.from('mtg_headlines').select('id, title, details, owner_id, owner_name, created_at').eq('meeting_id', id).is('archived_at', null).order('created_at'),
+    supabase.from('mtg_todos').select('id, title, details, owner_id, owner_name, due_date, done_at, run_id, created_at, status, source_headline_id').eq('meeting_id', id).is('archived_at', null).order('created_at'),
+    supabase.from('mtg_issues').select('id, title, details, owner_id, owner_name, status, solved_run_id, created_at, due_date, source_headline_id').eq('meeting_id', id).order('created_at'),
+    supabase.from('mtg_goals').select('id, title, details, owner_id, owner_name, status, due_date, milestones, created_at').eq('meeting_id', id).order('created_at'),
     kpiIds.length
       ? supabase.from('mtg_kpis')
-          .select('id, name, details, owner_id, cadence, unit_type, goal_rule, goal_value, goal_value_max, position, links:mtg_kpi_meetings(meeting_id)')
+          .select('id, name, details, owner_id, owner_name, cadence, unit_type, goal_rule, goal_value, goal_value_max, position, links:mtg_kpi_meetings(meeting_id)')
           .in('id', kpiIds)
           .order('position')
       : Promise.resolve({ data: [] as any[] }),
@@ -78,9 +79,9 @@ export default async function MeetingPage({
     // only when that tab is open.
     tab === 'ARCHIVE'
       ? Promise.all([
-          supabase.from('mtg_headlines').select('id, title, details, owner_id, created_at, archived_at').eq('meeting_id', id).order('created_at', { ascending: false }).limit(1000),
-          supabase.from('mtg_todos').select('id, title, details, owner_id, created_at, due_date, done_at, archived_at, status').eq('meeting_id', id).order('created_at', { ascending: false }).limit(1000),
-          supabase.from('mtg_issues').select('id, title, details, owner_id, created_at, status, solved_at').eq('meeting_id', id).order('created_at', { ascending: false }).limit(1000),
+          supabase.from('mtg_headlines').select('id, title, details, owner_id, owner_name, created_at, archived_at').eq('meeting_id', id).order('created_at', { ascending: false }).limit(1000),
+          supabase.from('mtg_todos').select('id, title, details, owner_id, owner_name, created_at, due_date, done_at, archived_at, status').eq('meeting_id', id).order('created_at', { ascending: false }).limit(1000),
+          supabase.from('mtg_issues').select('id, title, details, owner_id, owner_name, created_at, status, solved_at').eq('meeting_id', id).order('created_at', { ascending: false }).limit(1000),
         ])
       : Promise.resolve(null),
     tab === 'WORKSPACE' && user
@@ -88,6 +89,15 @@ export default async function MeetingPage({
       : Promise.resolve({ data: null }),
   ])
 
+  const found = new Set<string>()
+  const mHeadlines = nameOwners(headlines as any[], found)
+  const mTodos = nameOwners(todos as any[], found)
+  const mIssues = nameOwners(issues as any[], found)
+  const mGoals = nameOwners(goals as any[], found)
+  const mKpis = nameOwners(kpis as any[], found)
+  const hist = archive ? { headlines: nameOwners(archive[0].data as any[], found), todos: nameOwners(archive[1].data as any[], found), issues: nameOwners(archive[2].data as any[], found) } : null
+  const { data: contactRows } = await supabase.from('mtg_meeting_contacts').select('contact:mtg_contacts(full_name)').eq('meeting_id', id)
+  const contactNames = (contactRows ?? []).map((r: any) => r.contact?.full_name as string).filter(Boolean).sort()
   const lastFeedback = ((summaries?.[0]?.snapshot as any)?.ratings ?? []) as { user_id: string; rating: number | null; feedback: string | null }[]
   const pageType: PageType = (PAGE_TYPES as string[]).includes(sp.pageType ?? '') ? (sp.pageType as PageType) : 'CHECK_IN'
 
@@ -103,22 +113,23 @@ export default async function MeetingPage({
       pageType={pageType}
       agenda={(agenda ?? []) as any}
       run={activeRun ? { ...activeRun, page_seconds: (activeRun.page_seconds ?? {}) as any, attendance: (activeRun.attendance ?? {}) as any } : null}
-      people={people ?? []}
+      people={withNameOwners(people ?? [], found)}
+      contactNames={contactNames}
       attendeeIds={(attendees ?? []).map(a => a.user_id as string)}
       myId={user?.id ?? ''}
-      headlines={(headlines ?? []) as any}
-      todos={(todos ?? []) as any}
+      headlines={mHeadlines as any}
+      todos={mTodos as any}
       // Only outstanding issues are listed. An issue solved in the meeting that is running right now stays
       // (struck through) until the meeting ends; anything solved earlier lives in the Archive tab.
-      issues={((issues ?? []) as any[]).filter(i => i.status !== 'solved' || (!!activeRun && i.solved_run_id === activeRun.id))}
-      goals={(goals ?? []) as any}
-      kpis={((kpis ?? []) as any[]).map(k => ({ ...k, meeting_ids: (k.links ?? []).map((l: any) => l.meeting_id as string) }))}
+      issues={(mIssues as any[]).filter(i => i.status !== 'solved' || (!!activeRun && i.solved_run_id === activeRun.id))}
+      goals={mGoals as any}
+      kpis={(mKpis as any[]).map(k => ({ ...k, meeting_ids: (k.links ?? []).map((l: any) => l.meeting_id as string) }))}
       kpiValues={(kpiValues ?? []) as any}
       kpiGoals={(kpiGoals ?? []) as any}
       ratings={visibleRatings as any}
       lastFeedback={lastFeedback}
       summaries={(summaries ?? []) as any}
-      history={archive ? { headlines: (archive[0].data ?? []) as any, todos: (archive[1].data ?? []) as any, issues: (archive[2].data ?? []) as any } : null}
+      history={hist as any}
       coreValues={(Array.isArray(settings?.core_values) ? settings.core_values : []) as string[]}
       otherMeetings={allMeetings ?? []}
       isAdmin={access?.role === 'admin'}

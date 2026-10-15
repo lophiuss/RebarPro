@@ -175,7 +175,7 @@ export function SummaryTab({ summaries, peopleById, meetingName }: { summaries: 
                   <div className="flex-1 min-w-0">
                     <div className="font-semibold">{day(snap.ended_at ?? s.created_at)}</div>
                     <div className="text-xs text-gray-500">
-                      {(snap.todos_created ?? []).length} to-dos created · {(snap.issues_solved ?? []).length} issues solved
+                      {(snap.todos_created ?? []).length} to-dos created · {snap.counts?.issues_solved ?? (snap.issues_solved ?? []).length} issues solved
                       {att.length > 0 && ` · ${att.filter(a => a.present).length}/${att.length} present`}
                       {s.emailed_at && ` · e-mailed ${when(s.emailed_at)}`}
                     </div>
