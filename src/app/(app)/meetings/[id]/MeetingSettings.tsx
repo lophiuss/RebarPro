@@ -1,5 +1,6 @@
 'use client'
 
+import { confirmDialog } from '../ui/feedback'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { X, Archive } from 'lucide-react'
@@ -48,7 +49,7 @@ export default function MeetingSettings({
   }
 
   async function archive() {
-    if (!confirm('Archive this meeting? It disappears from the meetings list. Its history is kept.')) return
+    if (!(await confirmDialog('Archive this meeting? It disappears from the meetings list. Its history is kept.'))) return
     const ok = await act(async () => { await archiveMeeting(meeting.id); return true })
     if (ok) router.push('/meetings')
   }
@@ -58,7 +59,7 @@ export default function MeetingSettings({
       <form onSubmit={save} className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-4 border-b sticky top-0 bg-white rounded-t-xl">
           <h2 className="font-bold text-lg">Meeting settings</h2>
-          <button type="button" onClick={onClose} aria-label="Close"><X className="w-5 h-5 text-gray-400" /></button>
+          <button type="button" onClick={onClose} aria-label="Close"><X className="w-5 h-5 text-gray-500" /></button>
         </div>
         <div className="p-5 space-y-6">
           <div className="grid gap-4 md:grid-cols-2">

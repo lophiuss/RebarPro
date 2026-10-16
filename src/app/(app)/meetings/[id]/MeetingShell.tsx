@@ -1,5 +1,6 @@
 'use client'
 
+import { notifyError } from '../ui/feedback'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -182,7 +183,7 @@ export default function MeetingShell(props: ShellProps) {
       setLive({ current_page: p, page_seconds: seconds })
       showPage(p)
       channelRef.current?.send({ type: 'broadcast', event: 'page', payload: { page: p, pageSeconds: seconds } })
-      try { await setRunPage(run.id, p, seconds) } catch (err: any) { alert('Error: ' + err.message) }
+      try { await setRunPage(run.id, p, seconds) } catch (err: any) { notifyError(err) }
     } else {
       showPage(p)
     }
@@ -195,7 +196,7 @@ export default function MeetingShell(props: ShellProps) {
       showPage('CHECK_IN')
       changed()
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      notifyError(err)
     } finally {
       setStarting(false)
     }
@@ -265,7 +266,7 @@ export default function MeetingShell(props: ShellProps) {
             <Link href="/meetings" className="text-sm text-gray-500 hover:text-gray-800">Meetings</Link>
             <span className="text-gray-300">/</span>
             <h1 className="text-2xl font-bold truncate">{meeting.name}</h1>
-            {run && <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-600 bg-red-50 px-2 py-0.5 rounded-full"><Radio className="w-3 h-3" /> LIVE</span>}
+            {run && <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 bg-red-50 px-2 py-0.5 rounded-full"><Radio className="w-3 h-3" /> LIVE</span>}
 
             <div className="ml-auto flex items-center gap-2">
               {/* Zoom for a TV or projector */}
@@ -291,7 +292,7 @@ export default function MeetingShell(props: ShellProps) {
               >
                 <Presentation className="w-4 h-4" /> <span className="hidden sm:inline">{presenting ? 'Exit' : 'Present'}</span>
               </button>
-              <button onClick={() => setShowSettings(true)} aria-label="Meeting settings" title="Meeting settings" className="text-gray-400 hover:text-blue-600 p-1"><SettingsIcon className="w-5 h-5" /></button>
+              <button onClick={() => setShowSettings(true)} aria-label="Meeting settings" title="Meeting settings" className="text-gray-500 hover:text-blue-600 p-1"><SettingsIcon className="w-5 h-5" /></button>
             </div>
           </div>
 
@@ -300,7 +301,7 @@ export default function MeetingShell(props: ShellProps) {
               <Link
                 key={t.key}
                 href={`/meetings/${meeting.id}?tab=${t.key}${t.key === 'MEETING' ? `&pageType=${page}` : ''}`}
-                className={`px-3.5 py-1.5 rounded-md font-medium transition ${tab === t.key ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+                className={`px-3.5 py-1.5 rounded-md font-medium transition ${tab === t.key ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
               >
                 {t.label}
               </Link>
@@ -399,7 +400,7 @@ export default function MeetingShell(props: ShellProps) {
                         <textarea
                           value={notes}
                           onChange={e => setNotes(e.target.value)}
-                          onBlur={() => run && saveRunNotes(run.id, notes).catch(err => alert('Error: ' + err.message))}
+                          onBlur={() => run && saveRunNotes(run.id, notes).catch(notifyError)}
                           disabled={!run}
                           rows={6}
                           placeholder={run ? 'Notes are saved when you click away.' : 'Start the meeting to take notes.'}
@@ -410,9 +411,9 @@ export default function MeetingShell(props: ShellProps) {
                   </div>
 
                   <div className="border-t pt-3">
-                    <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1"><Users className="w-3.5 h-3.5" /> Attendees ({attendeeIds.length + props.contactNames.length})</div>
+                    <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1"><Users className="w-3.5 h-3.5" /> Attendees ({attendeeIds.length + props.contactNames.length})</div>
                     <div className="flex flex-wrap gap-1">{attendeeIds.map(id => <Avatar key={id} person={peopleById.get(id)} size="sm" />)}{props.contactNames.map(n => <Avatar key={n} person={{ id: 'name:' + n, full_name: n }} size="sm" />)}</div>
-                    {props.contactNames.length > 0 && <p className="text-[11px] text-gray-400 mt-1.5" title={props.contactNames.join(', ')}>{props.contactNames.length} without a login here: {props.contactNames.slice(0, 3).join(', ')}{props.contactNames.length > 3 ? '…' : ''}</p>}
+                    {props.contactNames.length > 0 && <p className="text-xs text-gray-500 mt-1.5" title={props.contactNames.join(', ')}>{props.contactNames.length} without a login here: {props.contactNames.slice(0, 3).join(', ')}{props.contactNames.length > 3 ? '…' : ''}</p>}
                   </div>
                 </aside>
               )}

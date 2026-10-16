@@ -1,5 +1,6 @@
 'use client'
 
+import { notifyError } from './ui/feedback'
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -67,7 +68,7 @@ export default function MeetingsList({
       setShowNew(false)
       router.push(`/meetings/${id}`)
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      notifyError(err)
     } finally {
       setSaving(false)
     }
@@ -84,7 +85,7 @@ export default function MeetingsList({
     <div>
       <div className="flex flex-col sm:flex-row gap-3 sm:items-center justify-between mb-4">
         <div className="relative flex-1 max-w-md">
-          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-gray-500 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             value={query}
             onChange={e => setQuery(e.target.value)}
@@ -122,9 +123,9 @@ export default function MeetingsList({
             <li key={m.id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50">
               {m.mine ? (
                 <button
-                  onClick={() => toggleFavourite(m.id).catch(err => alert('Error: ' + err.message))}
+                  onClick={() => toggleFavourite(m.id).catch(notifyError)}
                   aria-label={m.fav ? 'Remove favourite' : 'Mark as favourite'}
-                  className="shrink-0"
+                  className="shrink-0 p-2 -m-2"
                 >
                   <Star className={`w-4 h-4 ${m.fav ? 'fill-amber-400 text-amber-400' : 'text-gray-300 hover:text-gray-500'}`} />
                 </button>
@@ -133,7 +134,7 @@ export default function MeetingsList({
                 <div className="font-medium text-slate-900 truncate flex items-center gap-2">
                   {m.name}
                   {liveMeetingIds.includes(m.id) && (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
                       <Radio className="w-3 h-3" /> LIVE
                     </span>
                   )}
@@ -141,8 +142,8 @@ export default function MeetingsList({
                 {m.description && <div className="text-xs text-gray-500 truncate">{m.description}</div>}
               </Link>
               <div className="hidden sm:block shrink-0 w-32 text-right text-xs leading-tight" title="Date of the last meeting held">
-                <div className="text-[10px] uppercase tracking-wide text-gray-400">Last meeting</div>
-                <div className={lastRun[m.id] ? 'font-medium text-slate-700' : 'text-gray-400'}>
+                <div className="text-xs uppercase tracking-wide text-gray-500">Last meeting</div>
+                <div className={lastRun[m.id] ? 'font-medium text-slate-700' : 'text-gray-500'}>
                   {lastRun[m.id] ? new Date(lastRun[m.id]).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : 'Not held yet'}
                 </div>
               </div>
@@ -157,7 +158,7 @@ export default function MeetingsList({
           <form onSubmit={submitNew} className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-5 py-4 border-b">
               <h2 className="font-bold text-lg">New meeting</h2>
-              <button type="button" onClick={() => setShowNew(false)} aria-label="Close"><X className="w-5 h-5 text-gray-400" /></button>
+              <button type="button" onClick={() => setShowNew(false)} aria-label="Close"><X className="w-5 h-5 text-gray-500" /></button>
             </div>
             <div className="p-5 space-y-4">
               <label className="block text-sm font-medium">
@@ -165,7 +166,7 @@ export default function MeetingsList({
                 <input required value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" placeholder="e.g. Weekly leadership meeting" />
               </label>
               <label className="block text-sm font-medium">
-                Description <span className="text-gray-400 font-normal">(optional)</span>
+                Description <span className="text-gray-500 font-normal">(optional)</span>
                 <input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" />
               </label>
               <div>

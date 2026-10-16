@@ -1,5 +1,6 @@
 'use client'
 
+import { notify, confirmDialog } from '../ui/feedback'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Plus, Trash2, X, Check, ListChecks, AlertCircle, BarChart3, Table2, StickyNote, MoreVertical } from 'lucide-react'
@@ -12,7 +13,7 @@ import NewItemDrawer from './NewItemDrawer'
 import KpiChart from './KpiChart'
 import { periodsFor, resolveRange, bucketValues, parseYmd, RANGE_LABEL, GROUP_LABEL, type Range, type RangePreset, type Group } from './kpiRange'
 import {
-  card, input, primaryBtn, labelCls, Empty, OwnerSelect, SectionTitle, Segmented,
+  card, input, primaryBtn, labelCls, Empty, OwnerSelect, SectionTitle, Segmented, GoalMark, goalWord, NO_SPIN,
   type Kpi, type KpiValue, type KpiCustomGoal, type OtherMeetings,
 } from './shared'
 import {
@@ -66,8 +67,8 @@ function KpiCell({ kpi, start, value, goal, onCreate, note, onNote }: {
           const next = (sibling as HTMLTableRowElement | null)?.cells?.[(td as HTMLTableCellElement).cellIndex]?.querySelector<HTMLInputElement | HTMLSelectElement>('input, select')
           if (next) { next.focus(); if (next instanceof HTMLInputElement) next.select() }
         }}
-        className={`w-full min-w-0 text-center border rounded px-0.5 py-0.5 text-xs ${tone}`}
-        aria-label={`${kpi.name} ${start}`}
+        className={`w-full min-w-0 text-center border rounded pl-0.5 pr-5 py-1 text-sm ${tone}`}
+        aria-label={`${kpi.name} ${start}${goalWord(hit)}`}
       >
         <option value="">—</option><option value="1">Yes</option><option value="0">No</option>
       </select>
@@ -93,8 +94,8 @@ function KpiCell({ kpi, start, value, goal, onCreate, note, onNote }: {
           const next = (sibling as HTMLTableRowElement | null)?.cells?.[(td as HTMLTableCellElement).cellIndex]?.querySelector<HTMLInputElement | HTMLSelectElement>('input, select')
           if (next) { next.focus(); if (next instanceof HTMLInputElement) next.select() } else e.currentTarget.blur()
         }}
-        className={`w-full min-w-0 text-center border rounded px-1 py-0.5 text-xs ${tone}`}
-        aria-label={`${kpi.name} ${start}`}
+        className={`w-full min-w-0 text-center border rounded pl-1 pr-5 py-1 text-sm ${NO_SPIN} ${tone}`}
+        aria-label={`${kpi.name} ${start}${goalWord(hit)}`}
       />
     )
   }
@@ -125,6 +126,7 @@ function KpiCell({ kpi, start, value, goal, onCreate, note, onNote }: {
   return (
     <div ref={cellBox} className="group relative block w-full" title={note ? `Note: ${note}` : undefined}>
       {control}
+      <GoalMark hit={hit} />
       {note && (
         <button type="button" onClick={onNote} aria-label={`Note: ${note}`} className="absolute top-0 right-0 w-0 h-0 border-t-[9px] border-l-[9px] border-t-amber-500 border-l-transparent rounded-tr" />
       )}
@@ -166,7 +168,7 @@ function GoalFields({ rule, value, max, onChange, compact = false }: {
       <input type="number" step="any" value={value} onChange={e => onChange({ rule, value: e.target.value, max })} placeholder={rule === 'between' ? 'From' : 'Goal'} className={`${input} w-28`} aria-label="Goal value" />
       {rule === 'between' && (
         <>
-          <span className="self-center text-gray-400">to</span>
+          <span className="self-center text-gray-500">to</span>
           <input type="number" step="any" value={max} onChange={e => onChange({ rule, value, max: e.target.value })} placeholder="To" className={`${input} w-28`} aria-label="Goal upper value" />
         </>
       )}
@@ -211,7 +213,7 @@ function KpiDrawer({ kpi, custom, allMeetings, onClose }: {
   async function toggleMeeting(id: string) {
     const has = kpi.meeting_ids.includes(id)
     const next = has ? kpi.meeting_ids.filter(x => x !== id) : [...kpi.meeting_ids, id]
-    if (next.length === 0) { alert('A KPI must stay attached to at least one meeting.'); return }
+    if (next.length === 0) { notify('A KPI must stay attached to at least one meeting.', 'error'); return }
     setSaved(false)
     const ok = await run(async () => { await setKpiMeetings(meetingId, kpi.id, next); return true })
     if (ok) setSaved(true)
@@ -237,7 +239,7 @@ function KpiDrawer({ kpi, custom, allMeetings, onClose }: {
         <header className="flex items-center gap-3 px-5 py-4 border-b">
           <h2 className="font-bold text-lg flex-1">Edit KPI</h2>
           {saved && <span className="text-xs text-green-700 inline-flex items-center gap-1"><Check className="w-3.5 h-3.5" /> Changes saved</span>}
-          <button onClick={onClose} aria-label="Close"><X className="w-5 h-5 text-gray-400 hover:text-gray-700" /></button>
+          <button onClick={onClose} aria-label="Close"><X className="w-5 h-5 text-gray-500 hover:text-gray-700" /></button>
         </header>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
@@ -287,7 +289,7 @@ function KpiDrawer({ kpi, custom, allMeetings, onClose }: {
                   <li key={c.period_start} className="flex items-center gap-3 px-3 py-2 text-sm">
                     <span className="font-medium">{c.period_start}</span>
                     <span className="flex-1 text-gray-600">{formatGoal({ rule: c.goal_rule, value: c.goal_value, max: c.goal_value_max }, unit)}</span>
-                    <button onClick={() => run(() => deleteKpiCustomGoal(meetingId, kpi.id, c.period_start))} aria-label="Remove custom goal" className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                    <button onClick={() => run(() => deleteKpiCustomGoal(meetingId, kpi.id, c.period_start))} aria-label="Remove custom goal" className="p-2 -m-2 text-gray-500 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                   </li>
                 ))}
               </ul>
@@ -306,7 +308,7 @@ function KpiDrawer({ kpi, custom, allMeetings, onClose }: {
                 <li key={m.id}>
                   <label className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50">
                     <input type="checkbox" checked={kpi.meeting_ids.includes(m.id)} onChange={() => toggleMeeting(m.id)} />
-                    {m.name}{m.id === meetingId && <span className="text-xs text-gray-400">(this meeting)</span>}
+                    {m.name}{m.id === meetingId && <span className="text-xs text-gray-500">(this meeting)</span>}
                   </label>
                 </li>
               ))}
@@ -316,7 +318,7 @@ function KpiDrawer({ kpi, custom, allMeetings, onClose }: {
 
         <footer className="flex items-center justify-between px-5 py-3 border-t bg-gray-50">
           <button
-            onClick={async () => { if (confirm(`Delete KPI "${kpi.name}" and all its values?`)) { const ok = await run(async () => { await deleteKpi(meetingId, kpi.id); return true }); if (ok) onClose() } }}
+            onClick={async () => { if (await confirmDialog(`Delete KPI "${kpi.name}" and all its values?`)) { const ok = await run(async () => { await deleteKpi(meetingId, kpi.id); return true }); if (ok) onClose() } }}
             className="inline-flex items-center gap-1.5 text-sm font-semibold text-red-600 hover:text-red-700"
           ><Trash2 className="w-4 h-4" /> Delete</button>
         </footer>
@@ -481,7 +483,7 @@ export function Metrics({ kpis, values, customGoals, otherMeetings, meetingName,
             <colgroup><col style={{ width: '12rem' }} /><col style={{ width: '5.5rem' }} /><col style={{ width: '4.5rem' }} /><col style={{ width: '4.5rem' }} />{periods.map(p => <col key={p.start} />)}</colgroup>
             <thead className="bg-gray-50">
               {/* The dates stay at the top and the first four columns stay on the left while scrolling. */}
-              <tr className="text-[11px] uppercase tracking-wide text-gray-500">
+              <tr className="text-xs uppercase tracking-wide text-gray-500">
                 <th className="text-left px-2 py-1.5 font-semibold sticky top-0 left-0 z-30 bg-gray-50">KPI</th>
                 <th className="px-1 py-1.5 font-semibold sticky top-0 left-[12rem] z-30 bg-gray-50">Goal</th>
                 <th className="px-1 py-1.5 font-semibold sticky top-0 left-[17.5rem] z-30 bg-gray-50">Sum</th>
@@ -544,14 +546,14 @@ export function Metrics({ kpis, values, customGoals, otherMeetings, meetingName,
                 <h2 className="font-bold flex items-center gap-1.5"><StickyNote className="w-4 h-4 text-amber-500" /> Note</h2>
                 <p className="text-xs text-gray-500">{noteEdit.kpi.name} · {noteEdit.label} · {formatKpiValue(byKey.get(`${noteEdit.kpi.id}|${noteEdit.start}`), noteEdit.kpi.unit_type)}</p>
               </div>
-              <button onClick={() => setNoteEdit(null)} aria-label="Close"><X className="w-5 h-5 text-gray-400" /></button>
+              <button onClick={() => setNoteEdit(null)} aria-label="Close"><X className="w-5 h-5 text-gray-500" /></button>
             </div>
             <div className="p-5">
               <textarea autoFocus value={noteEdit.text} onChange={e => setNoteEdit({ ...noteEdit, text: e.target.value })} rows={5} maxLength={2000} placeholder="Why the number is what it is, what was agreed…" className={`${input} w-full`} aria-label="Note" />
             </div>
             <div className="flex items-center gap-2 px-5 py-3 border-t bg-gray-50 rounded-b-xl">
               {noteByKey.has(`${noteEdit.kpi.id}|${noteEdit.start}`) && (
-                <button onClick={() => confirm('Delete this note?') && saveNote('')} disabled={noteBusy} className="text-sm text-red-600 hover:underline mr-auto">Delete note</button>
+                <button onClick={async () => { if (await confirmDialog('Delete this note?')) { await (saveNote('')) } }} disabled={noteBusy} className="text-sm text-red-600 hover:underline mr-auto">Delete note</button>
               )}
               <button onClick={() => setNoteEdit(null)} className="ml-auto px-4 py-2 text-sm rounded-lg border bg-white">Cancel</button>
               <button onClick={() => saveNote(noteEdit.text)} disabled={noteBusy || !noteEdit.text.trim()} className="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white font-semibold disabled:opacity-50">{noteBusy ? 'Saving…' : 'Save note'}</button>

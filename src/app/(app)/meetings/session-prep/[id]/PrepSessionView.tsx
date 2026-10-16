@@ -72,7 +72,7 @@ function Results({ q, submitted, nameOf, peopleById }: { q: Q; submitted: Respon
           const verdict = f.length > a.length ? 'Leading' : f.length < a.length ? 'Behind' : f.length ? 'Tied' : ''
           return (
             <li key={o} className="rounded-lg border p-3">
-              <div className="flex items-center justify-between gap-2 mb-1.5"><span className="font-semibold text-sm">{o}</span>{verdict && <span className="text-[11px] font-bold uppercase text-gray-500">{verdict}</span>}</div>
+              <div className="flex items-center justify-between gap-2 mb-1.5"><span className="font-semibold text-sm">{o}</span>{verdict && <span className="text-xs font-bold uppercase text-gray-500">{verdict}</span>}</div>
               <ul className="space-y-1.5">
                 <Bar label="For" count={f.length} total={answered.length} names={f} tone="bg-green-600" />
                 <Bar label="Against" count={a.length} total={answered.length} names={a} tone="bg-red-500" />
@@ -88,7 +88,7 @@ function Results({ q, submitted, nameOf, peopleById }: { q: Q; submitted: Respon
     const nums = answered.map(r => r.answers[q.id] as number)
     const sum = nums.reduce((s, n) => s + n, 0)
     const stat = (label: string, v: number | null) => (
-      <div className="rounded-lg border px-3 py-1.5"><div className="text-[10px] font-semibold uppercase tracking-wide text-gray-500">{label}</div><div className="font-bold tabular-nums">{v === null ? '—' : Number(v.toLocaleString('en-US', { maximumFractionDigits: 2 }).replace(/,/g, ''))}{v !== null && q.unit ? ` ${q.unit}` : ''}</div></div>
+      <div className="rounded-lg border px-3 py-1.5"><div className="text-xs font-semibold uppercase tracking-wide text-gray-500">{label}</div><div className="font-bold tabular-nums">{v === null ? '—' : Number(v.toLocaleString('en-US', { maximumFractionDigits: 2 }).replace(/,/g, ''))}{v !== null && q.unit ? ` ${q.unit}` : ''}</div></div>
     )
     return (
       <div>
@@ -194,7 +194,7 @@ export default function PrepSessionView({
           <div className="space-y-5">
             {questions.map(q => (
               <div key={q.id} className="text-sm font-medium">
-                <div>{q.label}{q.required && <span className="text-red-500"> *</span>} {TYPE_HINT[q.type] && <span className="text-xs text-gray-400 font-normal">({TYPE_HINT[q.type]})</span>}</div>
+                <div>{q.label}{q.required && <span className="text-red-500"> *</span>} {TYPE_HINT[q.type] && <span className="text-xs text-gray-500 font-normal">({TYPE_HINT[q.type]})</span>}</div>
                 {field(q)}
               </div>
             ))}

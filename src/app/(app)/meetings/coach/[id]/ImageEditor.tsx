@@ -178,7 +178,7 @@ export default function ImageEditor({ url, initialMode = 'crop', onApply, onClos
       <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[94vh] flex flex-col">
         <div className="flex items-center justify-between px-5 py-3 border-b">
           <h2 className="font-bold text-lg">Edit picture</h2>
-          <button onClick={onClose} aria-label="Close"><X className="w-5 h-5 text-gray-400" /></button>
+          <button onClick={onClose} aria-label="Close"><X className="w-5 h-5 text-gray-500" /></button>
         </div>
         <div className="flex flex-wrap items-center gap-3 px-5 py-3 border-b bg-gray-50">
           <div className="inline-flex rounded-lg bg-gray-200 p-1">{tab('bg', 'Remove background', Eraser)}{tab('crop', 'Crop', Crop)}</div>

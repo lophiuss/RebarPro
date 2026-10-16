@@ -1,5 +1,6 @@
 'use client'
 
+import { askText } from '../ui/feedback'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Plus, PenTool } from 'lucide-react'
@@ -20,7 +21,7 @@ export default function MeetingWhiteboard({
   const [busy, setBusy] = useState(false)
 
   async function create() {
-    const name = prompt('Whiteboard name', boards.length ? `Whiteboard ${boards.length + 1}` : 'Meeting whiteboard')
+    const name = await askText('Whiteboard name', boards.length ? `Whiteboard ${boards.length + 1}` : 'Meeting whiteboard')
     if (!name?.trim()) return
     setBusy(true)
     const id = await act(() => createWhiteboard({ title: name, meeting_id: meetingId }))

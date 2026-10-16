@@ -1,5 +1,6 @@
 'use client'
 
+import { confirmDialog, askText } from '../ui/feedback'
 import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -139,7 +140,7 @@ export default function DocumentsView({ docs: allDocs, boards: allBoards, meetin
   }
 
   async function newBoard() {
-    const name = prompt('Whiteboard name', folder.k === 'meeting' ? `${meetingName.get(folder.id) ?? 'Meeting'} whiteboard` : 'New whiteboard')
+    const name = await askText('Whiteboard name', folder.k === 'meeting' ? `${meetingName.get(folder.id) ?? 'Meeting'} whiteboard` : 'New whiteboard')
     if (!name?.trim()) return
     const id = await act(() => createWhiteboard({ title: name, meeting_id: folder.k === 'meeting' ? folder.id : null }))
     if (id) router.push(lockedMeetingId ? `/meetings/${lockedMeetingId}?tab=WHITEBOARD&board=${id}` : `/meetings/coach/${id}`)
@@ -159,7 +160,7 @@ export default function DocumentsView({ docs: allDocs, boards: allBoards, meetin
         {!lockedMeetingId && <nav className="flex items-center gap-1 text-sm text-gray-600 min-w-0" aria-label="Folder path">
           {crumbs.map((c, i) => (
             <span key={i} className="inline-flex items-center gap-1 min-w-0">
-              {i > 0 && <ChevronRight className="w-3.5 h-3.5 text-gray-400" />}
+              {i > 0 && <ChevronRight className="w-3.5 h-3.5 text-gray-500" />}
               {i === crumbs.length - 1 && !q
                 ? <span className="font-semibold text-slate-900 truncate">{title(c)}</span>
                 : <button onClick={() => { setFolder(c); setQuery('') }} className="hover:text-blue-700 hover:underline truncate">{title(c)}</button>}
@@ -167,7 +168,7 @@ export default function DocumentsView({ docs: allDocs, boards: allBoards, meetin
           ))}
         </nav>}
         <div className="relative ml-auto">
-          <Search className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-gray-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
           <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search everything" className="pl-8 pr-3 py-1.5 border rounded-lg text-sm bg-white w-56" aria-label="Search documents" />
         </div>
         <button onClick={newBoard} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border bg-white text-sm font-semibold hover:bg-gray-50"><PenTool className="w-4 h-4" /> New whiteboard</button>
@@ -211,12 +212,12 @@ export default function DocumentsView({ docs: allDocs, boards: allBoards, meetin
                 <PenTool className="w-5 h-5 text-pink-500 shrink-0" />
                 <div className="flex-1 min-w-0">
                   <Link href={`/meetings/coach/${e.board.id}`} className="font-medium text-blue-700 hover:underline truncate block">{e.board.title}</Link>
-                  <div className="text-[11px] text-gray-400 uppercase tracking-wide">Whiteboard · {[e.board.meeting_id ? meetingName.get(e.board.meeting_id) : null, e.board.created_by ? people[e.board.created_by] : null, new Date(e.board.updated_at).toLocaleDateString('en-GB', { dateStyle: 'medium' })].filter(Boolean).join(' · ')}</div>
+                  <div className="text-xs text-gray-500 uppercase tracking-wide">Whiteboard · {[e.board.meeting_id ? meetingName.get(e.board.meeting_id) : null, e.board.created_by ? people[e.board.created_by] : null, new Date(e.board.updated_at).toLocaleDateString('en-GB', { dateStyle: 'medium' })].filter(Boolean).join(' · ')}</div>
                 </div>
               </li>
             ) : (
               <li key={`d-${e.doc.id}`} className="flex items-center gap-3 px-4 py-3">
-                {e.doc.file_path ? <Upload className="w-5 h-5 text-blue-500 shrink-0" /> : <FileText className="w-5 h-5 text-gray-400 shrink-0" />}
+                {e.doc.file_path ? <Upload className="w-5 h-5 text-blue-500 shrink-0" /> : <FileText className="w-5 h-5 text-gray-500 shrink-0" />}
                 <div className="flex-1 min-w-0">
                   <div className="font-medium truncate">
                     {e.doc.file_path ? (
@@ -226,13 +227,13 @@ export default function DocumentsView({ docs: allDocs, boards: allBoards, meetin
                     ) : e.doc.title}
                   </div>
                   {e.doc.description && <div className="text-sm text-gray-500 truncate">{e.doc.description}</div>}
-                  <div className="text-[11px] text-gray-400 uppercase tracking-wide">
+                  <div className="text-xs text-gray-500 uppercase tracking-wide">
                     {[e.doc.department, e.doc.category, e.doc.file_name ? `${e.doc.file_name} · ${size(e.doc.file_size)}` : 'Link', e.doc.meeting_id ? meetingName.get(e.doc.meeting_id) : null, e.doc.created_by ? people[e.doc.created_by] : null, new Date(e.doc.created_at).toLocaleDateString('en-GB', { dateStyle: 'medium' })].filter(Boolean).join(' · ')}
                   </div>
                 </div>
                 {e.doc.meeting_id && meetingName.has(e.doc.meeting_id) && <Link href={`/meetings/${e.doc.meeting_id}`} className="text-xs font-semibold text-blue-600 hover:text-blue-800">Meeting</Link>}
                 {mine(e.doc) && (
-                  <button onClick={() => confirm('Delete this document?') && act(() => deleteDocument(e.doc.id))} aria-label="Delete" className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                  <button onClick={async () => { if (await confirmDialog('Delete this document?')) { await (act(() => deleteDocument(e.doc.id))) } }} aria-label="Delete" className="p-2 -m-2 text-gray-500 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                 )}
               </li>
             ))}
@@ -245,7 +246,7 @@ export default function DocumentsView({ docs: allDocs, boards: allBoards, meetin
           <form onSubmit={add} className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between px-5 py-4 border-b">
               <h2 className="font-bold text-lg">Add document</h2>
-              <button type="button" onClick={() => setAdding(false)} aria-label="Close"><X className="w-5 h-5 text-gray-400" /></button>
+              <button type="button" onClick={() => setAdding(false)} aria-label="Close"><X className="w-5 h-5 text-gray-500" /></button>
             </div>
             <div className="p-5 space-y-4">
               <div className="inline-flex rounded-lg bg-gray-100 p-1 text-sm">
@@ -265,8 +266,8 @@ export default function DocumentsView({ docs: allDocs, boards: allBoards, meetin
                       <button type="button" onClick={() => { setFile(null); if (fileInput.current) fileInput.current.value = '' }} className="ml-2 text-red-600 hover:underline">Remove</button></div>
                   ) : (
                     <label htmlFor="doc-file" className="cursor-pointer text-sm text-gray-600">
-                      <Upload className="w-6 h-6 mx-auto mb-1 text-gray-400" />
-                      <span className="font-semibold text-blue-600">Choose a file</span> or drop it here<br /><span className="text-xs text-gray-400">PDF, Word, Excel, images… up to 25 MB</span>
+                      <Upload className="w-6 h-6 mx-auto mb-1 text-gray-500" />
+                      <span className="font-semibold text-blue-600">Choose a file</span> or drop it here<br /><span className="text-xs text-gray-500">PDF, Word, Excel, images… up to 25 MB</span>
                     </label>
                   )}
                 </div>
@@ -296,7 +297,7 @@ export default function DocumentsView({ docs: allDocs, boards: allBoards, meetin
                   </select>
                 </label>
               </div>
-              <label className="block text-sm font-medium">Description <span className="text-gray-400 font-normal">(optional)</span>
+              <label className="block text-sm font-medium">Description <span className="text-gray-500 font-normal">(optional)</span>
                 <input value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} className={`${input} mt-1 font-normal`} />
               </label>
               {error && <p className="text-sm text-red-600">{error}</p>}

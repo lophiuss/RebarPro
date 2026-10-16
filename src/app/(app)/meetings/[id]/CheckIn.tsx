@@ -121,13 +121,13 @@ export function CheckIn({ lastFeedback, ice, onIce, notes }: { lastFeedback: Rat
           <div className="flex items-center gap-3">
             <span className={`w-11 h-11 rounded-full inline-flex items-center justify-center ${presentCount === attendees.length && attendees.length > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-50 text-blue-600'}`}><Users className="w-5 h-5" /></span>
             <div>
-              <div className="text-xl font-bold leading-tight tabular-nums">{presentCount} <span className="text-gray-400 font-medium">of {attendees.length} here</span></div>
+              <div className="text-xl font-bold leading-tight tabular-nums">{presentCount} <span className="text-gray-500 font-medium">of {attendees.length} here</span></div>
               <div className="text-xs text-gray-500">{liveRun ? 'Tap a name to check them in or out.' : 'Start the meeting to check people in.'}</div>
             </div>
           </div>
           <div className="flex-1 min-w-[10rem] max-w-xs" aria-hidden="true">
             <div className="h-2.5 rounded-full bg-gray-100 overflow-hidden"><div className="h-full rounded-full bg-emerald-500 transition-all duration-300" style={{ width: `${pct}%` }} /></div>
-            <div className="text-[11px] text-gray-400 mt-1">{pct}% present</div>
+            <div className="text-xs text-gray-500 mt-1">{pct}% present</div>
           </div>
           {liveRun && attendees.length > 0 && (
             <div className="flex items-center gap-2 ml-auto">
@@ -162,7 +162,7 @@ export function CheckIn({ lastFeedback, ice, onIce, notes }: { lastFeedback: Rat
                       <span className={`absolute -bottom-1 -right-1 w-7 h-7 rounded-full border-2 border-white inline-flex items-center justify-center transition duration-150 ${here ? 'bg-emerald-600 text-white scale-100' : 'bg-gray-200 text-transparent scale-90 group-hover:bg-blue-100 group-hover:text-blue-500'}`}><Check className="w-4 h-4" strokeWidth={3} /></span>
                     </span>
                     <span className={`text-sm leading-tight line-clamp-2 break-words ${here ? 'font-semibold text-emerald-900' : 'font-medium text-gray-700'}`}>{p.full_name}</span>
-                    <span className="h-4 flex items-center gap-1 text-[11px] font-semibold">
+                    <span className="h-4 flex items-center gap-1 text-xs font-semibold">
                       {p.id === hostId ? <span className="inline-flex items-center gap-1 text-amber-600"><Crown className="w-3 h-3" /> Host</span> : p.id === myId ? <span className="text-blue-600">You</span> : null}
                     </span>
                   </button>
@@ -190,7 +190,7 @@ export function CheckIn({ lastFeedback, ice, onIce, notes }: { lastFeedback: Rat
               {ice ? (
                 <div>
                   <p className="text-xl text-slate-800 leading-snug">&ldquo;{ice.text}&rdquo;</p>
-                  <p className="text-[11px] uppercase tracking-wide text-gray-400 mt-1">{ice.label} · {ice.n} of {ice.total}</p>
+                  <p className="text-xs uppercase tracking-wide text-gray-500 mt-1">{ice.label} · {ice.n} of {ice.total}</p>
                 </div>
               ) : <p className="text-sm text-gray-500">Press “Generate next” to pick an icebreaker. Everyone in the meeting sees it.</p>}
             </div>

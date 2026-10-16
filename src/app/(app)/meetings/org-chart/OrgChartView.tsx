@@ -1,5 +1,6 @@
 'use client'
 
+import { confirmDialog } from '../ui/feedback'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Minus, Search, Pencil, Trash2, Printer, Maximize2, X, UserRound, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, ChevronDown, ChevronRight, Eye, EyeOff } from 'lucide-react'
 import { saveSeat, deleteSeat, moveSeat } from './actions'
@@ -392,7 +393,7 @@ export default function OrgChartView({ seats, seatPeople, seatContacts, people, 
               onClick={e => e.stopPropagation()}
               aria-label={`Layout of the branch under ${n.title}`}
               title="Layout of this branch"
-              className="ot-tools absolute top-1.5 right-1.5 hidden group-hover:block group-focus-within:block max-w-[7.5rem] rounded bg-white/20 text-white text-[11px] py-0.5 px-1 border border-white/30 print:hidden"
+              className="ot-tools absolute top-1.5 right-1.5 hidden group-hover:block group-focus-within:block max-w-[7.5rem] rounded bg-white/20 text-white text-xs py-0.5 px-1 border border-white/30 print:hidden"
             >
               <option value="" className="text-slate-900">Layout: same as chart</option>
               {MODES.map(m => <option key={m} value={m} className="text-slate-900">{MODE_LABEL[m]}</option>)}
@@ -406,7 +407,7 @@ export default function OrgChartView({ seats, seatPeople, seatContacts, people, 
               <Tool onClick={() => act(() => moveSeat(n.id, 'right'))} label="Move right"><ArrowRight className="w-3.5 h-3.5" /></Tool>
               <span className="flex-1" />
               <Tool onClick={() => openEdit(n)} label="Edit seat"><Pencil className="w-3.5 h-3.5" /></Tool>
-              <Tool danger onClick={() => confirm(`Delete "${n.title}"${count ? ` and its ${count} sub-seat${count === 1 ? '' : 's'}` : ''}?`) && act(() => deleteSeat(n.id))} label="Delete seat"><Trash2 className="w-3.5 h-3.5" /></Tool>
+              <Tool danger onClick={async () => { if (await confirmDialog(`Delete "${n.title}"${count ? ` and its ${count} sub-seat${count === 1 ? '' : 's'}` : ''}?`)) { await (act(() => deleteSeat(n.id))) } }} label="Delete seat"><Trash2 className="w-3.5 h-3.5" /></Tool>
             </div>
           )}
         </div>
@@ -434,7 +435,7 @@ export default function OrgChartView({ seats, seatPeople, seatContacts, people, 
             <button onClick={() => openAdd(n.id)} aria-label={`Add a seat under ${n.title}`} title="Add a seat below" className="w-6 h-6 rounded-full bg-blue-600 text-white shadow ring-2 ring-white hover:bg-blue-700 inline-flex items-center justify-center"><Plus className="w-4 h-4" /></button>
           )}
           {n.children.length > 0 && (
-            <button onClick={() => toggle(n.id)} aria-label={isCollapsed ? 'Show branch' : 'Hide branch'} title={isCollapsed ? `Show ${count} below` : 'Hide this branch'} className="h-6 min-w-6 px-1 rounded-full bg-white text-slate-700 text-[11px] font-semibold shadow ring-1 ring-slate-300 hover:bg-slate-50 inline-flex items-center justify-center gap-0.5">
+            <button onClick={() => toggle(n.id)} aria-label={isCollapsed ? 'Show branch' : 'Hide branch'} title={isCollapsed ? `Show ${count} below` : 'Hide this branch'} className="h-6 min-w-6 px-1 rounded-full bg-white text-slate-700 text-xs font-semibold shadow ring-1 ring-slate-300 hover:bg-slate-50 inline-flex items-center justify-center gap-0.5">
               {isCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}{isCollapsed ? count : ''}
             </button>
           )}
@@ -491,7 +492,7 @@ export default function OrgChartView({ seats, seatPeople, seatContacts, people, 
           </select>
         </label>
         <div className="relative">
-          <Search className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-gray-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
           <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search" className="pl-8 pr-3 py-1.5 border rounded-lg text-sm bg-white w-40" />
         </div>
         {canEdit && <button onClick={() => openAdd(null)} className="ml-auto inline-flex items-center gap-1 px-3 py-1.5 text-sm rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700"><Plus className="w-4 h-4" /> Add top seat</button>}
@@ -529,7 +530,7 @@ export default function OrgChartView({ seats, seatPeople, seatContacts, people, 
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm">
             <div className="flex items-center justify-between px-5 py-4 border-b">
               <h2 className="font-bold text-lg">Print the chart</h2>
-              <button type="button" onClick={() => setPrinting(null)} aria-label="Close"><X className="w-5 h-5 text-gray-400" /></button>
+              <button type="button" onClick={() => setPrinting(null)} aria-label="Close"><X className="w-5 h-5 text-gray-500" /></button>
             </div>
             <div className="p-5 space-y-4 text-sm">
               <p className="text-gray-600">Prints exactly what is shown now (hidden branches stay hidden), from its own page so nothing is cut off. Choose “Save as PDF” in the print window to make a file.</p>
@@ -563,13 +564,13 @@ export default function OrgChartView({ seats, seatPeople, seatContacts, people, 
           <form onSubmit={submit} className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-5 py-4 border-b">
               <h2 className="font-bold text-lg">{editing.id ? 'Edit seat' : 'Add seat'}</h2>
-              <button type="button" onClick={() => setEditing(null)} aria-label="Close"><X className="w-5 h-5 text-gray-400" /></button>
+              <button type="button" onClick={() => setEditing(null)} aria-label="Close"><X className="w-5 h-5 text-gray-500" /></button>
             </div>
             <div className="p-5 space-y-4">
               <label className="block text-sm font-medium">Seat title
                 <input required value={editing.title} onChange={e => setEditing({ ...editing, title: e.target.value })} className={`${input} mt-1 font-normal`} placeholder="e.g. Integrator" autoFocus />
               </label>
-              <label className="block text-sm font-medium">Department / subtitle <span className="text-gray-400 font-normal">(optional)</span>
+              <label className="block text-sm font-medium">Department / subtitle <span className="text-gray-500 font-normal">(optional)</span>
                 <input value={editing.subtitle} onChange={e => setEditing({ ...editing, subtitle: e.target.value })} className={`${input} mt-1 font-normal`} />
               </label>
               <label className="block text-sm font-medium">Reports to
@@ -578,11 +579,11 @@ export default function OrgChartView({ seats, seatPeople, seatContacts, people, 
                   {parentOptions.map(n => <option key={n.id} value={n.id}>{n.title}{n.people.length ? ` — ${n.people.map(p => p.full_name).join(', ')}` : ''}</option>)}
                 </select>
               </label>
-              <label className="block text-sm font-medium">Roles &amp; responsibilities <span className="text-gray-400 font-normal">(one per line)</span>
+              <label className="block text-sm font-medium">Roles &amp; responsibilities <span className="text-gray-500 font-normal">(one per line)</span>
                 <textarea value={editing.roles} onChange={e => setEditing({ ...editing, roles: e.target.value })} rows={5} className={`${input} mt-1 font-normal`} />
               </label>
               <div>
-                <div className="text-sm font-medium mb-1">People in this seat <span className="text-gray-400 font-normal">(leave empty for an open seat)</span></div>
+                <div className="text-sm font-medium mb-1">People in this seat <span className="text-gray-500 font-normal">(leave empty for an open seat)</span></div>
                 <PeopleChecklist
                   people={people}
                   selected={editing.people_ids}

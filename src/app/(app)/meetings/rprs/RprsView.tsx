@@ -1,5 +1,6 @@
 'use client'
 
+import { confirmDialog } from '../ui/feedback'
 import { useMemo, useState } from 'react'
 import { X, History, Trash2, Info, Settings2, Plus } from 'lucide-react'
 import { saveAssessment, deleteAssessment, saveSeatCriteria } from './actions'
@@ -166,7 +167,7 @@ export default function RprsView({
   }
 
   const tile = (label: string, value: number, tone: string) => (
-    <div className="rounded-xl border bg-white shadow-sm px-4 py-3"><div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">{label}</div><div className={`text-2xl font-bold ${tone}`}>{value}</div></div>
+    <div className="rounded-xl border bg-white shadow-sm px-4 py-3"><div className="text-xs font-semibold uppercase tracking-wide text-gray-500">{label}</div><div className={`text-2xl font-bold ${tone}`}>{value}</div></div>
   )
 
   const formCriteria = form ? criteriaBySeat[form.row.seatId] ?? [] : []
@@ -217,7 +218,7 @@ export default function RprsView({
 
           <div className="border rounded-xl bg-white shadow-sm overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-[11px] uppercase tracking-wide text-gray-500">
+              <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
                 <tr>
                   <th className="text-left px-3 py-2 font-semibold">Person / seat</th>
                   {coreValues.map((v, i) => <th key={v} className="px-2 py-2 font-semibold max-w-32" title={v}><span className="block truncate">{i + 1}. {v.split(':')[0]}</span></th>)}
@@ -229,7 +230,7 @@ export default function RprsView({
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {rows.length === 0 && <tr><td colSpan={coreValues.length + 8} className="px-3 py-8 text-center text-gray-400">No one matches.</td></tr>}
+                {rows.length === 0 && <tr><td colSpan={coreValues.length + 8} className="px-3 py-8 text-center text-gray-500">No one matches.</td></tr>}
                 {rows.map(r => {
                   const a = lastFor(r)
                   const v = verdict(a, coreValues)
@@ -244,7 +245,7 @@ export default function RprsView({
                           <Avatar person={r.person} size="sm" />
                           <div className="min-w-0">
                             <div className="font-medium truncate">{r.person.full_name}</div>
-                            <div className="text-[11px] text-gray-400 truncate">{r.seatTitle}{r.level > 1 ? ` · level ${r.level} below` : r.level === 1 ? ' · direct report' : ''}</div>
+                            <div className="text-xs text-gray-500 truncate">{r.seatTitle}{r.level > 1 ? ` · level ${r.level} below` : r.level === 1 ? ' · direct report' : ''}</div>
                           </div>
                         </div>
                       </td>
@@ -253,21 +254,21 @@ export default function RprsView({
                         return <td key={cv} className="px-2 py-2 text-center">{rt ? <span className={`inline-block min-w-9 text-xs font-bold border rounded px-1.5 py-0.5 ${RATING_STYLE[rt]}`}>{RATING_LABEL[rt]}</span> : <span className="text-gray-300">—</span>}</td>
                       })}
                       {DIMS.map(d => {
-                        if (g?.scored && g.totals) return <td key={d.key} className="px-2 py-2 text-center tabular-nums font-medium">{g.totals[d.key]}<span className="text-gray-400 font-normal">/{g.totals.by_max[d.key]}</span></td>
+                        if (g?.scored && g.totals) return <td key={d.key} className="px-2 py-2 text-center tabular-nums font-medium">{g.totals[d.key]}<span className="text-gray-500 font-normal">/{g.totals.by_max[d.key]}</span></td>
                         const val = g?.[d.key]
                         return <td key={d.key} className="px-2 py-2 text-center">{val === true ? <span className="text-green-600 font-bold">Y</span> : val === false ? <span className="text-red-600 font-bold">N</span> : <span className="text-gray-300">—</span>}</td>
                       })}
                       <td className="px-2 py-2 text-center tabular-nums whitespace-nowrap">
-                        {g?.scored && g.totals ? <><b>{g.totals.total}</b><span className="text-gray-400">/{g.pass_score}</span></> : <span className="text-gray-300">{info?.pass_score != null ? `pass ${info.pass_score}` : '—'}</span>}
+                        {g?.scored && g.totals ? <><b>{g.totals.total}</b><span className="text-gray-500">/{g.pass_score}</span></> : <span className="text-gray-300">{info?.pass_score != null ? `pass ${info.pass_score}` : '—'}</span>}
                       </td>
                       <td className="px-3 py-2"><span className={`text-xs font-semibold rounded-full px-2.5 py-1 ${v.style}`}>{v.label}</span></td>
-                      <td className="px-3 py-2 whitespace-nowrap text-xs">{age === null ? <span className="text-gray-400">Never</span> : <span className={age > REVIEW_DAYS ? 'text-amber-700 font-semibold' : 'text-gray-500'}>{age === 0 ? 'Today' : `${age}d ago`}{age > REVIEW_DAYS ? ' · due' : ''}</span>}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-xs">{age === null ? <span className="text-gray-500">Never</span> : <span className={age > REVIEW_DAYS ? 'text-amber-700 font-semibold' : 'text-gray-500'}>{age === 0 ? 'Today' : `${age}d ago`}{age > REVIEW_DAYS ? ' · due' : ''}</span>}</td>
                       <td className="px-3 py-2 whitespace-nowrap text-right">
-                        <button onClick={() => setHistory(r.person)} aria-label="History" title="History" className="text-gray-400 hover:text-blue-600 mr-2"><History className="w-4 h-4 inline" /></button>
+                        <button onClick={() => setHistory(r.person)} aria-label="History" title="History" className="text-gray-500 hover:text-blue-600 mr-2"><History className="w-4 h-4 inline" /></button>
                         {info?.can_edit && <button onClick={() => openSetup(r.seatId)} title="Write the Gets it / Wants it / Capacity criteria and the expected score" className="px-2.5 py-1 text-xs font-semibold rounded-lg border bg-white hover:bg-gray-50 mr-1.5 inline-flex items-center gap-1"><Settings2 className="w-3.5 h-3.5" /> Criteria</button>}
                         {hasCriteria
                           ? <button onClick={() => openAssess(r)} className="px-3 py-1 text-xs font-semibold rounded-lg border bg-white hover:bg-gray-50">{a ? 'Reassess' : 'Assess'}</button>
-                          : <span className="text-[11px] text-gray-400">{info?.can_edit ? 'Set criteria first' : 'No criteria yet'}</span>}
+                          : <span className="text-xs text-gray-500">{info?.can_edit ? 'Set criteria first' : 'No criteria yet'}</span>}
                       </td>
                     </tr>
                   )
@@ -283,7 +284,7 @@ export default function RprsView({
           <form onSubmit={saveSetup} className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between px-5 py-4 border-b">
               <h2 className="font-bold text-lg">Criteria for “{setup.title}”</h2>
-              <button type="button" onClick={() => setSetup(null)} aria-label="Close"><X className="w-5 h-5 text-gray-400" /></button>
+              <button type="button" onClick={() => setSetup(null)} aria-label="Close"><X className="w-5 h-5 text-gray-500" /></button>
             </div>
             <div className="p-5 space-y-5">
               <p className="text-sm text-gray-600">Write what you expect for each. When you assess someone in this seat you score each line <b>good (2), so-so (1) or no (0)</b>, and the total is compared with the expected score below.</p>
@@ -294,7 +295,7 @@ export default function RprsView({
                     {setup.criteria.map((c, i) => c.dimension !== d.key ? null : (
                       <li key={i} className="flex gap-2">
                         <input value={c.label} onChange={e => setSetup({ ...setup, criteria: setup.criteria.map((x, idx) => (idx === i ? { ...x, label: e.target.value } : x)) })} placeholder="e.g. Can explain the weekly production plan" className="flex-1 border rounded-lg px-3 py-1.5 text-sm" />
-                        <button type="button" onClick={() => setSetup({ ...setup, criteria: setup.criteria.filter((_, idx) => idx !== i) })} aria-label="Remove criterion" className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                        <button type="button" onClick={() => setSetup({ ...setup, criteria: setup.criteria.filter((_, idx) => idx !== i) })} aria-label="Remove criterion" className="p-2 -m-2 text-gray-500 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                       </li>
                     ))}
                   </ul>
@@ -325,7 +326,7 @@ export default function RprsView({
           <form onSubmit={submit} className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between px-5 py-4 border-b">
               <h2 className="font-bold text-lg flex items-center gap-2"><Avatar person={form.row.person} size="sm" /> {form.row.person.full_name} <span className="text-sm font-normal text-gray-500">· {form.row.seatTitle}</span></h2>
-              <button type="button" onClick={() => setForm(null)} aria-label="Close"><X className="w-5 h-5 text-gray-400" /></button>
+              <button type="button" onClick={() => setForm(null)} aria-label="Close"><X className="w-5 h-5 text-gray-500" /></button>
             </div>
             <div className="p-5 space-y-5">
               {scope[form.row.person.id]?.roles.length > 0 && (
@@ -346,7 +347,7 @@ export default function RprsView({
                         <div className="flex gap-1">
                           {(['plus', 'plus_minus', 'minus'] as Rating[]).map(rt => (
                             <button key={rt} type="button" onClick={() => setForm({ ...form, core_values: { ...form.core_values, [cv]: rt } })}
-                              className={`min-w-10 text-sm font-bold border rounded-lg px-2 py-1 ${form.core_values[cv] === rt ? RATING_STYLE[rt] : 'bg-white text-gray-400 hover:bg-gray-50'}`}>{RATING_LABEL[rt]}</button>
+                              className={`min-w-10 text-sm font-bold border rounded-lg px-2 py-1 ${form.core_values[cv] === rt ? RATING_STYLE[rt] : 'bg-white text-gray-500 hover:bg-gray-50'}`}>{RATING_LABEL[rt]}</button>
                           ))}
                         </div>
                       </li>
@@ -383,14 +384,14 @@ export default function RprsView({
               })}
 
               <div className={`rounded-lg border px-4 py-3 flex items-center gap-4 ${!formComplete ? 'bg-gray-50' : formTotal >= formPass ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
-                <div className="text-2xl font-bold tabular-nums">{formTotal}<span className="text-gray-400 text-base font-normal"> / {formMax}</span></div>
+                <div className="text-2xl font-bold tabular-nums">{formTotal}<span className="text-gray-500 text-base font-normal"> / {formMax}</span></div>
                 <div className="text-sm">
                   <div>Expected score: <b>{formPass}</b></div>
                   <div className="font-semibold">{!formComplete ? 'Score every line to see the result' : formTotal >= formPass ? 'Pass' : `Below expected by ${formPass - formTotal}`}</div>
                 </div>
               </div>
 
-              <label className="block text-sm font-semibold">Overall notes <span className="text-gray-400 font-normal">(optional)</span>
+              <label className="block text-sm font-semibold">Overall notes <span className="text-gray-500 font-normal">(optional)</span>
                 <textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} rows={3} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm font-normal" />
               </label>
             </div>
@@ -407,10 +408,10 @@ export default function RprsView({
           <div className="bg-white rounded-xl shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-5 py-4 border-b">
               <h2 className="font-bold text-lg">History · {history.full_name}</h2>
-              <button onClick={() => setHistory(null)} aria-label="Close"><X className="w-5 h-5 text-gray-400" /></button>
+              <button onClick={() => setHistory(null)} aria-label="Close"><X className="w-5 h-5 text-gray-500" /></button>
             </div>
             <ul className="divide-y">
-              {assessments.filter(a => a.person_id === history.id).length === 0 && <li className="px-5 py-8 text-center text-sm text-gray-400">No assessments yet.</li>}
+              {assessments.filter(a => a.person_id === history.id).length === 0 && <li className="px-5 py-8 text-center text-sm text-gray-500">No assessments yet.</li>}
               {assessments.filter(a => a.person_id === history.id).map(a => {
                 const v = verdict(a, coreValues)
                 const g = a.gwc
@@ -428,7 +429,7 @@ export default function RprsView({
                       )}
                       {a.notes && <p className="text-sm text-gray-600 mt-1 whitespace-pre-wrap">{a.notes}</p>}
                     </div>
-                    {a.assessor_id === myId && <button onClick={() => confirm('Delete this assessment?') && act(() => deleteAssessment(a.id))} aria-label="Delete" className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>}
+                    {a.assessor_id === myId && <button onClick={async () => { if (await confirmDialog('Delete this assessment?')) { await (act(() => deleteAssessment(a.id))) } }} aria-label="Delete" className="p-2 -m-2 text-gray-500 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>}
                   </li>
                 )
               })}

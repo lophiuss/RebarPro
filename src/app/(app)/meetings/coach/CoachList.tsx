@@ -1,5 +1,6 @@
 'use client'
 
+import { confirmDialog } from '../ui/feedback'
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -39,10 +40,10 @@ export default function CoachList({ boards, meetings, people, myId }: { boards: 
               <Link href={`/meetings/coach/${b.id}`} className="flex-1">
                 <div className="flex items-center gap-2 font-semibold"><PenTool className="w-4 h-4 text-blue-600 shrink-0" /><span className="truncate">{b.title}</span></div>
                 <div className="text-xs text-gray-500 mt-1">{b.meeting_id ? meetingName.get(b.meeting_id) ?? 'Meeting' : 'General'}</div>
-                <div className="text-[11px] text-gray-400 mt-0.5">Updated {new Date(b.updated_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}{b.created_by ? ` · ${people[b.created_by] ?? ''}` : ''}</div>
+                <div className="text-xs text-gray-500 mt-0.5">Updated {new Date(b.updated_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}{b.created_by ? ` · ${people[b.created_by] ?? ''}` : ''}</div>
               </Link>
               {(b.created_by === myId) && (
-                <button onClick={() => confirm(`Delete whiteboard "${b.title}"?`) && act(() => deleteWhiteboard(b.id))} aria-label="Delete whiteboard" className="self-end text-gray-300 hover:text-red-500 mt-2"><Trash2 className="w-4 h-4" /></button>
+                <button onClick={async () => { if (await confirmDialog(`Delete whiteboard "${b.title}"?`)) { await (act(() => deleteWhiteboard(b.id))) } }} aria-label="Delete whiteboard" className="self-end p-2 -m-2 text-gray-500 hover:text-red-600 mt-2"><Trash2 className="w-4 h-4" /></button>
               )}
             </li>
           ))}
@@ -54,13 +55,13 @@ export default function CoachList({ boards, meetings, people, myId }: { boards: 
           <form onSubmit={create} className="bg-white rounded-xl shadow-xl w-full max-w-md">
             <div className="flex items-center justify-between px-5 py-4 border-b">
               <h2 className="font-bold text-lg">New whiteboard</h2>
-              <button type="button" onClick={() => setAdding(false)} aria-label="Close"><X className="w-5 h-5 text-gray-400" /></button>
+              <button type="button" onClick={() => setAdding(false)} aria-label="Close"><X className="w-5 h-5 text-gray-500" /></button>
             </div>
             <div className="p-5 space-y-4">
               <label className="block text-sm font-medium">Name
                 <input required autoFocus value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm font-normal" placeholder="e.g. Q3 coaching: sales team" />
               </label>
-              <label className="block text-sm font-medium">Meeting <span className="text-gray-400 font-normal">(optional)</span>
+              <label className="block text-sm font-medium">Meeting <span className="text-gray-500 font-normal">(optional)</span>
                 <select value={form.meeting_id} onChange={e => setForm({ ...form, meeting_id: e.target.value })} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm font-normal bg-white">
                   <option value="">Not tied to a meeting</option>
                   {meetings.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}

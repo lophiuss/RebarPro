@@ -1,5 +1,6 @@
 'use client'
 
+import { confirmDialog } from '../ui/feedback'
 import { useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { addGoal, setGoalStatus, toggleGoalMilestone, deleteGoal } from '../actions'
@@ -47,7 +48,7 @@ export function Goals({ goals, otherMeetings }: { goals: Goal[]; otherMeetings: 
           <label className="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" checked={mine} onChange={e => setMine(e.target.checked)} /> Mine only</label>
           <label className="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" checked={expand} onChange={e => setExpand(e.target.checked)} /> Expand milestones</label>
         </div>
-      }>Quarterly Priorities <span className="text-gray-400 font-normal text-base">({shown.length})</span></SectionTitle>
+      }>Quarterly Priorities <span className="text-gray-500 font-normal text-base">({shown.length})</span></SectionTitle>
 
       {shown.length === 0 ? (
         <Empty title="Your quarterly priorities live here" hint="Set the few projects that matter most this quarter." />
@@ -82,7 +83,7 @@ export function Goals({ goals, otherMeetings }: { goals: Goal[]; otherMeetings: 
                     <option value="off">Off track</option>
                     <option value="done">Done</option>
                   </select>
-                  <button onClick={() => confirm('Delete this priority?') && run(() => deleteGoal(meetingId, g.id))} aria-label="Delete" className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                  <button onClick={async () => { if (await confirmDialog('Delete this priority?')) { await (run(() => deleteGoal(meetingId, g.id))) } }} aria-label="Delete" className="p-2 -m-2 text-gray-500 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                 </div>
                 {(expand && g.milestones.length > 0) && (
                   <ul className="mt-2 ml-11 space-y-1">
@@ -90,7 +91,7 @@ export function Goals({ goals, otherMeetings }: { goals: Goal[]; otherMeetings: 
                       <li key={i}>
                         <label className="flex items-center gap-2 text-sm cursor-pointer">
                           <input type="checkbox" checked={m.done} onChange={() => run(() => toggleGoalMilestone(meetingId, g.id, i))} />
-                          <span className={m.done ? 'line-through text-gray-400' : ''}>{m.title}</span>
+                          <span className={m.done ? 'line-through text-gray-500' : ''}>{m.title}</span>
                         </label>
                       </li>
                     ))}

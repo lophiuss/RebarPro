@@ -13,8 +13,8 @@ function colorFor(id: string) {
 }
 
 export default function Avatar({ person, size = 'md' }: { person: Person | undefined | null; size?: 'sm' | 'md' | 'lg' | 'xl' }) {
-  const dim = size === 'sm' ? 'w-6 h-6 text-[10px]' : size === 'lg' ? 'w-14 h-14 text-lg' : size === 'xl' ? 'w-20 h-20 text-2xl' : 'w-8 h-8 text-xs'
-  if (!person) return <span className={`${dim} rounded-full bg-gray-100 text-gray-400 inline-flex items-center justify-center font-semibold shrink-0`}>?</span>
+  const dim = size === 'sm' ? 'w-7 h-7 text-xs' : size === 'lg' ? 'w-14 h-14 text-lg' : size === 'xl' ? 'w-20 h-20 text-2xl' : 'w-9 h-9 text-sm'
+  if (!person) return <span className={`${dim} rounded-full bg-gray-100 text-gray-500 inline-flex items-center justify-center font-semibold shrink-0`}>?</span>
   return (
     <span
       title={person.full_name ?? ''}

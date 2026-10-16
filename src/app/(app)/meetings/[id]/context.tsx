@@ -1,5 +1,6 @@
 'use client'
 
+import { notifyError } from '../ui/feedback'
 import { createContext, useContext } from 'react'
 import type { Person } from '@/lib/meetings'
 
@@ -48,7 +49,7 @@ export function useRun() {
       changed()
       return out
     } catch (err: any) {
-      alert('Error: ' + (err?.message ?? 'Something went wrong'))
+      notifyError(err)
       return undefined
     }
   }

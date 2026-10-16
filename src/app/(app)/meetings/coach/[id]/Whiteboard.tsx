@@ -1,5 +1,6 @@
 'use client'
 
+import { notify, notifyError, confirmDialog } from '../../ui/feedback'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
@@ -271,8 +272,8 @@ export default function Whiteboard({ id, initialTitle, initialItems, meetingId, 
   }
 
   async function addImage(file: File) {
-    if (!file.type.startsWith('image/')) { alert('Please choose a picture file.'); return }
-    if (file.size > 15 * 1024 * 1024) { alert('That picture is larger than 15 MB.'); return }
+    if (!file.type.startsWith('image/')) { notify('Please choose a picture file.', 'error'); return }
+    if (file.size > 15 * 1024 * 1024) { notify('That picture is larger than 15 MB.', 'error'); return }
     setUploading(true)
     try {
       const { blob, w, h, ext } = await prepare(file)
@@ -288,7 +289,7 @@ export default function Whiteboard({ id, initialTitle, initialItems, meetingId, 
       setSelectedId(item.id)
       setTool('select')
     } catch (err: any) {
-      alert(err?.message ?? 'Could not add the picture')
+      notifyError(err, 'Could not add the picture')
     } finally {
       setUploading(false)
       if (fileInput.current) fileInput.current.value = ''
@@ -611,8 +612,8 @@ export default function Whiteboard({ id, initialTitle, initialItems, meetingId, 
     }
   }
 
-  function clearAll() {
-    if (!itemsRef.current.length || !confirm('Clear the whole whiteboard for everyone? You can still undo.')) return
+  async function clearAll() {
+    if (!itemsRef.current.length || !(await confirmDialog('Clear the whole whiteboard for everyone? You can still undo.'))) return
     commit([])
     setSelectedId(null)
   }
@@ -927,7 +928,7 @@ export default function Whiteboard({ id, initialTitle, initialItems, meetingId, 
                     {src ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={src} alt="" draggable={false} onPointerDown={e => startDrag(e, i)} className={`w-full h-full select-none ${interactive ? 'cursor-move' : ''}`} />
-                    ) : <div className="w-full h-full bg-gray-100 flex items-center justify-center text-xs text-gray-400">Loading picture…</div>}
+                    ) : <div className="w-full h-full bg-gray-100 flex items-center justify-center text-xs text-gray-500">Loading picture…</div>}
                     {sel && interactive && (
                       <>
                         <div onPointerDown={e => startImageGesture(e, i, 'iresize')} className="absolute -right-2 -bottom-2 w-4 h-4 rounded-full bg-blue-500 cursor-nwse-resize" title="Resize (keeps proportions)" />

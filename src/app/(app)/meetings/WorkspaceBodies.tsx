@@ -1,12 +1,13 @@
 'use client'
 
+import { confirmDialog } from './ui/feedback'
 import { useMemo, useOptimistic, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { Check, Plus, Trash2, StickyNote, FileText, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react'
 import { addTodo, setTodoDone, setKpiValue, addPrivateNote, updatePrivateNote, deletePrivateNote, addPersonalTodo, setPersonalTodoDone, deletePersonalTodo } from './actions'
 import { act } from './act'
 import Avatar from './Avatar'
-import { NewBadge, effectiveGoal, type Kpi, type KpiCustomGoal, type KpiValue } from './[id]/shared'
+import { NewBadge, GoalMark, goalWord, NO_SPIN, effectiveGoal, type Kpi, type KpiCustomGoal, type KpiValue } from './[id]/shared'
 import { periodsFor } from './[id]/kpiRange'
 import { evaluateGoal, formatGoal, formatKpiValue, ymd, type Cadence, type IssueStatus, type Person, type TodoStatus } from '@/lib/meetings'
 
@@ -23,7 +24,7 @@ export type WIssue = { id: string; title: string; details: string | null; owner_
 
 const input = 'border rounded-lg px-3 py-2 text-sm bg-white'
 const primary = 'inline-flex items-center justify-center rounded-lg bg-blue-600 text-white hover:bg-blue-700'
-export const Empty = ({ children }: { children: React.ReactNode }) => <p className="text-sm text-gray-400 text-center py-4">{children}</p>
+export const Empty = ({ children }: { children: React.ReactNode }) => <p className="text-sm text-gray-500 text-center py-4">{children}</p>
 
 // ------------------------------------------------------------------ to-dos
 
@@ -72,11 +73,11 @@ export function TodosBody({ todos, meetings, onOpen }: { todos: WTodo[]; meeting
                 <button
                   onClick={() => toggle(t)}
                   aria-label={t.done_at ? 'Mark not done' : 'Mark done'}
-                  className={`w-5 h-5 rounded-full border-2 shrink-0 inline-flex items-center justify-center ${t.done_at ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300 hover:border-blue-500'}`}
-                >{t.done_at && <Check className="w-3 h-3" />}</button>
+                  className={`w-7 h-7 rounded-full border-2 shrink-0 inline-flex items-center justify-center ${t.done_at ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300 hover:border-blue-500'}`}
+                >{t.done_at && <Check className="w-4 h-4" />}</button>
                 <button onClick={() => { if (!t.id.startsWith('pending-')) onOpen(t) }} className={`flex-1 min-w-0 text-left ${t.id.startsWith('pending-') ? 'opacity-60' : ''}`} title="Open details">
-                  <div className={`text-sm truncate ${t.done_at ? 'line-through text-gray-400' : ''}`}>{t.title}{t.details && <FileText className="inline-block w-3.5 h-3.5 ml-1.5 text-gray-400 align-[-2px]" />}</div>
-                  <div className="text-[11px] text-gray-400 uppercase tracking-wide truncate">{meetingName.get(t.meeting_id)}</div>
+                  <div className={`text-sm truncate ${t.done_at ? 'line-through text-gray-500' : ''}`}>{t.title}{t.details && <FileText className="inline-block w-3.5 h-3.5 ml-1.5 text-gray-500 align-[-2px]" />}</div>
+                  <div className="text-xs text-gray-500 uppercase tracking-wide truncate">{meetingName.get(t.meeting_id)}</div>
                 </button>
                 <NewBadge createdAt={t.created_at} />
                 <span className={`text-xs whitespace-nowrap ${overdue ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>{t.due_date ?? ''}</span>
@@ -122,11 +123,11 @@ export function KpisBody({ kpis, values, custom, emptyText = 'No KPIs assigned t
         const now = currentStart(c)
         return (
           <div key={c}>
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1 capitalize">{c} KPIs</div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1 capitalize">{c} KPIs</div>
             <div className="overflow-x-auto -mx-1">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-[10px] uppercase tracking-wide text-gray-400">
+                  <tr className="text-xs uppercase tracking-wide text-gray-500">
                     <th className="text-left font-semibold px-1 pb-1">KPI</th>
                     <th className="font-semibold px-1 pb-1">Goal</th>
                     {periods.map(p => <th key={p.start} className={`font-semibold px-0.5 pb-1 whitespace-nowrap ${p.start === now ? 'text-blue-600' : ''}`}>{p.label}</th>)}
@@ -137,7 +138,7 @@ export function KpisBody({ kpis, values, custom, emptyText = 'No KPIs assigned t
                     <tr key={k.id}>
                       <td className="px-1 py-1 min-w-[8rem]">
                         <div className="truncate max-w-[14rem]" title={k.name}>{k.name}</div>
-                        {k.meeting?.name && <div className="text-[10px] text-gray-400 uppercase tracking-wide truncate max-w-[14rem]">{k.meeting.name}</div>}
+                        {k.meeting?.name && <div className="text-xs text-gray-500 uppercase tracking-wide truncate max-w-[14rem]">{k.meeting.name}</div>}
                       </td>
                       <td className="px-1 py-1 text-center text-xs text-gray-600 whitespace-nowrap">{formatGoal(effectiveGoal({ ...k, meeting_ids: [] }, now, custom), k.unit_type)}</td>
                       {periods.map(p => {
@@ -148,17 +149,20 @@ export function KpisBody({ kpis, values, custom, emptyText = 'No KPIs assigned t
                         const save = (next: number | null) => { if (next !== (value ?? null)) act(() => setKpiValue(k.meeting_id, k.id, p.start, next)) }
                         return (
                           <td key={`${p.start}-${value ?? ''}`} className="px-0.5 py-1 text-center">
+                            <div className="relative">
                             {k.unit_type === 'yesno' ? (
-                              <select defaultValue={value === null || value === undefined ? '' : String(value)} onChange={e => save(e.target.value === '' ? null : Number(e.target.value))} aria-label={`${k.name} ${p.label}`} className={`w-full min-w-[3.5rem] text-center border rounded px-0.5 py-0.5 text-xs ${tone}`}>
+                              <select defaultValue={value === null || value === undefined ? '' : String(value)} onChange={e => save(e.target.value === '' ? null : Number(e.target.value))} aria-label={`${k.name} ${p.label}${goalWord(hit)}`} className={`w-full min-w-[3.5rem] text-center border rounded pl-0.5 pr-5 py-1 text-sm ${tone}`}>
                                 <option value="">—</option><option value="1">Yes</option><option value="0">No</option>
                               </select>
                             ) : (
                               <input
-                                type="number" step="any" defaultValue={value ?? ''} placeholder="—" aria-label={`${k.name} ${p.label}`}
+                                type="number" step="any" defaultValue={value ?? ''} placeholder="—" aria-label={`${k.name} ${p.label}${goalWord(hit)}`}
                                 onBlur={e => { const raw = e.target.value.trim(); save(raw === '' ? null : Number(raw)) }}
-                                className={`w-full min-w-[3.5rem] text-center border rounded px-1 py-0.5 text-xs ${tone}`}
+                                className={`w-full min-w-[3.5rem] text-center border rounded pl-1 pr-5 py-1 text-sm ${NO_SPIN} ${tone}`}
                               />
                             )}
+                            <GoalMark hit={hit} />
+                            </div>
                           </td>
                         )
                       })}
@@ -170,7 +174,7 @@ export function KpisBody({ kpis, values, custom, emptyText = 'No KPIs assigned t
           </div>
         )
       })}
-      <p className="text-[11px] text-gray-400">{formatKpiValue(null, 'number')} means no value yet. Blue heading = current period.</p>
+      <p className="text-xs text-gray-500">{formatKpiValue(null, 'number')} means no value yet. Blue heading = current period.</p>
     </div>
   )
 }
@@ -190,14 +194,14 @@ export function GoalsBody({ goals, onOpen, emptyText = 'No priorities assigned t
         return (
           <li key={g.id}>
             <button onClick={() => onOpen(g)} className="flex items-center gap-2 w-full text-left" title="Open details">
-              <span className="flex-1 min-w-0 text-sm font-medium truncate hover:text-blue-700">{g.title}{g.details && <FileText className="inline-block w-3.5 h-3.5 ml-1.5 text-gray-400 align-[-2px]" />}</span>
-              <span className={`text-[11px] font-semibold rounded-full px-2 py-0.5 ${GOAL_STYLE[g.status]}`}>{GOAL_LABEL[g.status]}</span>
+              <span className="flex-1 min-w-0 text-sm font-medium truncate hover:text-blue-700">{g.title}{g.details && <FileText className="inline-block w-3.5 h-3.5 ml-1.5 text-gray-500 align-[-2px]" />}</span>
+              <span className={`text-xs font-semibold rounded-full px-2 py-0.5 ${GOAL_STYLE[g.status]}`}>{GOAL_LABEL[g.status]}</span>
             </button>
-            <div className="text-[11px] text-gray-400 uppercase tracking-wide truncate">{g.meeting?.name}{g.due_date ? ` · due ${g.due_date}` : ''}</div>
+            <div className="text-xs text-gray-500 uppercase tracking-wide truncate">{g.meeting?.name}{g.due_date ? ` · due ${g.due_date}` : ''}</div>
             {total > 0 && (
               <div className="mt-1.5 flex items-center gap-2">
                 <div className="flex-1 h-1.5 rounded-full bg-gray-200 overflow-hidden"><div className="h-full bg-blue-600" style={{ width: `${Math.round((done / total) * 100)}%` }} /></div>
-                <span className="text-[11px] text-gray-500 tabular-nums">{done}/{total}</span>
+                <span className="text-xs text-gray-500 tabular-nums">{done}/{total}</span>
               </div>
             )}
           </li>
@@ -243,8 +247,8 @@ export function PersonalTodosBody({ todos }: { todos: WPersonalTodo[] }) {
       await act(() => setPersonalTodoDone(t.id, done))
     })
   }
-  function remove(t: WPersonalTodo) {
-    if (t.id.startsWith('pending-') || !confirm('Delete this to-do?')) return
+  async function remove(t: WPersonalTodo) {
+    if (t.id.startsWith('pending-') || !(await confirmDialog('Delete this to-do?'))) return
     startTransition(async () => {
       change({ remove: t.id })
       await act(() => deletePersonalTodo(t.id))
@@ -253,7 +257,7 @@ export function PersonalTodosBody({ todos }: { todos: WPersonalTodo[] }) {
 
   return (
     <>
-      <p className="text-[11px] text-gray-400 mb-2">Only you can see these. They are not tied to any meeting.</p>
+      <p className="text-xs text-gray-500 mb-2">Only you can see these. They are not tied to any meeting.</p>
       <form onSubmit={add} className="grid gap-2 grid-cols-[1fr_auto_auto] mb-3">
         <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Add a personal to-do" className={input} aria-label="New personal to-do" />
         <input type="date" value={due} onChange={e => setDue(e.target.value)} className={input} aria-label="Due date" />
@@ -265,9 +269,9 @@ export function PersonalTodosBody({ todos }: { todos: WPersonalTodo[] }) {
           {shown.map(t => (
             <li key={t.id} className="flex items-center gap-2 py-2">
               <input type="checkbox" checked={!!t.done_at} onChange={e => toggle(t, e.target.checked)} aria-label={`Mark "${t.title}" done`} />
-              <span className={`flex-1 text-sm ${t.done_at ? 'line-through text-gray-400' : ''}`}>{t.title}</span>
-              {t.due_date && <span className={`text-[11px] whitespace-nowrap ${!t.done_at && t.due_date < today ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>{t.due_date}</span>}
-              <button onClick={() => remove(t)} aria-label="Delete to-do" className="text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
+              <span className={`flex-1 text-sm ${t.done_at ? 'line-through text-gray-500' : ''}`}>{t.title}</span>
+              {t.due_date && <span className={`text-xs whitespace-nowrap ${!t.done_at && t.due_date < today ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>{t.due_date}</span>}
+              <button onClick={() => remove(t)} aria-label="Delete to-do" className="p-2 -m-2 text-gray-500 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
             </li>
           ))}
         </ul>
@@ -288,7 +292,7 @@ export function NotesBody({ notes }: { notes: WNote[] }) {
 
   return (
     <>
-      <p className="text-[11px] text-gray-400 mb-2 flex items-center gap-1"><StickyNote className="w-3 h-3" /> Only you can see these.</p>
+      <p className="text-xs text-gray-500 mb-2 flex items-center gap-1"><StickyNote className="w-3 h-3" /> Only you can see these.</p>
       <form onSubmit={add} className="grid gap-2 grid-cols-[1fr_auto] mb-3">
         <input value={draft} onChange={e => setDraft(e.target.value)} placeholder="New note" className={input} aria-label="New note" />
         <button className={`${primary} px-3`} aria-label="Add note"><Plus className="w-4 h-4" /></button>
@@ -304,7 +308,7 @@ export function NotesBody({ notes }: { notes: WNote[] }) {
                 className={`${input} w-full pr-8`}
                 aria-label="Note"
               />
-              <button onClick={() => confirm('Delete this note?') && act(() => deletePrivateNote(n.id))} aria-label="Delete note" className="absolute top-2 right-2 text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
+              <button onClick={async () => { if (await confirmDialog('Delete this note?')) { await (act(() => deletePrivateNote(n.id))) } }} aria-label="Delete note" className="absolute top-2 right-2 p-2 -m-2 text-gray-500 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
             </li>
           ))}
         </ul>
@@ -340,7 +344,7 @@ export function IssuesBody({ issues, peopleById, onOpen }: { issues: WIssue[]; p
           <button onClick={() => onOpen(i)} className="flex items-center gap-2 w-full text-left text-sm hover:text-blue-700">
             <Avatar person={peopleById.get(i.owner_id ?? '')} size="sm" />
             <span className="truncate">{i.title}</span>
-            {i.status === 'parking_lot' && <span className="text-[10px] text-gray-400">parked</span>}
+            {i.status === 'parking_lot' && <span className="text-xs text-gray-500">parked</span>}
             <NewBadge createdAt={i.created_at} />
             {i.due_date && <span className="ml-auto text-xs text-gray-500 whitespace-nowrap">{i.due_date}</span>}
           </button>
@@ -423,16 +427,16 @@ export function CalendarBody({ meetings, held, items, onOpenItem }: {
   return (
     <div>
       <div className="flex items-center gap-2 mb-2">
-        <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))} aria-label="Previous month" className="p-1 rounded border hover:bg-gray-50"><ChevronLeft className="w-4 h-4" /></button>
+        <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))} aria-label="Previous month" className="p-2 rounded border hover:bg-gray-50"><ChevronLeft className="w-4 h-4" /></button>
         <div className="font-semibold text-sm w-36 text-center">{month}</div>
-        <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))} aria-label="Next month" className="p-1 rounded border hover:bg-gray-50"><ChevronRight className="w-4 h-4" /></button>
-        <button onClick={() => { const n = new Date(); setCursor(new Date(n.getFullYear(), n.getMonth(), 1)); setSelected(ymd(n)) }} className="ml-1 px-2 py-1 text-xs rounded border hover:bg-gray-50">Today</button>
-        <div className="ml-auto hidden sm:flex flex-wrap gap-2 text-[10px] font-semibold uppercase tracking-wide">
+        <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))} aria-label="Next month" className="p-2 rounded border hover:bg-gray-50"><ChevronRight className="w-4 h-4" /></button>
+        <button onClick={() => { const n = new Date(); setCursor(new Date(n.getFullYear(), n.getMonth(), 1)); setSelected(ymd(n)) }} className="ml-1 px-3 py-2 text-xs rounded border hover:bg-gray-50">Today</button>
+        <div className="ml-auto hidden sm:flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-wide">
           {(['meeting', 'todo', 'issue', 'held'] as const).map(k => <span key={k} className={`px-1.5 py-0.5 rounded border ${KIND_STYLE[k]}`}>{KIND_LABEL[k]}</span>)}
         </div>
       </div>
 
-      <div className="grid grid-cols-7 text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">
+      <div className="grid grid-cols-7 text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1">
         {DOW.map(d => <div key={d} className="px-1 text-center">{d}</div>)}
       </div>
       <div className="grid grid-cols-7 gap-px bg-gray-200 border border-gray-200 rounded-lg overflow-hidden">
@@ -447,11 +451,11 @@ export function CalendarBody({ meetings, held, items, onOpenItem }: {
               className={`min-h-[4.5rem] text-left p-1 flex flex-col gap-0.5 ${inMonth ? 'bg-white' : 'bg-gray-50'} ${selected === date ? 'ring-2 ring-inset ring-blue-500' : 'hover:bg-blue-50/40'}`}
               aria-label={`${date}, ${evs.length} item${evs.length === 1 ? '' : 's'}`}
             >
-              <span className={`text-[11px] w-5 h-5 inline-flex items-center justify-center rounded-full ${date === today ? 'bg-blue-600 text-white font-bold' : inMonth ? 'text-gray-700' : 'text-gray-300'}`}>{d.getDate()}</span>
+              <span className={`text-xs w-5 h-5 inline-flex items-center justify-center rounded-full ${date === today ? 'bg-blue-600 text-white font-bold' : inMonth ? 'text-gray-700' : 'text-gray-300'}`}>{d.getDate()}</span>
               {evs.slice(0, 3).map(e => (
-                <span key={e.key} className={`block truncate text-[10px] leading-4 px-1 rounded border ${e.overdue ? 'bg-red-100 text-red-800 border-red-200' : KIND_STYLE[e.kind]} ${e.done ? 'line-through opacity-60' : ''}`}>{e.title}</span>
+                <span key={e.key} className={`block truncate text-xs leading-4 px-1 rounded border ${e.overdue ? 'bg-red-100 text-red-800 border-red-200' : KIND_STYLE[e.kind]} ${e.done ? 'line-through opacity-60' : ''}`}>{e.title}</span>
               ))}
-              {evs.length > 3 && <span className="text-[10px] text-gray-500 px-1">+{evs.length - 3} more</span>}
+              {evs.length > 3 && <span className="text-xs text-gray-500 px-1">+{evs.length - 3} more</span>}
             </button>
           )
         })}
@@ -459,17 +463,17 @@ export function CalendarBody({ meetings, held, items, onOpenItem }: {
 
       <div className="mt-3">
         <div className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5 flex items-center gap-1.5"><CalendarDays className="w-3.5 h-3.5" /> {new Date(selected + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</div>
-        {selectedEvents.length === 0 ? <p className="text-sm text-gray-400">Nothing on this day.</p> : (
+        {selectedEvents.length === 0 ? <p className="text-sm text-gray-500">Nothing on this day.</p> : (
           <ul className="space-y-1">
             {selectedEvents.map(e => (
               <li key={e.key} className="flex items-center gap-2 text-sm">
-                <span className={`shrink-0 text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border ${e.overdue ? 'bg-red-100 text-red-800 border-red-200' : KIND_STYLE[e.kind]}`}>{e.overdue ? 'Overdue' : KIND_LABEL[e.kind]}</span>
+                <span className={`shrink-0 text-xs font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border ${e.overdue ? 'bg-red-100 text-red-800 border-red-200' : KIND_STYLE[e.kind]}`}>{e.overdue ? 'Overdue' : KIND_LABEL[e.kind]}</span>
                 {e.href ? (
                   <Link href={e.href} className="truncate hover:text-blue-700 hover:underline">{e.title}</Link>
                 ) : (
-                  <button onClick={() => e.item && onOpenItem(e.item)} className={`truncate text-left hover:text-blue-700 hover:underline ${e.done ? 'line-through text-gray-400' : ''}`}>{e.title}</button>
+                  <button onClick={() => e.item && onOpenItem(e.item)} className={`truncate text-left hover:text-blue-700 hover:underline ${e.done ? 'line-through text-gray-500' : ''}`}>{e.title}</button>
                 )}
-                {e.sub && <span className="text-xs text-gray-400 truncate">{e.sub}</span>}
+                {e.sub && <span className="text-xs text-gray-500 truncate">{e.sub}</span>}
               </li>
             ))}
           </ul>

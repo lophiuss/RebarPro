@@ -1,5 +1,6 @@
 'use client'
 
+import { confirmDialog } from '../ui/feedback'
 import { useMemo, useState } from 'react'
 import { Mail, Send, ClipboardPaste, X, Check, AlertTriangle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -38,7 +39,7 @@ export default function PeopleView({ people, isAdmin }: { people: P[]; isAdmin: 
     const text = resend
       ? `Send a fresh invitation e-mail to ${who.length} ${who.length === 1 ? 'person' : 'people'}?`
       : `Invite ${who.length} ${who.length === 1 ? 'person' : 'people'}?\n\nThis creates a login for each one, gives them access to the Meetings module, hands over their to-dos, issues and seats, and e-mails each ${mode === 'password' ? 'a random temporary password. They must choose a new one the first time they sign in.' : 'a one-time link to choose their own password.'}\n\n${who.map(p => `• ${p.name} <${emailOf(p)}>`).join('\n')}`
-    if (!confirm(text)) return
+    if (!(await confirmDialog(text))) return
     setBusy(true); setError(''); setResults(null)
     try {
       // The e-mail typed in the box may not be saved yet.
@@ -89,14 +90,14 @@ export default function PeopleView({ people, isAdmin }: { people: P[]; isAdmin: 
         <label className="inline-flex items-center gap-2"><input type="radio" name="mode" checked={mode === 'password'} onChange={() => setMode('password')} /> Random temporary password by e-mail (less safe: the password travels in the e-mail)</label>
         <label className="inline-flex items-center gap-2"><input type="radio" name="mode" checked={mode === 'link'} onChange={() => setMode('link')} /> One-time link to choose their own password (recommended: no password is e-mailed)</label>
       </fieldset>
-      <label className="block text-sm font-medium mb-4">Message in the invitation <span className="text-gray-400 font-normal">(optional)</span>
+      <label className="block text-sm font-medium mb-4">Message in the invitation <span className="text-gray-500 font-normal">(optional)</span>
         <textarea value={message} onChange={e => setMessage(e.target.value)} rows={2} placeholder="e.g. We are moving our weekly meetings to AlphaVision from Monday." className="mt-1 w-full border rounded-lg px-3 py-2 text-sm font-normal" />
       </label>
 
       {error && <p className="mb-4 text-sm text-red-600 flex items-center gap-1.5"><AlertTriangle className="w-4 h-4" /> {error}</p>}
       {results && (
         <div className="mb-4 border rounded-xl bg-white shadow-sm p-4">
-          <div className="flex items-center justify-between mb-2"><b className="text-sm">Result</b><button onClick={() => setResults(null)} aria-label="Close"><X className="w-4 h-4 text-gray-400" /></button></div>
+          <div className="flex items-center justify-between mb-2"><b className="text-sm">Result</b><button onClick={() => setResults(null)} aria-label="Close"><X className="w-4 h-4 text-gray-500" /></button></div>
           <ul className="space-y-1 text-sm">
             {results.map(r => (
               <li key={r.contact_id} className="flex items-center gap-2">
@@ -112,11 +113,11 @@ export default function PeopleView({ people, isAdmin }: { people: P[]; isAdmin: 
 
       <div className="border rounded-xl bg-white shadow-sm overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 text-[11px] uppercase tracking-wide text-gray-500">
+          <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
             <tr><th className="text-left px-3 py-2 font-semibold">Person</th><th className="text-left px-3 py-2 font-semibold">E-mail</th><th className="px-3 py-2 font-semibold">Holds</th><th className="text-left px-3 py-2 font-semibold">Status</th><th /></tr>
           </thead>
           <tbody className="divide-y">
-            {rows.length === 0 && <tr><td colSpan={5} className="px-3 py-8 text-center text-gray-400">Nobody here.</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={5} className="px-3 py-8 text-center text-gray-500">Nobody here.</td></tr>}
             {rows.map(p => {
               const val = emailOf(p)
               const valid = EMAIL.test(val)
@@ -155,7 +156,7 @@ export default function PeopleView({ people, isAdmin }: { people: P[]; isAdmin: 
       {paste !== null && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-lg">
-            <div className="flex items-center justify-between px-5 py-4 border-b"><h2 className="font-bold text-lg">Paste e-mail list</h2><button onClick={() => { setPaste(null); if (pasteResult?.saved.length) window.location.reload() }} aria-label="Close"><X className="w-5 h-5 text-gray-400" /></button></div>
+            <div className="flex items-center justify-between px-5 py-4 border-b"><h2 className="font-bold text-lg">Paste e-mail list</h2><button onClick={() => { setPaste(null); if (pasteResult?.saved.length) window.location.reload() }} aria-label="Close"><X className="w-5 h-5 text-gray-500" /></button></div>
             <div className="p-5 space-y-3">
               <p className="text-sm text-gray-600">One person per line, name then e-mail, for example:<br /><code className="text-xs bg-gray-100 rounded px-1">Ivy Ong, ivy@company.com</code></p>
               <textarea value={paste} onChange={e => setPaste(e.target.value)} rows={8} className="w-full border rounded-lg px-3 py-2 text-sm font-mono" aria-label="E-mail list" />

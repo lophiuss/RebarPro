@@ -1,9 +1,20 @@
 'use client'
 
-import { FileText } from 'lucide-react'
+import { Check, FileText, X } from 'lucide-react'
 import { useMeeting } from './context'
 import { PersonSelect } from '../PersonPicker'
 import { ymd, type Cadence, type IssueStatus, type TodoStatus, type GoalRule, type UnitType, type Goal as GoalValue } from '@/lib/meetings'
+
+// A KPI number is green or red, but colour alone is not enough (colour-blind people, black and white
+// prints, a washed-out projector): a tick or a cross sits inside the box as well.
+export function GoalMark({ hit }: { hit: boolean | null }) {
+  if (hit === null) return null
+  return hit
+    ? <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-green-700" title="Goal met" aria-hidden="true"><Check className="w-3.5 h-3.5" strokeWidth={3} /></span>
+    : <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-red-700" title="Goal missed" aria-hidden="true"><X className="w-3.5 h-3.5" strokeWidth={3} /></span>
+}
+export const goalWord = (hit: boolean | null) => (hit === null ? '' : hit ? ', goal met' : ', goal missed')
+export const NO_SPIN = '[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none'
 
 // ----------------------------------------------------------------- data types
 
@@ -25,7 +36,7 @@ export function isNew(createdAt: string | undefined | null) {
 }
 export function NewBadge({ createdAt }: { createdAt: string | undefined | null }) {
   if (!isNew(createdAt)) return null
-  return <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide rounded-full bg-green-100 text-green-700 px-1.5 py-0.5">New</span>
+  return <span className="shrink-0 text-xs font-bold uppercase tracking-wide rounded-full bg-green-100 text-green-700 px-1.5 py-0.5">New</span>
 }
 export type Milestone = { title: string; done: boolean; done_at?: string | null }
 export type Goal = {
@@ -58,7 +69,7 @@ export function effectiveGoal(k: Kpi, period: string, custom: KpiCustomGoal[]): 
 export const card = 'border rounded-xl bg-white shadow-sm'
 export const input = 'border rounded-md px-2.5 py-1.5 text-sm bg-white'
 export const primaryBtn = 'inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-md bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 disabled:opacity-50'
-export const labelCls = 'text-[11px] font-semibold uppercase tracking-wide text-gray-500'
+export const labelCls = 'text-xs font-semibold uppercase tracking-wide text-gray-500'
 
 export const todayStr = () => ymd(new Date())
 
@@ -92,9 +103,9 @@ export function OwnerSelect({ value, onChange }: { value: string; onChange: (v: 
 // Row title that opens the item panel; an icon marks items that have details.
 export function ItemTitle({ title, hasDetails, struck, onOpen }: { title: string; hasDetails: boolean; struck?: boolean; onOpen: () => void }) {
   return (
-    <button type="button" onClick={onOpen} title="Open details" className={`flex-1 min-w-0 text-left truncate hover:text-blue-700 ${struck ? 'line-through text-gray-400' : ''}`}>
+    <button type="button" onClick={onOpen} title="Open details" className={`flex-1 min-w-0 text-left truncate hover:text-blue-700 ${struck ? 'line-through text-gray-500' : ''}`}>
       {title}
-      {hasDetails && <FileText className="inline-block w-3.5 h-3.5 ml-1.5 text-gray-400 align-[-2px]" aria-label="Has details" />}
+      {hasDetails && <FileText className="inline-block w-3.5 h-3.5 ml-1.5 text-gray-500 align-[-2px]" aria-label="Has details" />}
     </button>
   )
 }
@@ -140,7 +151,7 @@ export function Segmented<T extends string>({ value, onChange, options }: {
           role="tab"
           aria-selected={value === o.key}
           onClick={() => onChange(o.key)}
-          className={`px-3 py-1.5 rounded-md font-medium transition whitespace-nowrap ${value === o.key ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'}`}
+          className={`px-3 py-1.5 rounded-md font-medium transition whitespace-nowrap ${value === o.key ? 'bg-white text-slate-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
         >
           {o.label}
         </button>
@@ -151,5 +162,5 @@ export function Segmented<T extends string>({ value, onChange, options }: {
 
 // Pill used for statuses (matches the small uppercase status pills elsewhere).
 export function Pill({ children, tone = 'bg-gray-100 text-gray-700' }: { children: React.ReactNode; tone?: string }) {
-  return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${tone}`}>{children}</span>
+  return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide ${tone}`}>{children}</span>
 }

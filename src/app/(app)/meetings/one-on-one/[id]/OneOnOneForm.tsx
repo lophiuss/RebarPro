@@ -1,5 +1,6 @@
 'use client'
 
+import { confirmDialog } from '../../ui/feedback'
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -27,7 +28,7 @@ const GWC = [
 const sections = Array.from(new Set(ONE_ON_ONE_QUESTIONS.map(q => q.section)))
 
 function ReadOnlySide({ side, coreValues }: { side: OneOnOneSide | undefined; coreValues: string[] }) {
-  if (!side || Object.keys(side).length === 0) return <p className="text-sm text-gray-400">Nothing written yet.</p>
+  if (!side || Object.keys(side).length === 0) return <p className="text-sm text-gray-500">Nothing written yet.</p>
   return (
     <div className="space-y-4 text-sm">
       {sections.map(sec => (
@@ -87,7 +88,7 @@ export default function OneOnOneForm({ session, people, coreValues, myId }: { se
   }
 
   async function setStatus(status: 'draft' | 'complete') {
-    if (me === 'manager' && status === 'complete' && !confirm('Mark this conversation complete? Both people will be unable to edit it until you reopen it.')) return
+    if (me === 'manager' && status === 'complete' && !(await confirmDialog('Mark this conversation complete? Both people will be unable to edit it until you reopen it.'))) return
     const ok = await act(async () => { await setOneOnOneStatus(session.id, status); return true })
     if (ok) router.refresh()
   }
@@ -101,7 +102,7 @@ export default function OneOnOneForm({ session, people, coreValues, myId }: { se
         {me === 'manager' && (
           <div className="ml-auto flex items-center gap-2">
             <button onClick={() => setStatus(locked ? 'draft' : 'complete')} className="px-3 py-1.5 text-sm rounded-lg border bg-white hover:bg-gray-50">{locked ? 'Reopen' : 'Mark complete'}</button>
-            <button onClick={() => confirm('Delete this conversation for both people?') && act(async () => { await deleteOneOnOne(session.id); router.push('/meetings/one-on-one') })} aria-label="Delete" className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+            <button onClick={async () => { if (await confirmDialog('Delete this conversation for both people?')) { await (act(async () => { await deleteOneOnOne(session.id); router.push('/meetings/one-on-one') })) } }} aria-label="Delete" className="p-2 -m-2 text-gray-500 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
           </div>
         )}
       </div>
@@ -142,7 +143,7 @@ export default function OneOnOneForm({ session, people, coreValues, myId }: { se
                         <div className="flex gap-1">
                           {(['plus', 'plus_minus', 'minus'] as Rating[]).map(r => (
                             <button key={r} type="button" onClick={() => setSide({ ...side, core_values: { ...side.core_values, [cv]: r } })}
-                              className={`min-w-10 text-sm font-bold border rounded-lg px-2 py-1 ${side.core_values?.[cv] === r ? RATING_STYLE[r] : 'bg-white text-gray-400 hover:bg-gray-50'}`}>{RATING_LABEL[r]}</button>
+                              className={`min-w-10 text-sm font-bold border rounded-lg px-2 py-1 ${side.core_values?.[cv] === r ? RATING_STYLE[r] : 'bg-white text-gray-500 hover:bg-gray-50'}`}>{RATING_LABEL[r]}</button>
                           ))}
                         </div>
                       </li>
@@ -159,7 +160,7 @@ export default function OneOnOneForm({ session, people, coreValues, myId }: { se
                       <div className="flex gap-1">
                         {([true, false] as const).map(val => (
                           <button key={String(val)} type="button" onClick={() => setSide({ ...side, gwc: { ...side.gwc, [g.key]: val } })}
-                            className={`min-w-12 text-sm font-semibold border rounded-lg px-3 py-1 ${side.gwc?.[g.key] === val ? (val ? 'bg-green-100 text-green-700 border-green-300' : 'bg-red-100 text-red-700 border-red-300') : 'bg-white text-gray-400 hover:bg-gray-50'}`}>{val ? 'Yes' : 'No'}</button>
+                            className={`min-w-12 text-sm font-semibold border rounded-lg px-3 py-1 ${side.gwc?.[g.key] === val ? (val ? 'bg-green-100 text-green-700 border-green-300' : 'bg-red-100 text-red-700 border-red-300') : 'bg-white text-gray-500 hover:bg-gray-50'}`}>{val ? 'Yes' : 'No'}</button>
                         ))}
                       </div>
                     </li>

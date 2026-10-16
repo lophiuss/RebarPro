@@ -70,7 +70,7 @@ export function MeetingWorkspace({
               Last meeting: {new Date(last.created_at).toLocaleDateString('en-GB', { dateStyle: 'medium' })}
               {last.average_rating != null && <span className="inline-flex items-center gap-1 ml-2 font-semibold text-slate-800"><Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />{Number(last.average_rating).toFixed(1)}</span>}
             </div>
-          ) : <p className="text-sm text-gray-400">No meetings concluded yet.</p>}
+          ) : <p className="text-sm text-gray-500">No meetings concluded yet.</p>}
           {schedule && schedule.days.length > 0 && <p className="text-xs text-gray-500 mt-2">Scheduled {schedule.every > 1 ? `every ${schedule.every} weeks` : 'weekly'} on {schedule.days.map(d => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d]).join(', ')}{schedule.time ? ` at ${schedule.time}` : ''}.</p>}
         </div>
       ),
@@ -122,7 +122,7 @@ export function GrowthPlan({ goals, kpis, kpiValues, kpiGoals, coreValues }: { g
     <div className="space-y-4">
       <section className={`${card} p-5`}>
         <h2 className="font-bold text-lg text-slate-900 mb-3">Core Values</h2>
-        {coreValues.length === 0 ? <p className="text-sm text-gray-400">No core values yet. A Meetings admin can add them in Settings.</p> : (
+        {coreValues.length === 0 ? <p className="text-sm text-gray-500">No core values yet. A Meetings admin can add them in Settings.</p> : (
           <ol className="grid sm:grid-cols-2 gap-x-8 gap-y-2 list-decimal list-inside">
             {coreValues.map((v, i) => <li key={i} className="text-slate-800">{v}</li>)}
           </ol>
@@ -131,10 +131,10 @@ export function GrowthPlan({ goals, kpis, kpiValues, kpiGoals, coreValues }: { g
 
       <section className={`${card} p-5`}>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="font-bold text-lg text-slate-900">Quarterly Priorities <span className="text-gray-400 font-normal text-base">({open.length} open)</span></h2>
+          <h2 className="font-bold text-lg text-slate-900">Quarterly Priorities <span className="text-gray-500 font-normal text-base">({open.length} open)</span></h2>
           {goals.length > 0 && <span className="text-sm font-semibold text-blue-700">{overall}% overall</span>}
         </div>
-        {goals.length === 0 ? <p className="text-sm text-gray-400">No priorities yet.</p> : (
+        {goals.length === 0 ? <p className="text-sm text-gray-500">No priorities yet.</p> : (
           <ul className="space-y-4">
             {goals.map(g => {
               const p = progress(g)
@@ -143,7 +143,7 @@ export function GrowthPlan({ goals, kpis, kpiValues, kpiGoals, coreValues }: { g
                   <div className="flex items-center gap-2">
                     <span className="flex-1 min-w-0 font-medium truncate">{g.title}</span>
                     {g.due_date && <span className="text-xs text-gray-500">due {g.due_date}</span>}
-                    <span className={`text-[11px] font-semibold rounded-full px-2 py-0.5 ${GOAL_STYLE[g.status]}`}>{GOAL_LABEL[g.status]}</span>
+                    <span className={`text-xs font-semibold rounded-full px-2 py-0.5 ${GOAL_STYLE[g.status]}`}>{GOAL_LABEL[g.status]}</span>
                   </div>
                   <div className="mt-1.5 flex items-center gap-2">
                     <div className="flex-1 h-2 rounded-full bg-gray-200 overflow-hidden"><div className={`h-full ${g.status === 'off' ? 'bg-red-500' : 'bg-blue-600'}`} style={{ width: `${p.pct}%` }} /></div>
@@ -151,7 +151,7 @@ export function GrowthPlan({ goals, kpis, kpiValues, kpiGoals, coreValues }: { g
                   </div>
                   {p.total > 0 && (
                     <ul className="mt-1.5 ml-1 flex flex-wrap gap-x-4 gap-y-0.5">
-                      {g.milestones.map((m, i) => <li key={i} className={`text-xs ${m.done ? 'text-gray-400 line-through' : 'text-gray-600'}`}>{m.title}</li>)}
+                      {g.milestones.map((m, i) => <li key={i} className={`text-xs ${m.done ? 'text-gray-500 line-through' : 'text-gray-600'}`}>{m.title}</li>)}
                     </ul>
                   )}
                 </li>
@@ -163,10 +163,10 @@ export function GrowthPlan({ goals, kpis, kpiValues, kpiGoals, coreValues }: { g
 
       <section className={`${card} p-5 overflow-x-auto`}>
         <h2 className="font-bold text-lg text-slate-900 mb-3">Weekly scorecard</h2>
-        {weekly.length === 0 ? <p className="text-sm text-gray-400">No weekly KPIs yet.</p> : (
+        {weekly.length === 0 ? <p className="text-sm text-gray-500">No weekly KPIs yet.</p> : (
           <table className="w-full text-sm">
             <thead className="text-gray-500">
-              <tr className="text-[11px] uppercase tracking-wide"><th className="text-left font-semibold py-1">KPI</th><th className="font-semibold">Goal</th>{weeks.map(w => <th key={w.start} className="font-semibold px-2">{w.label}</th>)}</tr>
+              <tr className="text-xs uppercase tracking-wide"><th className="text-left font-semibold py-1">KPI</th><th className="font-semibold">Goal</th>{weeks.map(w => <th key={w.start} className="font-semibold px-2">{w.label}</th>)}</tr>
             </thead>
             <tbody className="divide-y">
               {weekly.map(k => (

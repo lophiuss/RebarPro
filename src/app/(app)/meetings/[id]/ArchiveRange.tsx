@@ -107,12 +107,12 @@ export function ArchiveTab({ history, peopleById, meetingName }: { history: Hist
           {preset === 'custom' && (
             <div className="flex items-center gap-2">
               <input type="date" value={from} onChange={e => setFrom(e.target.value)} className={input} aria-label="From date" />
-              <span className="text-gray-400">→</span>
+              <span className="text-gray-500">→</span>
               <input type="date" value={to} onChange={e => setTo(e.target.value)} className={input} aria-label="To date" />
             </div>
           )}
           <div className="relative ml-auto">
-            <Search className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-gray-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
             <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search text" aria-label="Search" className={`${input} pl-8 w-56`} />
           </div>
         </div>
@@ -134,7 +134,7 @@ export function ArchiveTab({ history, peopleById, meetingName }: { history: Hist
         <div className={`${card} overflow-x-auto`}>
           <table className="w-full text-sm">
             <thead className="bg-gray-50">
-              <tr className="text-[11px] uppercase tracking-wide text-gray-500">
+              <tr className="text-xs uppercase tracking-wide text-gray-500">
                 <th className="text-left px-3 py-2.5 font-semibold">Type</th>
                 <th className="text-left px-3 py-2.5 font-semibold">Item</th>
                 <th className="text-left px-3 py-2.5 font-semibold">Owner</th>

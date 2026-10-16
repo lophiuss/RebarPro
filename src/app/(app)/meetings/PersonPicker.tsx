@@ -80,8 +80,8 @@ export function PersonSelect({
         className={`inline-flex items-center gap-2 border rounded-lg px-3 py-2 text-sm bg-white text-left hover:bg-gray-50 disabled:opacity-50 min-w-0 ${className}`}
       >
         {selected && <Avatar person={selected} size="sm" />}
-        <span className={`flex-1 truncate ${selected || extraSelected || (value === '' && emptyLabel) ? '' : 'text-gray-400'}`}>{label}</span>
-        <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
+        <span className={`flex-1 truncate ${selected || extraSelected || (value === '' && emptyLabel) ? '' : 'text-gray-500'}`}>{label}</span>
+        <ChevronDown className="w-4 h-4 text-gray-500 shrink-0" />
       </button>
 
       {open && pos && (
@@ -94,7 +94,7 @@ export function PersonSelect({
             onKeyDown={e => { if (e.key === 'Escape') setOpen(false) }}
           >
             <div className="relative p-2 border-b">
-              <Search className="w-4 h-4 text-gray-400 absolute left-4 top-1/2 -translate-y-1/2" />
+              <Search className="w-4 h-4 text-gray-500 absolute left-4 top-1/2 -translate-y-1/2" />
               <input
                 autoFocus
                 value={query}
@@ -129,7 +129,7 @@ export function PersonSelect({
               ))}
               {filteredOthers.length > 0 && (
                 <>
-                  <li className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400 border-t mt-1">{othersLabel}</li>
+                  <li className="px-3 pt-2 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-500 border-t mt-1">{othersLabel}</li>
                   {filteredOthers.map(p => (
                     <li key={p.id}>
                       <button type="button" onClick={() => pick(p.id)} className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50 flex items-center gap-2">
@@ -141,7 +141,7 @@ export function PersonSelect({
                   ))}
                 </>
               )}
-              {filtered.length === 0 && filteredOthers.length === 0 && filteredExtra.length === 0 && <li className="px-3 py-3 text-sm text-gray-400 text-center">No one matches &ldquo;{query}&rdquo;</li>}
+              {filtered.length === 0 && filteredOthers.length === 0 && filteredExtra.length === 0 && <li className="px-3 py-3 text-sm text-gray-500 text-center">No one matches &ldquo;{query}&rdquo;</li>}
             </ul>
           </div>
         </>
@@ -167,7 +167,7 @@ export function PeopleChecklist({
   return (
     <div className="border rounded-lg">
       <div className="relative p-2 border-b">
-        <Search className="w-4 h-4 text-gray-400 absolute left-4 top-1/2 -translate-y-1/2" />
+        <Search className="w-4 h-4 text-gray-500 absolute left-4 top-1/2 -translate-y-1/2" />
         <input
           value={query}
           onChange={e => setQuery(e.target.value)}
@@ -188,7 +188,7 @@ export function PeopleChecklist({
             </label>
           )
         })}
-        {shown.length === 0 && <div className="px-3 py-4 text-sm text-gray-400 text-center">No one matches &ldquo;{query}&rdquo;</div>}
+        {shown.length === 0 && <div className="px-3 py-4 text-sm text-gray-500 text-center">No one matches &ldquo;{query}&rdquo;</div>}
       </div>
     </div>
   )

@@ -1,5 +1,6 @@
 'use client'
 
+import { notifyError } from '../ui/feedback'
 import { useState } from 'react'
 import { Plus, Trash2, Pencil, Presentation } from 'lucide-react'
 import { saveGrowthPlan } from './actions'
@@ -38,7 +39,7 @@ function ListField({ label, values, onChange, placeholder }: { label: string; va
         {items.map((v, i) => (
           <li key={i} className="flex gap-2">
             <input value={v} onChange={e => onChange(items.map((x, idx) => (idx === i ? e.target.value : x)))} placeholder={placeholder} className={`${input} font-normal`} />
-            <button type="button" onClick={() => onChange(items.filter((_, idx) => idx !== i))} aria-label="Remove" className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+            <button type="button" onClick={() => onChange(items.filter((_, idx) => idx !== i))} aria-label="Remove" className="p-2 -m-2 text-gray-500 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
           </li>
         ))}
       </ul>
@@ -133,7 +134,7 @@ export default function GrowthPlanView({
       setSaved(res.updated_at)
       setMode('present')
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      notifyError(err)
     } finally {
       setSaving(false)
     }
@@ -216,7 +217,7 @@ export default function GrowthPlanView({
       {tab === 'future' ? (
         <div className="space-y-4">
           <Section title="Core Values">
-            {coreValues.length ? <Numbered items={coreValues} /> : <p className="text-sm text-gray-400">Add core values in Settings.</p>}
+            {coreValues.length ? <Numbered items={coreValues} /> : <p className="text-sm text-gray-500">Add core values in Settings.</p>}
           </Section>
           {(plan.what || plan.how || plan.why) ? (
             <Section title="What, How & Why">
@@ -252,7 +253,7 @@ export default function GrowthPlanView({
             <Section title="90-Day Plan"><GoalsBlock date={plan.ninety_day?.date} goals={plan.ninety_day?.goals} /></Section>
           ) : null}
           <Section title={`Quarterly Priorities (${goals.length})`}>
-            {goals.length === 0 ? <p className="text-sm text-gray-400">You have no quarterly priority.</p> : (
+            {goals.length === 0 ? <p className="text-sm text-gray-500">You have no quarterly priority.</p> : (
               <ul className="space-y-3">
                 {goals.map(g => {
                   const total = g.milestones.length
@@ -262,9 +263,9 @@ export default function GrowthPlanView({
                       <Avatar person={peopleById.get(g.owner_id ?? '')} size="sm" />
                       <div className="flex-1 min-w-0">
                         <div className="font-medium">{g.title}</div>
-                        <div className="text-[11px] text-gray-400 uppercase tracking-wide">{g.meeting?.name}{g.due_date ? ` · due ${fmtDate(g.due_date)}` : ''}{total ? ` · ${done}/${total} milestones` : ''}</div>
+                        <div className="text-xs text-gray-500 uppercase tracking-wide">{g.meeting?.name}{g.due_date ? ` · due ${fmtDate(g.due_date)}` : ''}{total ? ` · ${done}/${total} milestones` : ''}</div>
                       </div>
-                      <span className={`text-[11px] font-semibold rounded-full px-2 py-0.5 ${g.status === 'off' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{g.status === 'off' ? 'Off track' : 'On track'}</span>
+                      <span className={`text-xs font-semibold rounded-full px-2 py-0.5 ${g.status === 'off' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>{g.status === 'off' ? 'Off track' : 'On track'}</span>
                     </li>
                   )
                 })}
@@ -272,11 +273,11 @@ export default function GrowthPlanView({
             )}
           </Section>
           <Section title={`Parking Lot (${parked.length})`}>
-            {parked.length === 0 ? <p className="text-sm text-gray-400">Nothing in the parking lot.</p> : (
+            {parked.length === 0 ? <p className="text-sm text-gray-500">Nothing in the parking lot.</p> : (
               <ol className="space-y-2">
                 {parked.map((p, i) => (
                   <li key={p.id} className="flex items-start gap-3 text-slate-800">
-                    <span className="w-5 text-sm text-gray-400 tabular-nums">{i + 1}.</span>
+                    <span className="w-5 text-sm text-gray-500 tabular-nums">{i + 1}.</span>
                     <Avatar person={peopleById.get(p.owner_id ?? '')} size="sm" />
                     <span className="flex-1">{p.title}</span>
                   </li>

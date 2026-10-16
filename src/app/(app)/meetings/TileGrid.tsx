@@ -1,5 +1,6 @@
 'use client'
 
+import { confirmDialog } from './ui/feedback'
 import { useEffect, useRef, useState } from 'react'
 import { Lock, Unlock, RotateCcw, GripVertical, X, Plus, LayoutGrid } from 'lucide-react'
 import { savePref } from './actions'
@@ -79,18 +80,18 @@ function Tile({ tile, layout, onLayout, gridRef, dragging, setDragging }: {
             onPointerUp={() => setArmed(false)}
             title="Drag to move this panel"
             aria-label={`Move ${title}`}
-            className="cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-700 touch-none -ml-1 p-0.5"
+            className="cursor-grab active:cursor-grabbing text-gray-500 hover:text-gray-700 touch-none -ml-1 p-0.5"
           ><GripVertical className="w-4 h-4" /></button>
         )}
-        <h2 className="font-bold text-slate-900">{title}{count != null && <span className="ml-1.5 text-gray-400 font-normal text-sm">({count})</span>}</h2>
-        {!locked && <span className="ml-auto text-[11px] text-gray-400 tabular-nums hidden lg:inline">{size.w}/12 cols</span>}
+        <h2 className="font-bold text-slate-900">{title}{count != null && <span className="ml-1.5 text-gray-500 font-normal text-sm">({count})</span>}</h2>
+        {!locked && <span className="ml-auto text-xs text-gray-500 tabular-nums hidden lg:inline">{size.w}/12 cols</span>}
         {!locked && (
           <button
             type="button"
             onClick={() => onLayout({ ...layout, hidden: [...layout.hidden, id] })}
             title="Remove this panel (add it back from “Add panel”)"
             aria-label={`Remove ${title}`}
-            className="text-gray-300 hover:text-red-500"
+            className="p-2 -m-2 text-gray-500 hover:text-red-600"
           ><X className="w-4 h-4" /></button>
         )}
       </header>
@@ -180,14 +181,14 @@ export default function TileGrid({ tiles, prefKey, savedLayout, defaults, childr
                         <button
                           onClick={() => { setLayout(l => ({ ...l, hidden: l.hidden.filter(x => x !== id) })); setMenu(false) }}
                           className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50 inline-flex items-center gap-2"
-                        ><LayoutGrid className="w-3.5 h-3.5 text-gray-400" /> {byId.get(id)!.title}</button>
+                        ><LayoutGrid className="w-3.5 h-3.5 text-gray-500" /> {byId.get(id)!.title}</button>
                       </li>
                     ))}
                   </ul>
                 </>
               )}
             </div>
-            <button onClick={() => { if (confirm('Put all panels back to the default layout?')) setLayout(cleanLayout(null, ids, defaults)) }} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white text-sm font-medium hover:bg-gray-50">
+            <button onClick={async () => { if (await confirmDialog('Put all panels back to the default layout?')) setLayout(cleanLayout(null, ids, defaults)) }} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border bg-white text-sm font-medium hover:bg-gray-50">
               <RotateCcw className="w-4 h-4" /> Reset
             </button>
           </>

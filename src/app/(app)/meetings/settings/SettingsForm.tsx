@@ -1,5 +1,6 @@
 'use client'
 
+import { notifyError } from '../ui/feedback'
 import { useState } from 'react'
 import { Plus, Trash2 } from 'lucide-react'
 import { SortableList } from '../Sortable'
@@ -25,7 +26,7 @@ export function CoreValuesForm({ initial }: { initial: string[] }) {
       setValues(values.map(v => v.trim()).filter(Boolean))
       setSaved(true)
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      notifyError(err)
     } finally {
       setSaving(false)
     }
@@ -36,12 +37,12 @@ export function CoreValuesForm({ initial }: { initial: string[] }) {
       <ol className="divide-y">
         {values.map((v, i) => (
           <li key={i} className="flex items-center gap-3 px-4 py-3">
-            <span className="w-5 text-sm text-gray-400 tabular-nums">{i + 1}.</span>
+            <span className="w-5 text-sm text-gray-500 tabular-nums">{i + 1}.</span>
             <input value={v} onChange={e => patch(i, e.target.value)} className="flex-1 border rounded-lg px-3 py-2 text-sm" aria-label={`Core value ${i + 1}`} />
-            <button onClick={() => { setValues(values.filter((_, idx) => idx !== i)); setSaved(false) }} aria-label="Remove" className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+            <button onClick={() => { setValues(values.filter((_, idx) => idx !== i)); setSaved(false) }} aria-label="Remove" className="p-2 -m-2 text-gray-500 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
           </li>
         ))}
-        {values.length === 0 && <li className="px-4 py-6 text-sm text-gray-400 text-center">No core values yet.</li>}
+        {values.length === 0 && <li className="px-4 py-6 text-sm text-gray-500 text-center">No core values yet.</li>}
       </ol>
       <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50 rounded-b-xl">
         <button onClick={() => { setValues([...values, '']); setSaved(false) }} className="inline-flex items-center gap-1 text-sm font-semibold text-blue-600 hover:text-blue-800"><Plus className="w-4 h-4" /> Add value</button>
@@ -70,7 +71,7 @@ export default function SettingsForm({ initial }: { initial: Row[] }) {
       await saveDefaultAgenda(rows)
       setSaved(true)
     } catch (err: any) {
-      alert('Error: ' + err.message)
+      notifyError(err)
     } finally {
       setSaving(false)
     }

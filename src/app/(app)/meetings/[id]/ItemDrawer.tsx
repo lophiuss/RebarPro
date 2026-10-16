@@ -1,5 +1,6 @@
 'use client'
 
+import { notify, confirmDialog } from '../ui/feedback'
 import { useEffect, useState } from 'react'
 import { X, Trash2, Archive, ArrowUpRight, Check, Copy, ListChecks, AlertCircle, Plus } from 'lucide-react'
 import {
@@ -30,7 +31,7 @@ export type DrawerItem = {
 
 const LABEL: Record<DrawerKind, string> = { todo: 'To-do', headline: 'Headline', issue: 'Issue', goal: 'Quarterly priority' }
 const field = 'w-full border rounded-lg px-3 py-2 text-sm bg-white'
-const sectionTitle = 'text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1.5'
+const sectionTitle = 'text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5'
 
 // Side panel opened by clicking a to-do, headline, issue or quarterly priority.
 // Edits save as you go (text on blur, pickers on change), like Bloom's panel.
@@ -78,15 +79,15 @@ export default function ItemDrawer({
   const lower = LABEL[kind].toLowerCase()
 
   async function doMove(toId: string) {
-    if (!confirm(`Move this ${lower} to ${nameOf(toId)}? It will leave this meeting.`)) return
+    if (!(await confirmDialog(`Move this ${lower} to ${nameOf(toId)}? It will leave this meeting.`))) return
     const ok = await run(async () => { await moveItem(kind, item.id, meetingId, toId); return true })
     if (ok) onClose()
   }
 
   async function doCopy() {
-    if (!target.copy || !confirm(`Copy this ${lower} to ${nameOf(target.copy)}? The original stays here.`)) return
+    if (!target.copy || !(await confirmDialog(`Copy this ${lower} to ${nameOf(target.copy)}? The original stays here.`))) return
     const ok = await run(async () => { await copyItem(kind, item.id, meetingId, target.copy); return true })
-    if (ok) { setTarget(t => ({ ...t, copy: '' })); alert(`Copied to ${nameOf(target.copy)}.`) }
+    if (ok) { setTarget(t => ({ ...t, copy: '' })); notify(`Copied to ${nameOf(target.copy)}.`, 'success') }
   }
 
   async function doEscalate() {
@@ -94,13 +95,13 @@ export default function ItemDrawer({
     const msg = kind === 'issue'
       ? `Send this issue to ${nameOf(target.escalate)}? It will show as Sent here.`
       : `Raise this ${lower} as a new issue in ${nameOf(target.escalate)}?`
-    if (!confirm(msg)) return
+    if (!(await confirmDialog(msg))) return
     const ok = await run(async () => { await escalateItem(kind, item.id, meetingId, target.escalate); return true })
     if (ok) { setTarget(t => ({ ...t, escalate: '' })); if (kind === 'issue') onClose() }
   }
 
   async function doDelete() {
-    if (!confirm(`Delete this ${lower}? This cannot be undone.`)) return
+    if (!(await confirmDialog(`Delete this ${lower}? This cannot be undone.`))) return
     const ok = await run(async () => {
       if (kind === 'todo') await deleteTodo(meetingId, item.id)
       else if (kind === 'headline') await deleteHeadline(meetingId, item.id)
@@ -126,7 +127,7 @@ export default function ItemDrawer({
         <header className="flex items-center gap-3 px-5 py-4 border-b">
           <h2 className="font-bold text-lg flex-1">Edit {LABEL[kind]}</h2>
           {saved && <span className="text-xs text-green-700 inline-flex items-center gap-1"><Check className="w-3.5 h-3.5" /> Changes saved</span>}
-          <button onClick={onClose} aria-label="Close"><X className="w-5 h-5 text-gray-400 hover:text-gray-700" /></button>
+          <button onClick={onClose} aria-label="Close"><X className="w-5 h-5 text-gray-500 hover:text-gray-700" /></button>
         </header>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-5">
@@ -205,10 +206,10 @@ export default function ItemDrawer({
                     <input
                       defaultValue={m.title}
                       onBlur={e => { const v = e.target.value.trim(); if (v && v !== m.title) saveMilestones(milestones.map((x, idx) => (idx === i ? { ...x, title: v } : x))) }}
-                      className={`${field} ${m.done ? 'line-through text-gray-400' : ''}`}
+                      className={`${field} ${m.done ? 'line-through text-gray-500' : ''}`}
                       aria-label={`Milestone ${i + 1}`}
                     />
-                    <button onClick={() => saveMilestones(milestones.filter((_, idx) => idx !== i))} aria-label="Remove milestone" className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                    <button onClick={() => saveMilestones(milestones.filter((_, idx) => idx !== i))} aria-label="Remove milestone" className="p-2 -m-2 text-gray-500 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                   </li>
                 ))}
               </ul>
@@ -273,7 +274,7 @@ export default function ItemDrawer({
             </div>
           )}
 
-          {item.created_at && <p className="text-xs text-gray-400">Created {new Date(item.created_at).toLocaleDateString('en-GB', { dateStyle: 'medium' })}</p>}
+          {item.created_at && <p className="text-xs text-gray-500">Created {new Date(item.created_at).toLocaleDateString('en-GB', { dateStyle: 'medium' })}</p>}
         </div>
 
         <footer className="flex items-center justify-between gap-2 px-5 py-3 border-t bg-gray-50">

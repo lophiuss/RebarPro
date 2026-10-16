@@ -77,7 +77,7 @@ export default function ResourceCenterPage() {
           <details key={t.title} open={i === 0} className="border rounded-xl bg-white shadow-sm group">
             <summary className="cursor-pointer select-none px-5 py-4 font-semibold text-slate-900 flex items-center justify-between">
               {t.title}
-              <span className="text-gray-400 text-sm group-open:rotate-90 transition-transform">&rsaquo;</span>
+              <span className="text-gray-500 text-sm group-open:rotate-90 transition-transform">&rsaquo;</span>
             </summary>
             <ul className="px-5 pb-4 space-y-2 list-disc list-inside text-sm text-slate-700">
               {t.body.map((line, j) => <li key={j}>{line}</li>)}

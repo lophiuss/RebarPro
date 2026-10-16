@@ -54,7 +54,7 @@ export function SortableList<T>({
                 if (e.key === 'ArrowUp') { e.preventDefault(); move(i, i - 1) }
                 if (e.key === 'ArrowDown') { e.preventDefault(); move(i, i + 1) }
               }}
-              className="cursor-grab active:cursor-grabbing text-gray-400 hover:text-gray-700 touch-none p-1 -ml-1 rounded"
+              className="cursor-grab active:cursor-grabbing text-gray-500 hover:text-gray-700 touch-none p-1 -ml-1 rounded"
             >
               <GripVertical className="w-4 h-4" />
             </button>

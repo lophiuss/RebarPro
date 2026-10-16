@@ -1,5 +1,6 @@
 'use client'
 
+import { confirmDialog } from '../ui/feedback'
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -67,12 +68,12 @@ export default function SessionPrepView({ sessions, docs, meetings, myId, canMan
             {sessions.map(s => (
               <li key={s.id} className="flex items-center gap-3 px-4 py-3 hover:bg-gray-50">
                 <Link href={`/meetings/session-prep/${s.id}`} className="flex-1 min-w-0">
-                  <div className="font-medium truncate">{s.doc_name} <span className="text-gray-400 font-normal">· {s.meeting_name}</span></div>
+                  <div className="font-medium truncate">{s.doc_name} <span className="text-gray-500 font-normal">· {s.meeting_name}</span></div>
                   <div className="text-xs text-gray-500">Due {s.due_date} · {s.submitted}/{s.total} submitted{s.mine && !s.mySubmitted ? ' · waiting for you' : ''}</div>
                 </Link>
                 {s.mine && !s.mySubmitted && <span className="text-xs font-semibold rounded-full px-2 py-0.5 bg-amber-100 text-amber-700">To do</span>}
                 {(s.created_by === myId || canManageDocs) && (
-                  <button onClick={() => confirm('Delete this prep session and all responses?') && act(() => deletePrepSession(s.id))} aria-label="Delete" className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                  <button onClick={async () => { if (await confirmDialog('Delete this prep session and all responses?')) { await (act(() => deletePrepSession(s.id))) } }} aria-label="Delete" className="p-2 -m-2 text-gray-500 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                 )}
                 <Link href={`/meetings/session-prep/${s.id}`}><ArrowRight className="w-4 h-4 text-gray-300" /></Link>
               </li>
@@ -90,16 +91,16 @@ export default function SessionPrepView({ sessions, docs, meetings, myId, canMan
           {docs.map(d => (
             <li key={d.id} className="flex items-center gap-3 px-4 py-3">
               <div className="flex-1 min-w-0"><div className="font-medium truncate">{d.name}</div><div className="text-xs text-gray-500">{d.questions.length} question{d.questions.length === 1 ? '' : 's'}</div></div>
-              <button onClick={() => setPreview(d)} aria-label="Preview" className="text-gray-400 hover:text-blue-600"><Eye className="w-4 h-4" /></button>
+              <button onClick={() => setPreview(d)} aria-label="Preview" className="text-gray-500 hover:text-blue-600"><Eye className="w-4 h-4" /></button>
               {canManageDocs && (
                 <>
-                  <button onClick={() => setDocForm({ id: d.id, name: d.name, questions: d.questions.map(toEQ) })} aria-label="Edit" className="text-gray-400 hover:text-blue-600"><Pencil className="w-4 h-4" /></button>
-                  <button onClick={() => confirm(`Delete "${d.name}"?`) && act(() => deletePrepDoc(d.id))} aria-label="Delete" className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                  <button onClick={() => setDocForm({ id: d.id, name: d.name, questions: d.questions.map(toEQ) })} aria-label="Edit" className="text-gray-500 hover:text-blue-600"><Pencil className="w-4 h-4" /></button>
+                  <button onClick={async () => { if (await confirmDialog(`Delete "${d.name}"?`)) { await (act(() => deletePrepDoc(d.id))) } }} aria-label="Delete" className="p-2 -m-2 text-gray-500 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                 </>
               )}
             </li>
           ))}
-          {docs.length === 0 && <li className="px-4 py-6 text-center text-sm text-gray-400">No prep docs yet.</li>}
+          {docs.length === 0 && <li className="px-4 py-6 text-center text-sm text-gray-500">No prep docs yet.</li>}
         </ul>
       </section>
 
@@ -108,7 +109,7 @@ export default function SessionPrepView({ sessions, docs, meetings, myId, canMan
           <form onSubmit={create} className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-5 py-4 border-b">
               <h2 className="font-bold text-lg">Create session prep</h2>
-              <button type="button" onClick={() => setShowCreate(false)} aria-label="Close"><X className="w-5 h-5 text-gray-400" /></button>
+              <button type="button" onClick={() => setShowCreate(false)} aria-label="Close"><X className="w-5 h-5 text-gray-500" /></button>
             </div>
             <div className="p-5 space-y-4">
               <p className="text-sm text-gray-500">Use this form to gather everyone&apos;s thoughts beforehand so your meeting stays focused and efficient.</p>
@@ -141,9 +142,9 @@ export default function SessionPrepView({ sessions, docs, meetings, myId, canMan
       {preview && (
         <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between px-5 py-4 border-b"><h2 className="font-bold text-lg">{preview.name}</h2><button onClick={() => setPreview(null)} aria-label="Close"><X className="w-5 h-5 text-gray-400" /></button></div>
+            <div className="flex items-center justify-between px-5 py-4 border-b"><h2 className="font-bold text-lg">{preview.name}</h2><button onClick={() => setPreview(null)} aria-label="Close"><X className="w-5 h-5 text-gray-500" /></button></div>
             <ol className="p-5 space-y-3 list-decimal list-inside">
-              {preview.questions.map((q, i) => <li key={i} className="text-sm">{q.label}{q.required ? ' *' : ''} <span className="text-xs text-gray-400">({QTYPE_LABEL[q.type] ?? q.type}{q.options ? `: ${q.options.join(' / ')}` : ''}{q.unit ? `, ${q.unit}` : ''})</span></li>)}
+              {preview.questions.map((q, i) => <li key={i} className="text-sm">{q.label}{q.required ? ' *' : ''} <span className="text-xs text-gray-500">({QTYPE_LABEL[q.type] ?? q.type}{q.options ? `: ${q.options.join(' / ')}` : ''}{q.unit ? `, ${q.unit}` : ''})</span></li>)}
             </ol>
           </div>
         </div>
@@ -154,7 +155,7 @@ export default function SessionPrepView({ sessions, docs, meetings, myId, canMan
           <form onSubmit={saveDoc} className="bg-white rounded-xl shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-5 py-4 border-b">
               <h2 className="font-bold text-lg">{docForm.id ? 'Edit prep doc' : 'New prep doc'}</h2>
-              <button type="button" onClick={() => setDocForm(null)} aria-label="Close"><X className="w-5 h-5 text-gray-400" /></button>
+              <button type="button" onClick={() => setDocForm(null)} aria-label="Close"><X className="w-5 h-5 text-gray-500" /></button>
             </div>
             <div className="p-5 space-y-4">
               <label className="block text-sm font-medium">Name
@@ -169,7 +170,7 @@ export default function SessionPrepView({ sessions, docs, meetings, myId, canMan
                       <li key={i} className="rounded-lg border p-2.5 space-y-2 bg-gray-50/50">
                         <div className="flex gap-2">
                           <input value={q.label} onChange={e => set({ label: e.target.value })} placeholder={`Question ${i + 1}`} className={`${input} flex-1`} />
-                          <button type="button" onClick={() => setDocForm({ ...docForm, questions: docForm.questions.filter((_, idx) => idx !== i) })} aria-label="Remove question" className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                          <button type="button" onClick={() => setDocForm({ ...docForm, questions: docForm.questions.filter((_, idx) => idx !== i) })} aria-label="Remove question" className="p-2 -m-2 text-gray-500 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
                           <select value={q.type} onChange={e => set({ type: e.target.value as QType })} className={input} aria-label="Answer type">

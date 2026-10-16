@@ -10,7 +10,7 @@ import { RichEditor } from '../RichText'
 export type Draft = { title: string; details: string | null; owner_id: string | null; due_date: string | null }
 
 const field = 'w-full border rounded-lg px-3 py-2 text-sm bg-white'
-const sectionTitle = 'text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1.5'
+const sectionTitle = 'text-xs font-semibold uppercase tracking-wide text-gray-500 mb-1.5'
 
 export function plusDays(n: number) {
   const d = new Date()
@@ -68,8 +68,8 @@ export default function NewItemDrawer({
         <header className="flex items-center gap-3 px-5 py-4 border-b">
           <Icon className={`w-5 h-5 ${kind === 'todo' ? 'text-blue-600' : 'text-amber-600'}`} />
           <h2 className="font-bold text-lg flex-1">New {label}</h2>
-          <span className="text-[11px] font-bold uppercase tracking-wide rounded-full bg-green-100 text-green-700 px-2 py-0.5">New</span>
-          <button onClick={onClose} aria-label="Close"><X className="w-5 h-5 text-gray-400 hover:text-gray-700" /></button>
+          <span className="text-xs font-bold uppercase tracking-wide rounded-full bg-green-100 text-green-700 px-2 py-0.5">New</span>
+          <button onClick={onClose} aria-label="Close"><X className="w-5 h-5 text-gray-500 hover:text-gray-700" /></button>
         </header>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-5">

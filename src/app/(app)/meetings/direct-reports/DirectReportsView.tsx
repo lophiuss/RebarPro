@@ -132,7 +132,7 @@ function ReportCard({ report, todos, goals, qaMeetingId }: { report: Report; tod
             {initials(report.name)}
           </div>
           <div className="text-center text-sm text-gray-600 mt-2 truncate" title={report.seat}>{report.subtitle ?? report.seat}</div>
-          {report.subtitle && <div className="text-center text-xs text-gray-400 truncate">{report.seat}</div>}
+          {report.subtitle && <div className="text-center text-xs text-gray-500 truncate">{report.seat}</div>}
           <div className="flex-1" />
           {qaMeetingId ? (
             <Link href={`/meetings/${qaMeetingId}`} className="mt-4 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border bg-white text-sm font-medium hover:bg-gray-50">
@@ -162,7 +162,7 @@ function ReportCard({ report, todos, goals, qaMeetingId }: { report: Report; tod
                   onClick={() => setOff(hidden ? off.filter(k => k !== s.key) : [...off, s.key])}
                   aria-pressed={!hidden}
                   title={hidden ? 'Show this line' : 'Hide this line'}
-                  className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold border ${hidden ? 'bg-white text-gray-400 border-gray-200' : 'text-slate-800'}`}
+                  className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold border ${hidden ? 'bg-white text-gray-500 border-gray-200' : 'text-slate-800'}`}
                   style={hidden ? undefined : { background: `${s.color}22`, borderColor: `${s.color}66` }}
                 >
                   <span className="w-2.5 h-2.5 rounded-full" style={{ background: hidden ? '#d1d5db' : s.color }} />
@@ -176,25 +176,25 @@ function ReportCard({ report, todos, goals, qaMeetingId }: { report: Report; tod
 
       <div className="grid sm:grid-cols-3 gap-3 mt-5 text-sm">
         <details className="border rounded-lg px-3 py-2">
-          <summary className="cursor-pointer font-semibold">To-dos <span className="text-gray-400 font-normal">({openTodos.length} open)</span></summary>
+          <summary className="cursor-pointer font-semibold">To-dos <span className="text-gray-500 font-normal">({openTodos.length} open)</span></summary>
           <ul className="mt-2 space-y-1">
-            {openTodos.length === 0 && <li className="text-gray-400">None open</li>}
+            {openTodos.length === 0 && <li className="text-gray-500">None open</li>}
             {openTodos.slice(0, 12).map(t => (
               <li key={t.id} className="flex gap-2"><span className="flex-1 min-w-0 truncate">{t.title}</span><span className={`text-xs whitespace-nowrap ${t.due_date && t.due_date < today ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>{t.due_date}</span></li>
             ))}
           </ul>
         </details>
         <details className="border rounded-lg px-3 py-2">
-          <summary className="cursor-pointer font-semibold">Quarterly Priorities <span className="text-gray-400 font-normal">({openGoals.length} open)</span></summary>
+          <summary className="cursor-pointer font-semibold">Quarterly Priorities <span className="text-gray-500 font-normal">({openGoals.length} open)</span></summary>
           <ul className="mt-2 space-y-1">
-            {openGoals.length === 0 && <li className="text-gray-400">None open</li>}
+            {openGoals.length === 0 && <li className="text-gray-500">None open</li>}
             {openGoals.map(g => <li key={g.id} className="flex gap-2"><span className="flex-1 min-w-0 truncate">{g.title}</span><span className={`text-xs ${g.status === 'off' ? 'text-red-600' : 'text-green-700'}`}>{g.status === 'off' ? 'Off track' : 'On track'}</span></li>)}
           </ul>
         </details>
         <details className="border rounded-lg px-3 py-2">
-          <summary className="cursor-pointer font-semibold">Milestones <span className="text-gray-400 font-normal">({openMilestones.length} open)</span></summary>
+          <summary className="cursor-pointer font-semibold">Milestones <span className="text-gray-500 font-normal">({openMilestones.length} open)</span></summary>
           <ul className="mt-2 space-y-1">
-            {openMilestones.length === 0 && <li className="text-gray-400">None open</li>}
+            {openMilestones.length === 0 && <li className="text-gray-500">None open</li>}
             {openMilestones.slice(0, 12).map((m, i) => <li key={i} className="truncate" title={m.goal}>{m.title}</li>)}
           </ul>
         </details>

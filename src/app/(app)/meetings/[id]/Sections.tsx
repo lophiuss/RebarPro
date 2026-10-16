@@ -1,5 +1,6 @@
 'use client'
 
+import { notify, confirmDialog } from '../ui/feedback'
 import { useState } from 'react'
 import { Plus, Trash2, Check, ListChecks, AlertCircle } from 'lucide-react'
 import {
@@ -43,7 +44,7 @@ export function Headlines({ headlines, todos, issues, otherMeetings }: { headlin
 
   return (
     <div>
-      <SectionTitle right={<SortSelect value={sort} onChange={setSort} />}>Headlines <span className="text-gray-400 font-normal text-base">({headlines.length})</span></SectionTitle>
+      <SectionTitle right={<SortSelect value={sort} onChange={setSort} />}>Headlines <span className="text-gray-500 font-normal text-base">({headlines.length})</span></SectionTitle>
       {headlines.length === 0 ? (
         <Empty title="No headlines yet" hint="Share customer or employee news in one sentence." />
       ) : (
@@ -53,8 +54,8 @@ export function Headlines({ headlines, todos, issues, otherMeetings }: { headlin
               <Avatar person={peopleById.get(h.owner_id ?? '')} />
               <ItemTitle title={h.title} hasDetails={!!h.details} onOpen={() => setOpenId(h.id)} />
               <div className="flex items-center gap-1 text-xs">
-                {todos.some(t => t.source_headline_id === h.id) && <span className="hidden sm:inline text-[10px] font-semibold text-blue-700 bg-blue-50 rounded-full px-1.5 py-0.5">To-do created</span>}
-                {issues.some(i => i.source_headline_id === h.id) && <span className="hidden sm:inline text-[10px] font-semibold text-amber-700 bg-amber-50 rounded-full px-1.5 py-0.5">Issue created</span>}
+                {todos.some(t => t.source_headline_id === h.id) && <span className="hidden sm:inline text-xs font-semibold text-blue-700 bg-blue-50 rounded-full px-1.5 py-0.5">To-do created</span>}
+                {issues.some(i => i.source_headline_id === h.id) && <span className="hidden sm:inline text-xs font-semibold text-amber-700 bg-amber-50 rounded-full px-1.5 py-0.5">Issue created</span>}
                 <button
                   onClick={() => setDraft({ kind: 'todo', headline: h })}
                   title="Create a new to-do from this headline (the headline stays)"
@@ -66,7 +67,7 @@ export function Headlines({ headlines, todos, issues, otherMeetings }: { headlin
                   className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-50 text-amber-700 font-semibold hover:bg-amber-100"
                 ><AlertCircle className="w-3.5 h-3.5" /> Issue</button>
               </div>
-              <button onClick={() => confirm('Delete this headline?') && run(() => deleteHeadline(meetingId, h.id))} aria-label="Delete" className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+              <button onClick={async () => { if (await confirmDialog('Delete this headline?')) { await (run(() => deleteHeadline(meetingId, h.id))) } }} aria-label="Delete" className="p-2 -m-2 text-gray-500 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
             </li>
           ))}
         </ul>
@@ -125,7 +126,7 @@ export function Todos({ todos, otherMeetings }: { todos: Todo[]; otherMeetings: 
           <label className="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" checked={showDone} onChange={e => setShowDone(e.target.checked)} /> Show completed</label>
           <span className="font-semibold text-blue-700">{pct}% completed</span>
         </div>
-      }>To-dos <span className="text-gray-400 font-normal text-base">({todos.length})</span></SectionTitle>
+      }>To-dos <span className="text-gray-500 font-normal text-base">({todos.length})</span></SectionTitle>
       <div className="h-2 rounded-full bg-gray-200 mb-4 overflow-hidden"><div className="h-full bg-blue-600 transition-all" style={{ width: `${pct}%` }} /></div>
 
       {shown.length === 0 ? (
@@ -139,16 +140,16 @@ export function Todos({ todos, otherMeetings }: { todos: Todo[]; otherMeetings: 
                 <button
                   onClick={() => run(() => setTodoDone(meetingId, t.id, !t.done_at))}
                   aria-label={t.done_at ? 'Mark not done' : 'Mark done'}
-                  className={`w-5 h-5 rounded-full border-2 shrink-0 inline-flex items-center justify-center ${t.done_at ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300 hover:border-blue-500'}`}
+                  className={`w-7 h-7 rounded-full border-2 shrink-0 inline-flex items-center justify-center ${t.done_at ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300 hover:border-blue-500'}`}
                 >
-                  {t.done_at && <Check className="w-3 h-3" />}
+                  {t.done_at && <Check className="w-4 h-4" />}
                 </button>
                 <Avatar person={peopleById.get(t.owner_id ?? '')} size="sm" />
                 <ItemTitle title={t.title} hasDetails={!!t.details} struck={!!t.done_at} onOpen={() => setOpenId(t.id)} />
-                {t.source_headline_id && <span className="hidden sm:inline text-[10px] text-gray-400">from headline</span>}
+                {t.source_headline_id && <span className="hidden sm:inline text-xs text-gray-500">from headline</span>}
                 <NewBadge createdAt={t.created_at} />
                 <span className={`text-xs whitespace-nowrap ${overdue ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>{t.due_date ?? ''}</span>
-                <button onClick={() => confirm('Delete this to-do?') && run(() => deleteTodo(meetingId, t.id))} aria-label="Delete" className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+                <button onClick={async () => { if (await confirmDialog('Delete this to-do?')) { await (run(() => deleteTodo(meetingId, t.id))) } }} aria-label="Delete" className="p-2 -m-2 text-gray-500 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
               </li>
             )
           })}
@@ -214,14 +215,14 @@ export function Issues({ issues, otherMeetings }: { issues: Issue[]; otherMeetin
             <li key={i.id} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
               <Avatar person={peopleById.get(i.owner_id ?? '')} size="sm" />
               <ItemTitle title={i.title} hasDetails={!!i.details} struck={i.status === 'solved'} onOpen={() => setOpenId(i.id)} />
-              {i.source_headline_id && <span className="hidden sm:inline text-[10px] text-gray-400">from headline</span>}
+              {i.source_headline_id && <span className="hidden sm:inline text-xs text-gray-500">from headline</span>}
               <NewBadge createdAt={i.created_at} />
               {i.status !== 'solved' && (
                 <div className="flex items-center gap-1.5 text-xs">
                   <button onClick={() => run(() => setIssueStatus(meetingId, i.id, 'solved', liveRun?.id))} className="px-2 py-1 rounded-md bg-green-50 text-green-700 font-semibold hover:bg-green-100">Solved</button>
                   {i.status !== 'short_term' && <button onClick={() => run(() => setIssueStatus(meetingId, i.id, 'short_term'))} className="px-2 py-1 rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200">Short term</button>}
                   {i.status !== 'parking_lot' && <button onClick={() => run(() => setIssueStatus(meetingId, i.id, 'parking_lot'))} className="px-2 py-1 rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200">Park</button>}
-                  <button onClick={() => confirm('Delete this issue?') && run(() => deleteIssue(meetingId, i.id))} aria-label="Delete" className="text-gray-300 hover:text-red-500 ml-1"><Trash2 className="w-4 h-4" /></button>
+                  <button onClick={async () => { if (await confirmDialog('Delete this issue?')) { await (run(() => deleteIssue(meetingId, i.id))) } }} aria-label="Delete" className="p-2 -m-2 text-gray-500 hover:text-red-600 ml-1"><Trash2 className="w-4 h-4" /></button>
                 </div>
               )}
             </li>
@@ -271,8 +272,8 @@ function RatingRow({ person, existing, editable, onBehalf, revealed, runId }: {
         <Avatar person={person} size="sm" />
         <span className="w-40 truncate">{person.full_name}</span>
         {r?.rating != null
-          ? (revealed ? <span className="font-semibold">{r.rating}{r.feedback ? <span className="font-normal text-gray-600"> — {r.feedback}</span> : null}</span> : <span className="text-gray-400">Rated</span>)
-          : <span className="text-gray-400">Waiting…</span>}
+          ? (revealed ? <span className="font-semibold">{r.rating}{r.feedback ? <span className="font-normal text-gray-600"> — {r.feedback}</span> : null}</span> : <span className="text-gray-500">Rated</span>)
+          : <span className="text-gray-500">Waiting…</span>}
       </li>
     )
   }
@@ -281,7 +282,7 @@ function RatingRow({ person, existing, editable, onBehalf, revealed, runId }: {
     <li className="py-3">
       <div className="flex items-center gap-3 mb-2">
         <Avatar person={person} size="sm" />
-        <span className="text-sm font-medium truncate">{person.full_name}{!onBehalf && <span className="text-gray-400 font-normal"> (you)</span>}</span>
+        <span className="text-sm font-medium truncate">{person.full_name}{!onBehalf && <span className="text-gray-500 font-normal"> (you)</span>}</span>
         {saved && <span className="text-xs text-green-700 inline-flex items-center gap-1"><Check className="w-3.5 h-3.5" /> Saved</span>}
       </div>
       <div className="flex flex-wrap gap-1.5 mb-2">
@@ -333,15 +334,15 @@ export function WrapUp({ todos, issues, ratings, pageSeconds }: { todos: Todo[];
   const avg = rated.length ? (rated.reduce((s, r) => s + (r.rating as number), 0) / rated.length).toFixed(1) : null
 
   async function conclude() {
-    if (!confirm('Conclude this meeting? This saves the summary for everyone.')) return
+    if (!(await confirmDialog('Conclude this meeting? This saves the summary for everyone.'))) return
     setConcluding(true)
     const summaryId = await run(() => concludeMeeting(liveRun!.id, { archiveTodos, archiveHeadlines, pageSeconds: pageSeconds() }))
     if (summaryId && sendEmail) {
       try {
         const r = await emailSummary(summaryId, { includeDetails, includeNotes })
-        alert(`Minutes e-mailed to ${r.sent} attendee${r.sent === 1 ? '' : 's'}.`)
+        notify(`Minutes e-mailed to ${r.sent} attendee${r.sent === 1 ? '' : 's'}.`, 'success')
       } catch (err: any) {
-        alert('The meeting was concluded, but the summary email failed: ' + err.message + '\n\nYou can retry from the Summary tab.')
+        notify('The meeting was concluded, but the summary email failed: ' + err.message + '\n\nYou can retry from the Summary tab.', 'error')
       }
     }
     setConcluding(false)
