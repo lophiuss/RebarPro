@@ -100,6 +100,7 @@ export function buildMinutesHtml(input: MinutesInput): string {
   const times: Record<string, number> = s.page_seconds ?? {}
   const maxTime = Math.max(1, ...PAGE_TYPES.map(p => times[p] ?? 0))
   const when = s.ended_at ?? input.createdAt
+  const rating = input.averageRating != null ? `${Number(input.averageRating).toFixed(1)} / 10` : '—'
   let n = 0
   const out: string[] = []
 
@@ -110,20 +111,41 @@ export function buildMinutesHtml(input: MinutesInput): string {
       .join('')))
   }
 
-  // A KPI with no latest value is left out of the report.
-  const kpisWithValue = kpis.filter(k => ((k.values ?? [])[0]?.value ?? null) !== null)
-  if (kpisWithValue.length) {
-    const rows = kpisWithValue.map(k => {
+  // KPI scorecard: one table per cadence, with the dates as column headers: the latest period and
+  // the three before it, oldest to newest. A KPI that has no value for the latest period is left out.
+  const periodLabel = (start: string, cadence: string) => {
+    const d = new Date(`${start}T00:00:00Z`)
+    if (cadence === 'monthly') return d.toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' })
+    if (cadence === 'quarterly') return `Q${Math.floor(d.getUTCMonth() / 3) + 1} ${d.getUTCFullYear()}`
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })
+  }
+  const scorecards: string[] = []
+  const cadences = ['daily', 'weekly', 'monthly', 'quarterly'].filter(c => kpis.some(k => k.cadence === c))
+  for (const cadence of cadences) {
+    const group = kpis.filter(k => k.cadence === cadence)
+    const dates = [...new Set(group.flatMap(k => ((k.values ?? []) as { period_start?: string; value: number | null }[]).filter(v => v.value !== null && v.value !== undefined && v.period_start).map(v => v.period_start as string)))].sort().reverse()
+    if (dates.length === 0) continue
+    const latest = dates[0]
+    const cols = dates.slice(0, 4).reverse()
+    const rows = group.filter(k => ((k.values ?? []) as { period_start?: string; value: number | null }[]).some(v => v.period_start === latest && v.value !== null && v.value !== undefined))
+    if (rows.length === 0) continue
+    const body = rows.map(k => {
       const goal = { rule: k.goal_rule as GoalRule, value: k.goal_value as number | null, max: k.goal_value_max as number | null }
       const unit = (k.unit_type ?? 'number') as UnitType
-      const vals: { value: number | null }[] = k.values ?? []
-      const latest = vals[0]?.value
-      const hit = evaluateGoal(goal, latest)
-      const result = hit === null ? pill('No data', '#f1f5f9', '#64748b') : hit ? pill('Goal met', '#dcfce7', '#15803d') : pill('Missed', '#fee2e2', '#b91c1c')
-      return `<tr>${td(`<b>${esc(k.name)}</b><div style="font-size:11px;color:#94a3b8;text-transform:capitalize">${esc(k.cadence)} · ${esc(who(k))}</div>`)}${td(esc(formatGoal(goal, unit)), 'white-space:nowrap')}${td(`<b>${esc(formatKpiValue(latest, unit))}</b>`, 'text-align:right')}${td(esc(vals.slice(1, 5).map(v => formatKpiValue(v.value, unit)).join(' · ') || '—'), 'text-align:right;color:#64748b')}${td(result)}</tr>`
+      const vals = (k.values ?? []) as { period_start?: string; value: number | null }[]
+      const cells = cols.map(c => {
+        const v = vals.find(x => x.period_start === c)?.value
+        if (v === null || v === undefined) return td('—', 'text-align:center;color:#cbd5e1')
+        const hit = evaluateGoal(goal, v)
+        const style = hit === null ? '' : hit ? 'background:#f0fdf4;color:#15803d;' : 'background:#fef2f2;color:#b91c1c;'
+        return td(`<b>${esc(formatKpiValue(v, unit))}</b>`, `text-align:center;white-space:nowrap;${style}`)
+      }).join('')
+      return `<tr>${td(`<b>${esc(k.name)}</b><div style="font-size:11px;color:#94a3b8">${esc(who(k))}</div>`)}${td(esc(formatGoal(goal, unit)), 'white-space:nowrap;color:#475569')}${cells}</tr>`
     }).join('')
-    out.push(section(++n, 'KPI scorecard', table(th('KPI') + th('Goal') + th('Latest', true) + th('Previous', true) + th('Result'), rows)))
+    const head = th('KPI') + th('Goal') + cols.map(c => `<th style="text-align:center;padding:8px 10px;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:${c === latest ? INK : MUTED};background:#f8fafc;border-bottom:1px solid ${LINE};white-space:nowrap">${esc(periodLabel(c, cadence))}</th>`).join('')
+    scorecards.push((cadences.length > 1 ? sub(`${cadence} (${rows.length})`) : '') + table(head, body))
   }
+  if (scorecards.length) out.push(section(++n, 'KPI scorecard', scorecards.join('')))
 
   // Titles only: the minutes list what was discussed, not the detail behind each item.
   const titles = (list: any[], empty = none) => list.length === 0 ? empty
@@ -144,14 +166,21 @@ export function buildMinutesHtml(input: MinutesInput): string {
     return `<tr><td style="width:150px;font-size:13px;padding:3px 0">${esc(PAGE_LABEL[p])}</td><td style="padding:3px 8px"><div style="background:#f1f5f9;border-radius:99px;height:8px"><div style="background:${BLUE};border-radius:99px;height:8px;width:${Math.round((sec / maxTime) * 100)}%"></div></div></td><td style="width:56px;text-align:right;font-size:13px;color:#475569;font-variant-numeric:tabular-nums">${formatSeconds(sec)}</td></tr>`
   }).join('')}</table>`))
 
-  out.push(section(++n, 'Meeting rating and feedback', ratings.length === 0 ? none
-    : table(th('Attendee') + th('Rating', true) + th('Feedback'), ratings.map(r => `<tr>${td(esc(r.name ?? name(r.user_id)))}${td(`<b>${r.rating}</b> / 10`, 'text-align:right;white-space:nowrap')}${td(esc(r.feedback ?? ''), 'color:#475569')}</tr>`).join(''))))
+  // Compact: one line of chips (name and score) instead of a table, then any written feedback.
+  if (ratings.length === 0) {
+    out.push(section(++n, 'Meeting rating and feedback', none))
+  } else {
+    const chips = ratings.map(r => `<span style="display:inline-block;margin:0 6px 6px 0;border:1px solid ${LINE};border-radius:999px;padding:3px 10px;font-size:12px;color:#334155">${esc(r.name ?? name(r.user_id))} <b style="color:${INK}">${r.rating}</b></span>`).join('')
+    const feedback = ratings.filter(r => (r.feedback ?? '').trim())
+    out.push(section(++n, 'Meeting rating and feedback',
+      `<div style="font-size:13px;margin:0 0 8px"><b>${rating}</b> average from ${ratings.length} rating${ratings.length === 1 ? '' : 's'}</div>${chips}` +
+      (feedback.length ? `<ul style="margin:6px 0 0;padding-left:18px">${feedback.map(r => `<li style="margin:0 0 3px;font-size:12px;color:#475569"><b>${esc(r.name ?? name(r.user_id))}:</b> ${esc(r.feedback)}</li>`).join('')}</ul>` : '')))
+  }
 
   if (input.includeNotes && s.notes) {
     out.push(section(++n, 'Meeting notes', `<div style="font-size:13px;line-height:1.6;white-space:pre-wrap">${esc(s.notes)}</div>`))
   }
 
-  const rating = input.averageRating != null ? `${Number(input.averageRating).toFixed(1)} / 10` : '—'
   const message = input.message?.trim()
     ? `<div style="margin:0 0 20px;padding:12px 14px;background:#eff6ff;border-left:4px solid ${BLUE};border-radius:4px;font-size:14px;white-space:pre-wrap">${esc(input.message.trim().slice(0, 2000))}</div>`
     : ''

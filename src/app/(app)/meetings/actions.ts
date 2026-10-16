@@ -897,6 +897,21 @@ export async function setAttendance(runId: string, userId: string, present: bool
   refresh(run.meeting_id as string)
 }
 
+// Several people at once (Mark everyone present, quick ticking): one read and one write, so
+// changes made together can never overwrite each other.
+export async function setAttendanceBulk(runId: string, changes: Record<string, boolean>) {
+  const { supabase } = await requireMeetingsAccess()
+  const ids = Object.keys(changes).filter(id => /^[0-9a-f-]{36}$/i.test(id)).slice(0, 200)
+  if (ids.length === 0) return
+  const { data: run } = await supabase.from('mtg_runs').select('meeting_id, attendance, ended_at').eq('id', runId).maybeSingle()
+  if (!run || run.ended_at) throw new Error('This meeting is not running')
+  const attendance = { ...((run.attendance ?? {}) as Record<string, boolean>) }
+  for (const id of ids) attendance[id] = !!changes[id]
+  const { error } = await supabase.from('mtg_runs').update({ attendance }).eq('id', runId)
+  if (error) throw error
+  refresh(run.meeting_id as string)
+}
+
 // Personal settings (own rows only, enforced by RLS): workspace layout etc.
 export async function savePref(key: string, value: unknown) {
   const { supabase, user } = await requireMeetingsAccess()

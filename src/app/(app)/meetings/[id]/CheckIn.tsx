@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
-import { Lightbulb, MessageSquareQuote, Shuffle, ArrowLeft, NotebookPen } from 'lucide-react'
-import { setAttendance, saveIcebreakerNotes } from '../actions'
+import { useRef, useState } from 'react'
+import { Lightbulb, MessageSquareQuote, Shuffle, ArrowLeft, NotebookPen, Check, UserCheck, Users, Crown } from 'lucide-react'
+import { setAttendanceBulk, saveIcebreakerNotes } from '../actions'
 import { useMeeting, useRun } from './context'
 import Avatar from '../Avatar'
 import { card, input, labelCls, SectionTitle, type Rating } from './shared'
@@ -23,7 +23,7 @@ function shuffle<T>(items: T[]): T[] {
 }
 
 export function CheckIn({ lastFeedback, ice, onIce, notes }: { lastFeedback: Rating[]; ice: Shown | null; onIce: (v: Shown) => void; notes: string }) {
-  const { meetingId, run: liveRun, people, attendeeIds, peopleById } = useMeeting()
+  const { meetingId, run: liveRun, people, attendeeIds, peopleById, myId } = useMeeting()
   const run = useRun()
   // Shows a tick instantly; the saved value (from the live run) takes over after refresh.
   const [local, setLocal] = useState<Record<string, boolean>>({})
@@ -39,15 +39,42 @@ export function CheckIn({ lastFeedback, ice, onIce, notes }: { lastFeedback: Rat
   const attendees = people.filter(p => attendeeIds.includes(p.id))
   const feedback = lastFeedback.filter(f => f.feedback)
 
-  const isPresent = (id: string) => local[id] ?? !!liveRun?.attendance?.[id]
-  const presentCount = attendees.filter(p => isPresent(p.id)).length
-
-  async function toggle(id: string, present: boolean) {
-    if (!liveRun) return
-    setLocal(prev => ({ ...prev, [id]: present }))
-    const ok = await run(async () => { await setAttendance(liveRun.id, id, present); return true })
-    if (!ok) setLocal(prev => { const next = { ...prev }; delete next[id]; return next })
+  // What the server has saved. Ticks show at once (`local`) and are sent in one batch a moment later,
+  // so rapid clicking and "Mark everyone present" can never overwrite each other.
+  const serverAttendance = (liveRun?.attendance ?? {}) as Record<string, boolean>
+  const serverSig = JSON.stringify(serverAttendance)
+  const [seenSig, setSeenSig] = useState(serverSig)
+  if (seenSig !== serverSig) {
+    // The saved copy arrived: drop the instant ticks it now agrees with.
+    setSeenSig(serverSig)
+    setLocal(prev => Object.fromEntries(Object.entries(prev).filter(([id, v]) => !!serverAttendance[id] !== v)))
   }
+  const isPresent = (id: string) => local[id] ?? !!serverAttendance[id]
+  const presentCount = attendees.filter(p => isPresent(p.id)).length
+  const pct = attendees.length ? Math.round((presentCount / attendees.length) * 100) : 0
+
+  const queue = useRef<Record<string, boolean>>({})
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const chain = useRef<Promise<unknown>>(Promise.resolve())
+  const runId = liveRun?.id
+
+  function setMany(changes: Record<string, boolean>) {
+    if (!runId) return
+    setLocal(prev => ({ ...prev, ...changes }))
+    Object.assign(queue.current, changes)
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = setTimeout(() => {
+      const batch = queue.current
+      queue.current = {}
+      chain.current = chain.current.then(async () => {
+        const ok = await run(async () => { await setAttendanceBulk(runId, batch); return true })
+        if (!ok) setLocal(prev => { const next = { ...prev }; for (const id of Object.keys(batch)) delete next[id]; return next })
+      })
+    }, 150)
+  }
+  const toggle = (id: string) => setMany({ [id]: !isPresent(id) })
+  const markAll = (present: boolean) => setMany(Object.fromEntries(attendees.map(p => [p.id, present])))
+  const hostId = liveRun?.leader_id ?? null
 
   // ----- icebreaker: a shuffled deck per set, so nothing repeats until it is used up
   const [kind, setKind] = useState<IcebreakerKind>('questions')
@@ -89,33 +116,65 @@ export function CheckIn({ lastFeedback, ice, onIce, notes }: { lastFeedback: Rat
   return (
     <div>
       <SectionTitle>Check-in</SectionTitle>
-      <div className="grid lg:grid-cols-2 gap-4">
-        <div className={`${card} p-4`}>
-          <div className="flex items-center justify-between mb-3">
-            <div className={labelCls}>Attendance</div>
-            {liveRun && attendees.length > 0 && (
-              <button
-                onClick={() => attendees.filter(p => !isPresent(p.id)).forEach(p => toggle(p.id, true))}
-                className="text-xs font-semibold text-blue-600 hover:text-blue-800"
-              >Mark everyone present</button>
-            )}
+      <div className={`${card} p-4 md:p-5 mb-4`}>
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 mb-4">
+          <div className="flex items-center gap-3">
+            <span className={`w-11 h-11 rounded-full inline-flex items-center justify-center ${presentCount === attendees.length && attendees.length > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-50 text-blue-600'}`}><Users className="w-5 h-5" /></span>
+            <div>
+              <div className="text-xl font-bold leading-tight tabular-nums">{presentCount} <span className="text-gray-400 font-medium">of {attendees.length} here</span></div>
+              <div className="text-xs text-gray-500">{liveRun ? 'Tap a name to check them in or out.' : 'Start the meeting to check people in.'}</div>
+            </div>
           </div>
-          <ul className="space-y-1.5">
-            {attendees.map(p => (
-              <li key={p.id}>
-                <label className={`flex items-center gap-2 text-sm ${liveRun ? 'cursor-pointer' : 'opacity-60'}`}>
-                  <input type="checkbox" disabled={!liveRun} checked={isPresent(p.id)} onChange={e => toggle(p.id, e.target.checked)} />
-                  <Avatar person={p} size="sm" /> {p.full_name}
-                </label>
-              </li>
-            ))}
-          </ul>
-          <div className="text-xs text-gray-500 mt-3">
-            {liveRun ? `${presentCount} of ${attendees.length} present` : 'Start the meeting to take attendance.'}
+          <div className="flex-1 min-w-[10rem] max-w-xs" aria-hidden="true">
+            <div className="h-2.5 rounded-full bg-gray-100 overflow-hidden"><div className="h-full rounded-full bg-emerald-500 transition-all duration-300" style={{ width: `${pct}%` }} /></div>
+            <div className="text-[11px] text-gray-400 mt-1">{pct}% present</div>
           </div>
+          {liveRun && attendees.length > 0 && (
+            <div className="flex items-center gap-2 ml-auto">
+              <button onClick={() => markAll(true)} disabled={presentCount === attendees.length} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 active:scale-95 transition disabled:opacity-40"><UserCheck className="w-4 h-4" /> Everyone is here</button>
+              <button onClick={() => markAll(false)} disabled={presentCount === 0} className="px-3 py-2 rounded-lg border bg-white text-sm font-medium text-gray-600 hover:bg-gray-50 active:scale-95 transition disabled:opacity-40">Clear</button>
+            </div>
+          )}
         </div>
+        {attendees.length === 0 ? (
+          <p className="text-sm text-gray-500">Nobody has been added to this meeting yet. Add attendees in the meeting settings.</p>
+        ) : (
+          <ul className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(8.5rem,1fr))]">
+            {attendees.map(p => {
+              const here = isPresent(p.id)
+              return (
+                <li key={p.id}>
+                  <button
+                    type="button"
+                    role="checkbox"
+                    aria-checked={here}
+                    aria-label={`${p.full_name}: ${here ? 'present' : 'not here yet'}`}
+                    disabled={!liveRun}
+                    onClick={() => toggle(p.id)}
+                    className={`group w-full rounded-2xl border-2 px-2 pt-4 pb-3 flex flex-col items-center gap-2 text-center select-none transition duration-150 active:scale-95 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-300 ${
+                      here ? 'border-emerald-400 bg-emerald-50 shadow-sm' : 'border-dashed border-gray-300 bg-white hover:border-blue-300 hover:bg-blue-50/40'
+                    } ${liveRun ? 'cursor-pointer' : 'opacity-60 cursor-not-allowed'}`}
+                  >
+                    <span className="relative">
+                      <span className={`block rounded-full p-1 transition duration-150 ${here ? 'bg-emerald-500' : 'bg-transparent'}`}>
+                        <span className={`block transition duration-150 ${here ? '' : 'grayscale opacity-70 group-hover:grayscale-0 group-hover:opacity-100'}`}><Avatar person={p} size="xl" /></span>
+                      </span>
+                      <span className={`absolute -bottom-1 -right-1 w-7 h-7 rounded-full border-2 border-white inline-flex items-center justify-center transition duration-150 ${here ? 'bg-emerald-600 text-white scale-100' : 'bg-gray-200 text-transparent scale-90 group-hover:bg-blue-100 group-hover:text-blue-500'}`}><Check className="w-4 h-4" strokeWidth={3} /></span>
+                    </span>
+                    <span className={`text-sm leading-tight line-clamp-2 break-words ${here ? 'font-semibold text-emerald-900' : 'font-medium text-gray-700'}`}>{p.full_name}</span>
+                    <span className="h-4 flex items-center gap-1 text-[11px] font-semibold">
+                      {p.id === hostId ? <span className="inline-flex items-center gap-1 text-amber-600"><Crown className="w-3 h-3" /> Host</span> : p.id === myId ? <span className="text-blue-600">You</span> : null}
+                    </span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </div>
 
-        <div className="space-y-4">
+      <div>
+        <div className="grid lg:grid-cols-2 gap-4 items-start">
           <div className={`${card} p-4`}>
             <div className={`${labelCls} mb-2`}>Icebreaker</div>
             <div className="flex flex-wrap gap-1 mb-3">
@@ -158,7 +217,7 @@ export function CheckIn({ lastFeedback, ice, onIce, notes }: { lastFeedback: Rat
             <p className="text-xs text-gray-500 mt-1">Saved for this meeting when you click away. The generator draws from these lines too ({notepadLines.length} saved).</p>
           </div>
 
-          <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 flex gap-3">
+          <div className="rounded-xl bg-amber-50 border border-amber-200 p-4 flex gap-3 lg:col-span-2">
             <Lightbulb className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
             <div>
               <div className="text-sm font-semibold text-amber-900">Tip of the week</div>
