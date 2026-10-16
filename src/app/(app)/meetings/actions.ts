@@ -907,19 +907,28 @@ export async function archiveItem(kind: 'todo' | 'headline', id: string, meeting
 // ---------------------------------------------------------------------------
 
 // Personal to-dos: yours alone, not tied to any meeting (My Workspace).
-export async function addPersonalTodo(title: string, due_date: string | null) {
+export async function addPersonalTodo(title: string, due_date: string | null, status?: TodoStatus) {
   const { supabase, user } = await requireMeetingsAccess()
   const t = text(title, 300)
   if (!t) throw new Error('Write the to-do first')
   const due = due_date && /^\d{4}-\d{2}-\d{2}$/.test(due_date) ? due_date : null
-  const { error } = await supabase.from('mtg_personal_todos').insert({ user_id: user.id, title: t, due_date: due })
+  const st: TodoStatus = status && ['todo', 'in_progress', 'blocked', 'done'].includes(status) ? status : 'todo'
+  const { error } = await supabase.from('mtg_personal_todos').insert({ user_id: user.id, title: t, due_date: due, status: st, done_at: st === 'done' ? new Date().toISOString() : null })
   if (error) throw error
   refresh()
 }
 
 export async function setPersonalTodoDone(id: string, done: boolean) {
   const { supabase } = await requireMeetingsAccess()
-  const { error } = await supabase.from('mtg_personal_todos').update({ done_at: done ? new Date().toISOString() : null }).eq('id', id)
+  const { error } = await supabase.from('mtg_personal_todos').update({ done_at: done ? new Date().toISOString() : null, status: done ? 'done' : 'todo' }).eq('id', id)
+  if (error) throw error
+  refresh()
+}
+
+export async function setPersonalTodoStatus(id: string, status: TodoStatus) {
+  const { supabase } = await requireMeetingsAccess()
+  if (!['todo', 'in_progress', 'blocked', 'done'].includes(status)) throw new Error('Unknown status')
+  const { error } = await supabase.from('mtg_personal_todos').update({ status, done_at: status === 'done' ? new Date().toISOString() : null }).eq('id', id)
   if (error) throw error
   refresh()
 }

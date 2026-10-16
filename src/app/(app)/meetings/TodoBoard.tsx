@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { CalendarDays, FileText, Plus } from 'lucide-react'
-import { setTodoStatus, addTodo } from './actions'
+import { setTodoStatus, addTodo, addPersonalTodo, setPersonalTodoStatus } from './actions'
 import { act } from './act'
 import Avatar from './Avatar'
 import { TODO_COLUMNS, ymd, type Person, type TodoStatus } from '@/lib/meetings'
@@ -17,7 +17,11 @@ export type BoardTodo = {
   status: TodoStatus
   meeting_id: string
   created_at: string
+  // A to-do that belongs to one person, not to a meeting
+  personal?: boolean
 }
+
+export const PERSONAL_ID = 'personal'
 
 const DONE_LIMIT = 12
 
@@ -56,7 +60,7 @@ export default function TodoBoard({
     const todo = todos.find(t => t.id === id)
     if (!todo || statusOf(todo) === col) return
     setMoved(m => ({ ...m, [todo.id]: col }))
-    const ok = await act(async () => { await setTodoStatus(todo.meeting_id, todo.id, col); return true })
+    const ok = await act(async () => { if (todo.personal) await setPersonalTodoStatus(todo.id, col); else await setTodoStatus(todo.meeting_id, todo.id, col); return true })
     if (!ok) setMoved(m => { const next = { ...m }; delete next[todo.id]; return next })
   }
 
@@ -65,7 +69,7 @@ export default function TodoBoard({
     const meetingId = draftMeeting || addIn?.[0]?.id
     if (!title || !meetingId) return
     setSaving(true)
-    const ok = await act(async () => { await addTodo(meetingId, { title, owner_id: null, due_date: null, status: col }); return true })
+    const ok = await act(async () => { if (meetingId === PERSONAL_ID) await addPersonalTodo(title, null, col); else await addTodo(meetingId, { title, owner_id: null, due_date: null, status: col }); return true })
     setSaving(false)
     if (ok) { setDraft(''); setAdding(null) }
   }
@@ -136,7 +140,7 @@ export default function TodoBoard({
                       {t.details && <FileText className="inline-block w-3.5 h-3.5 ml-1.5 text-gray-400 align-[-2px]" aria-label="Has details" />}
                     </button>
                     <div className="mt-2 flex items-center gap-2 text-[11px] text-gray-500">
-                      <span className="truncate flex-1 uppercase tracking-wide">{meetingNames.get(t.meeting_id) ?? ''}</span>
+                      <span className="truncate flex-1 uppercase tracking-wide">{t.personal ? 'Personal' : (meetingNames.get(t.meeting_id) ?? '')}</span>
                       {t.due_date && (
                         <span className={`inline-flex items-center gap-1 whitespace-nowrap ${overdue ? 'text-red-600 font-semibold' : ''}`}><CalendarDays className="w-3 h-3" />{t.due_date}</span>
                       )}

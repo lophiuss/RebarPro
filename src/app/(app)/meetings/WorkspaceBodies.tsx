@@ -15,7 +15,7 @@ import { evaluateGoal, formatGoal, formatKpiValue, ymd, type Cadence, type Issue
 export type WTodo = { id: string; title: string; details: string | null; due_date: string | null; done_at: string | null; status: TodoStatus; meeting_id: string; owner_id: string | null; created_at: string }
 export type WGoal = { id: string; title: string; details: string | null; status: 'on' | 'off' | 'done'; due_date: string | null; milestones: { title: string; done: boolean }[]; meeting_id: string; owner_id: string | null; created_at: string; meeting: { name: string } | null }
 export type WKpi = Omit<Kpi, 'meeting_ids'> & { meeting_id: string; meeting: { name: string } | null }
-export type WPersonalTodo = { id: string; title: string; due_date: string | null; done_at: string | null }
+export type WPersonalTodo = { id: string; title: string; due_date: string | null; done_at: string | null; status: TodoStatus }
 export type WNote = { id: string; body: string; updated_at: string }
 export type WMeeting = { id: string; name: string }
 export type WHeadline = { id: string; title: string; details: string | null; owner_id: string | null; created_at: string }

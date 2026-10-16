@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import StandaloneDrawer from '../StandaloneDrawer'
-import TodoBoard from '../TodoBoard'
+import TodoBoard, { PERSONAL_ID, type BoardTodo } from '../TodoBoard'
 import TileGrid, { type TileDef, type TileDefaults } from '../TileGrid'
 import {
   TodosBody, PersonalTodosBody, KpisBody, GoalsBody, CoreValuesBody, NotesBody, IssuesBody, CalendarBody,
@@ -42,13 +42,19 @@ export default function WorkspaceTiles({
     : openIssue ? { kind: 'issue', meetingId: openIssue.meeting_id, item: { ...openIssue, issue_status: openIssue.status } }
     : null
 
+  // Personal to-dos sit on the board beside the meeting ones
+  const boardTodos: BoardTodo[] = [
+    ...todos,
+    ...personalTodos.map(p => ({ id: p.id, title: p.title, details: null, owner_id: myId, due_date: p.due_date, done_at: p.done_at, status: p.status, meeting_id: PERSONAL_ID, created_at: '', personal: true })),
+  ]
+
   const tiles: TileDef[] = [
     { id: 'calendar', title: 'Calendar', node: <CalendarBody meetings={calMeetings} held={calHeld} items={calItems} onOpenItem={i => setOpen({ kind: i.kind, id: i.id })} /> },
     { id: 'todos', title: 'To-dos', count: todos.filter(t => !t.done_at).length, node: <TodosBody todos={todos} meetings={meetings} onOpen={t => setOpen({ kind: 'todo', id: t.id })} /> },
     { id: 'personal', title: 'Personal to-dos', count: personalTodos.filter(t => !t.done_at).length, node: <PersonalTodosBody todos={personalTodos} /> },
     { id: 'goals', title: 'Quarterly Priorities', count: goals.filter(g => g.status !== 'done').length, node: <GoalsBody goals={goals} onOpen={g => setOpen({ kind: 'goal', id: g.id })} /> },
     { id: 'kpis', title: 'My KPIs', count: kpis.length, node: <KpisBody kpis={kpis} values={kpiValues} custom={kpiGoals} emptyText="No KPIs are assigned to you. A KPI shows here when you are its owner." /> },
-    { id: 'board', title: 'To-do board', count: todos.filter(t => !t.done_at).length, node: <TodoBoard todos={todos} meetingNames={meetingNames} peopleById={peopleById} addIn={meetings} onOpen={t => setOpen({ kind: 'todo', id: t.id })} /> },
+    { id: 'board', title: 'To-do board', count: boardTodos.filter(t => !t.done_at).length, node: <TodoBoard todos={boardTodos} meetingNames={meetingNames} peopleById={peopleById} addIn={[...meetings, { id: PERSONAL_ID, name: 'Personal (only me, no meeting)' }]} onOpen={t => { if (!t.personal) setOpen({ kind: 'todo', id: t.id }) }} /> },
     { id: 'issues', title: 'My issues', count: issues.filter(i => i.status === 'short_term' || i.status === 'parking_lot').length, node: <IssuesBody issues={issues} peopleById={peopleById} onOpen={i => setOpen({ kind: 'issue', id: i.id })} /> },
     { id: 'values', title: 'Core Values', node: <CoreValuesBody values={coreValues} /> },
     { id: 'notes', title: 'Private Notes', count: notes.length, node: <NotesBody notes={notes} /> },
