@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import { Plus, Trash2, X, Check, ListChecks, AlertCircle, BarChart3, Table2, StickyNote } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Plus, Trash2, X, Check, ListChecks, AlertCircle, BarChart3, Table2, StickyNote, MoreVertical } from 'lucide-react'
 import { addKpi, setKpiValue, setKpiNote, deleteKpi, updateKpi, setKpiMeetings, setKpiCustomGoal, deleteKpiCustomGoal } from '../actions'
 import { useMeeting, useRun } from './context'
 import Avatar from '../Avatar'
@@ -79,17 +79,52 @@ function KpiCell({ kpi, start, value, goal, onCreate, note, onNote }: {
     )
   }
 
+  // The actions live in a small menu opened from a tiny corner button, so nothing ever covers the
+  // number or the cells beside it while the mouse passes over.
+  const [menu, setMenu] = useState<{ top?: number; bottom?: number; left: number } | null>(null)
+  const trigger = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (!menu) return
+    const close = () => setMenu(null)
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('resize', close)
+    window.addEventListener('keydown', onKey)
+    return () => { window.removeEventListener('scroll', close, true); window.removeEventListener('resize', close); window.removeEventListener('keydown', onKey) }
+  }, [menu])
+  function openMenu() {
+    const r = trigger.current?.getBoundingClientRect()
+    if (!r) return
+    const left = Math.min(r.left, window.innerWidth - 220)
+    setMenu(window.innerHeight - r.bottom < 170 ? { bottom: window.innerHeight - r.top + 4, left } : { top: r.bottom + 4, left })
+  }
+  const item = 'w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2'
+
   return (
     <div className="group relative block w-full" title={note ? `Note: ${note}` : undefined}>
       {control}
       {note && (
         <button type="button" onClick={onNote} aria-label={`Note: ${note}`} className="absolute top-0 right-0 w-0 h-0 border-t-[9px] border-l-[9px] border-t-amber-500 border-l-transparent rounded-tr" />
       )}
-      <div className="absolute -top-2.5 -right-2 hidden group-hover:flex group-focus-within:flex gap-0.5 rounded-md border bg-white shadow-sm p-0.5 z-10">
-        <button type="button" onClick={onNote} title={note ? 'Edit the note on this number' : 'Add a note to this number'} aria-label="Note on this KPI number" className="p-0.5 rounded text-slate-600 hover:bg-slate-100"><StickyNote className="w-3.5 h-3.5" /></button>
-        <button type="button" onClick={() => onCreate('todo')} title="Create a to-do from this number" aria-label="Create to-do from this KPI number" className="p-0.5 rounded text-blue-600 hover:bg-blue-50"><ListChecks className="w-3.5 h-3.5" /></button>
-        <button type="button" onClick={() => onCreate('issue')} title="Create an issue from this number" aria-label="Create issue from this KPI number" className="p-0.5 rounded text-amber-600 hover:bg-amber-50"><AlertCircle className="w-3.5 h-3.5" /></button>
-      </div>
+      <button
+        ref={trigger}
+        type="button"
+        onClick={openMenu}
+        aria-label="Actions for this KPI number"
+        aria-haspopup="menu"
+        aria-expanded={!!menu}
+        className="absolute top-0 left-0 h-3.5 w-3.5 hidden group-hover:inline-flex group-focus-within:inline-flex items-center justify-center rounded-sm bg-white/80 text-gray-500 hover:text-gray-900 hover:bg-white"
+      ><MoreVertical className="w-3 h-3" /></button>
+      {menu && (
+        <>
+          <div className="fixed inset-0 z-[70]" onClick={() => setMenu(null)} />
+          <div role="menu" style={{ position: 'fixed', top: menu.top, bottom: menu.bottom, left: menu.left, width: 208 }} className="z-[71] bg-white border rounded-lg shadow-xl py-1">
+            <button role="menuitem" type="button" onClick={() => { setMenu(null); onNote() }} className={item}><StickyNote className="w-4 h-4 text-amber-500" /> {note ? 'Edit note' : 'Add note'}</button>
+            <button role="menuitem" type="button" onClick={() => { setMenu(null); onCreate('todo') }} className={item}><ListChecks className="w-4 h-4 text-blue-600" /> Create to-do</button>
+            <button role="menuitem" type="button" onClick={() => { setMenu(null); onCreate('issue') }} className={item}><AlertCircle className="w-4 h-4 text-amber-600" /> Create issue</button>
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -460,7 +495,7 @@ export function Metrics({ kpis, values, customGoals, otherMeetings, meetingName,
           </table>
         </div>
       )}
-      {view === 'table' && shown.length > 0 && <p className="text-xs text-gray-500 mt-2 inline-flex flex-wrap items-center gap-1"><Table2 className="w-3.5 h-3.5" /> Hover a number to add a note, or create a to-do or issue from it. A small orange corner means it has a note. <BarChart3 className="w-3.5 h-3.5 ml-2" /> Switch to Chart for trends by quarter or year.</p>}
+      {view === 'table' && shown.length > 0 && <p className="text-xs text-gray-500 mt-2 inline-flex flex-wrap items-center gap-1"><Table2 className="w-3.5 h-3.5" /> Hover a number and use its ⋮ corner button to add a note, or create a to-do or issue from it. A small orange corner means it has a note. <BarChart3 className="w-3.5 h-3.5 ml-2" /> Switch to Chart for trends by quarter or year.</p>}
 
       <form onSubmit={add} className={`${card} p-4 mt-4 space-y-3`}>
         <div className={labelCls}>Add a {cadence} KPI</div>

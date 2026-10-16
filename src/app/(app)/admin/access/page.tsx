@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ShieldCheck, Trash2, UserPlus, Pencil, X, User as UserIcon, Eye, Settings as SettingsIcon, LogOut, RefreshCw } from 'lucide-react'
+import { ShieldCheck, Trash2, UserPlus, Pencil, X, User as UserIcon, Eye, Settings as SettingsIcon, LogOut, RefreshCw, Mail } from 'lucide-react'
 import MeetingsInvite from './MeetingsInvite'
 import { listPeople, createPerson, updatePersonProfile, resetPersonPassword, setPersonActive, deletePerson, updatePersonEmail, type Person } from './actions'
 import { NAV_ITEMS, type Department } from '@/components/AppNavigation'
@@ -275,6 +275,29 @@ export default function AccessControlPage() {
     }
   }
 
+  // Sends the person an e-mail with a one-time link to choose a new password.
+  const [sendingReset, setSendingReset] = useState<string | null>(null)
+  async function sendResetLink(p: Person) {
+    if (!p.email || p.email === '(no email)') { alert('This person has no e-mail address.'); return }
+    if (!confirm(`Send a password-reset link to ${p.full_name || p.email} at ${p.email}?
+
+They get an e-mail with a one-time link to choose a new password. Their current password keeps working until they use it.`)) return
+    setSendingReset(p.id)
+    try {
+      const { data, error } = await supabase.functions.invoke('send-reset-link', { body: { user_id: p.id, site_url: window.location.origin } })
+      if (error) {
+        let detail = error.message
+        try { const b = await (error as any).context?.json?.(); if (b?.error) detail = b.error } catch { /* keep generic */ }
+        throw new Error(detail)
+      }
+      alert(`Reset link sent to ${data?.email ?? p.email}.`)
+    } catch (err: any) {
+      alert('Could not send the reset link: ' + (err?.message ?? 'something went wrong'))
+    } finally {
+      setSendingReset(null)
+    }
+  }
+
   async function removePerson(p: Person) {
     if (p.id === myId) { alert("You can't delete your own account"); return }
     const typed = prompt(`Permanently delete ${p.full_name || p.email}?
@@ -460,6 +483,7 @@ Type DELETE to confirm.`)
                       ))}
                       <td className="px-3 py-2 whitespace-nowrap">
                         <button onClick={() => openEdit(p)} className="text-xs font-semibold text-blue-600 hover:underline mr-3" title="Edit name, e-mail or picture, and reset the password">Edit details</button>
+                        <button onClick={() => sendResetLink(p)} disabled={sendingReset === p.id} className="text-xs font-semibold text-blue-600 hover:underline mr-3 disabled:opacity-50" title="E-mail this person a link to choose a new password">{sendingReset === p.id ? 'Sending…' : 'Send reset link'}</button>
                         <button onClick={() => removePerson(p)} disabled={p.id === myId} className="text-xs font-semibold text-red-600 hover:underline disabled:opacity-30 disabled:no-underline" title="Delete this account">Delete</button>
                       </td>
                     </tr>
@@ -598,6 +622,9 @@ Type DELETE to confirm.`)
                             </button>
                             <button onClick={() => openEdit(p)} className="text-gray-400 hover:text-blue-600 p-1" title="Edit name, picture, or password">
                               <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => sendResetLink(p)} disabled={sendingReset === p.id} className="text-gray-400 hover:text-blue-600 p-1 disabled:opacity-40" title="E-mail this person a link to choose a new password" aria-label="Send reset link">
+                              <Mail className="w-3.5 h-3.5" />
                             </button>
                             <button onClick={() => revoke(p.id, dept)} className="text-red-500 hover:text-red-700 p-1" title="Revoke access">
                               <Trash2 className="w-3.5 h-3.5" />

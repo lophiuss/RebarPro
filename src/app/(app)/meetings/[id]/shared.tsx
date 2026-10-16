@@ -75,7 +75,18 @@ export function Empty({ title, hint }: { title: string; hint: string }) {
 // assign anyone.)
 export function OwnerSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const { people, attendeeIds } = useMeeting()
-  return <PersonSelect people={people.filter(p => attendeeIds.includes(p.id))} value={value} onChange={onChange} ariaLabel="Owner" className="md:w-52" />
+  // This meeting's people first; anyone else can still be picked from the list below them.
+  return (
+    <PersonSelect
+      people={people.filter(p => attendeeIds.includes(p.id))}
+      others={people.filter(p => !attendeeIds.includes(p.id))}
+      othersLabel="Not in this meeting"
+      value={value}
+      onChange={onChange}
+      ariaLabel="Owner"
+      className="md:w-52"
+    />
+  )
 }
 
 // Row title that opens the item panel; an icon marks items that have details.

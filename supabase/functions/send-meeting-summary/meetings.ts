@@ -16,10 +16,12 @@ export const PAGE_LABEL: Record<PageType, string> = {
   WRAP_UP: 'Wrap-up',
 }
 
-export type MeetingTab = 'MEETING' | 'WORKSPACE' | 'MEETING_SUMMARIES' | 'GROWTH_PLAN' | 'ARCHIVE'
+export type MeetingTab = 'MEETING' | 'WORKSPACE' | 'WHITEBOARD' | 'DOCUMENTS' | 'MEETING_SUMMARIES' | 'GROWTH_PLAN' | 'ARCHIVE'
 export const MEETING_TABS: { key: MeetingTab; label: string }[] = [
   { key: 'MEETING', label: 'Meeting' },
   { key: 'WORKSPACE', label: 'Workspace' },
+  { key: 'WHITEBOARD', label: 'Whiteboard' },
+  { key: 'DOCUMENTS', label: 'Documents' },
   { key: 'MEETING_SUMMARIES', label: 'Summary' },
   { key: 'GROWTH_PLAN', label: 'Growth Plan' },
   { key: 'ARCHIVE', label: 'Archive' },

@@ -15,9 +15,12 @@ function matches(p: Person, q: string) {
 // Searchable single-person dropdown. The list is positioned with `fixed` from
 // the button's rectangle, so it is never clipped by a scrolling dialog or drawer.
 export function PersonSelect({
-  people, value, onChange, placeholder = 'Select person', emptyLabel, extra = [], className = '', disabled = false, ariaLabel,
+  people, others = [], othersLabel = 'Everyone else', value, onChange, placeholder = 'Select person', emptyLabel, extra = [], className = '', disabled = false, ariaLabel,
 }: {
   people: Person[]
+  /** More people, listed after a heading below the main list (for example people not in this meeting). */
+  others?: Person[]
+  othersLabel?: string
   value: string
   onChange: (id: string) => void
   placeholder?: string
@@ -34,11 +37,12 @@ export function PersonSelect({
   const [pos, setPos] = useState<{ top?: number; bottom?: number; left: number; width: number } | null>(null)
   const btn = useRef<HTMLButtonElement>(null)
 
-  const selected = people.find(p => p.id === value)
+  const selected = people.find(p => p.id === value) ?? others.find(p => p.id === value)
   const extraSelected = extra.find(e => e.value === value)
   const q = query.trim().toLowerCase()
   const offered = useMemo(() => people.filter(p => !isNameOwner(p.id)), [people])
   const filtered = useMemo(() => (q ? offered.filter(p => matches(p, q)) : offered), [offered, q])
+  const filteredOthers = useMemo(() => others.filter(p => !isNameOwner(p.id) && (!q || matches(p, q))), [others, q])
   const filteredExtra = q ? extra.filter(e => e.label.toLowerCase().includes(q)) : extra
 
   function openMenu() {
@@ -98,7 +102,7 @@ export function PersonSelect({
                 onKeyDown={e => {
                   if (e.key === 'Enter') {
                     e.preventDefault()
-                    const first = filteredExtra[0]?.value ?? filtered[0]?.id
+                    const first = filteredExtra[0]?.value ?? filtered[0]?.id ?? filteredOthers[0]?.id
                     if (first !== undefined) pick(first)
                   }
                 }}
@@ -123,7 +127,21 @@ export function PersonSelect({
                   </button>
                 </li>
               ))}
-              {filtered.length === 0 && filteredExtra.length === 0 && <li className="px-3 py-3 text-sm text-gray-400 text-center">No one matches &ldquo;{query}&rdquo;</li>}
+              {filteredOthers.length > 0 && (
+                <>
+                  <li className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400 border-t mt-1">{othersLabel}</li>
+                  {filteredOthers.map(p => (
+                    <li key={p.id}>
+                      <button type="button" onClick={() => pick(p.id)} className="w-full text-left px-3 py-1.5 text-sm hover:bg-gray-50 flex items-center gap-2">
+                        <Avatar person={p} size="sm" />
+                        <span className="flex-1 truncate">{p.full_name || p.id.slice(0, 8)}</span>
+                        {value === p.id && <Check className="w-4 h-4 text-blue-600" />}
+                      </button>
+                    </li>
+                  ))}
+                </>
+              )}
+              {filtered.length === 0 && filteredOthers.length === 0 && filteredExtra.length === 0 && <li className="px-3 py-3 text-sm text-gray-400 text-center">No one matches &ldquo;{query}&rdquo;</li>}
             </ul>
           </div>
         </>
