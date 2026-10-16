@@ -7,7 +7,7 @@ import MeetingShell from './MeetingShell'
 import { nameOwners, withNameOwners } from '@/lib/owners'
 import { PAGE_TYPES, MEETING_TABS, type MeetingTab, type PageType } from '@/lib/meetings'
 
-type SearchParams = { tab?: string; pageType?: string }
+type SearchParams = { tab?: string; pageType?: string; board?: string }
 
 export default async function MeetingPage({
   params,
@@ -89,6 +89,22 @@ export default async function MeetingPage({
       : Promise.resolve({ data: null }),
   ])
 
+  // The Whiteboard tab: this meeting's boards, and the open one in full.
+  let whiteboards: { id: string; title: string }[] = []
+  let whiteboard: { id: string; title: string; items: unknown[] } | null = null
+  let myName = 'Someone'
+  if (tab === 'WHITEBOARD') {
+    const { data: boards } = await supabase.from('mtg_whiteboards').select('id, title').eq('meeting_id', id).order('created_at')
+    whiteboards = (boards ?? []).map(b => ({ id: b.id as string, title: b.title as string }))
+    const wantId = whiteboards.find(b => b.id === sp.board)?.id ?? whiteboards[0]?.id
+    if (wantId) {
+      const { data: full } = await supabase.from('mtg_whiteboards').select('id, title, data').eq('id', wantId).maybeSingle()
+      if (full) whiteboard = { id: full.id as string, title: full.title as string, items: ((full.data as any)?.items ?? []) as unknown[] }
+    }
+    const { data: me } = user ? await supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle() : { data: null }
+    myName = (me?.full_name as string | null) ?? 'Someone'
+  }
+
   const found = new Set<string>()
   const mHeadlines = nameOwners(headlines as any[], found)
   const mTodos = nameOwners(todos as any[], found)
@@ -136,6 +152,9 @@ export default async function MeetingPage({
       schedule={((meeting as any).schedule ?? null) as any}
       icebreakerNotes={((meeting as any).icebreaker_notes ?? '') as string}
       workspaceLayout={wsPref?.value ?? null}
+      whiteboards={whiteboards}
+      whiteboard={whiteboard}
+      myName={myName}
     />
   )
 }

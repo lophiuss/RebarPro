@@ -16,11 +16,11 @@ const CHECKER = 'repeating-conic-gradient(#e5e7eb 0% 25%, #ffffff 0% 50%) 50% / 
 
 type Mode = 'crop' | 'bg'
 
-export default function ImageEditor({ url, onApply, onClose }: { url: string; onApply: (blob: Blob) => Promise<void>; onClose: () => void }) {
+export default function ImageEditor({ url, initialMode = 'crop', onApply, onClose }: { url: string; initialMode?: Mode; onApply: (blob: Blob) => Promise<void>; onClose: () => void }) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const work = useRef<HTMLCanvasElement | null>(null)
   const history = useRef<ImageData[]>([])
-  const [mode, setMode] = useState<Mode>('bg')
+  const [mode, setMode] = useState<Mode>(initialMode)
   const [tolerance, setTolerance] = useState(28)
   const [size, setSize] = useState<{ w: number; h: number } | null>(null)
   const [sel, setSel] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
@@ -153,10 +153,18 @@ export default function ImageEditor({ url, onApply, onClose }: { url: string; on
   }
 
   async function apply() {
-    const w = work.current
+    let w = work.current
     if (!w) return
     setBusy(true)
-    const blob: Blob | null = await new Promise(res => w.toBlob(res, 'image/png'))
+    // A selection that has not been confirmed yet is applied now: pressing "Use this picture" crops to it.
+    if (mode === 'crop' && sel && sel.w >= 8 && sel.h >= 8) {
+      const out = document.createElement('canvas')
+      out.width = sel.w; out.height = sel.h
+      out.getContext('2d')!.drawImage(w, sel.x, sel.y, sel.w, sel.h, 0, 0, sel.w, sel.h)
+      w = out
+    }
+    let blob: Blob | null = null
+    try { blob = await new Promise<Blob | null>((res, rej) => { try { w!.toBlob(res, 'image/png') } catch (e) { rej(e) } }) } catch { blob = null }
     if (!blob) { setBusy(false); setError('Could not save the picture.'); return }
     try { await onApply(blob) } catch (err: any) { setError(err?.message ?? 'Could not save.'); setBusy(false) }
   }
@@ -187,7 +195,7 @@ export default function ImageEditor({ url, onApply, onClose }: { url: string; on
           <button type="button" onClick={undo} disabled={!canUndo} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border bg-white hover:bg-gray-50 disabled:opacity-40"><Undo2 className="w-4 h-4" /> Undo</button>
         </div>
         <p className="px-5 pt-2 text-xs text-gray-500">
-          {mode === 'bg' ? 'Click the background to remove it. Click again for other areas; raise the tolerance if some of it is left. Works best on plain backgrounds.' : 'Drag over the part of the picture to keep, then press “Crop to selection”.'}
+          {mode === 'bg' ? 'Click the background to remove it. Click again for other areas; raise the tolerance if some of it is left. Works best on plain backgrounds.' : 'Drag over the part of the picture to keep, then press “Use this picture” (or “Crop to selection” first to keep editing).'}
         </p>
         <div className="flex-1 overflow-auto p-5 flex justify-center">
           {error ? <p className="text-sm text-red-600">{error}</p> : (

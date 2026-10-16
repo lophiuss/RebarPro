@@ -19,47 +19,110 @@ const LINE = '#94a3b8'
 // One header colour per level, so the structure reads at a glance.
 const LEVEL_COLOURS = ['#0f172a', '#1d4ed8', '#0f766e', '#7c3aed', '#b45309', '#be123c']
 
-// Org tree drawn with CSS. Every seat gets a short stem under it (.ot-down);
-// every child gets its own bar pieces and drop (::before/::after), so no line
-// depends on a neighbour. Vertical: children in a row. Horizontal: a column.
+// Every seat is placed at computed coordinates (so each branch can use its own layout, like
+// Word's organization chart) and the connectors are drawn as SVG lines under the cards.
 const TREE_CSS = `
-.orgtree{--c:${LINE}}
-.orgtree .ot-ul{display:flex;justify-content:center;margin:0;padding:0}
-.orgtree .ot-li{list-style:none;position:relative;text-align:center;padding:22px 9px 12px}
-.orgtree .ot-li::before{content:'';position:absolute;top:0;left:0;width:50%;height:0;border-top:2px solid var(--c)}
-.orgtree .ot-li::after{content:'';position:absolute;top:0;left:50%;width:50%;height:22px;border-top:2px solid var(--c);border-left:2px solid var(--c)}
-.orgtree .ot-li:first-child::before{display:none}
-.orgtree .ot-li:last-child::after{border-top:0}
-.orgtree .ot-li:only-child::before{display:none}
-.orgtree > .ot-ul > .ot-li{padding-top:0}
-.orgtree > .ot-ul > .ot-li::before,.orgtree > .ot-ul > .ot-li::after{display:none}
-.orgtree .ot-down{display:block;width:0;height:22px;margin:0 auto;border-left:2px solid var(--c)}
-
-.orgtree.h .ot-ul{flex-direction:column;justify-content:flex-start;align-items:flex-start}
-.orgtree.h .ot-li{display:flex;align-items:center;text-align:left;padding:9px 0 9px 24px}
-.orgtree.h .orgtree-card{margin:0;flex:none}
-.orgtree.h .ot-li::before{top:0;left:0;width:0;height:50%;border-top:0;border-left:2px solid var(--c)}
-.orgtree.h .ot-li::after{top:50%;left:0;width:24px;height:50%;border-top:2px solid var(--c);border-left:2px solid var(--c)}
-.orgtree.h .ot-li:last-child::after{border-left:0}
-.orgtree.h .ot-li:only-child::after{border-left:0}
-.orgtree.h > .ot-ul > .ot-li{padding-left:0}
-.orgtree.h .ot-down{width:24px;height:0;margin:0;border-left:0;border-top:2px solid var(--c)}
-.orgtree.s{width:max-content}
-.orgtree.s .ot-ul{display:block;margin:0;padding:0 0 0 38px;position:relative}
-.orgtree.s > .ot-ul{padding-left:0}
-.orgtree.s .ot-li{display:block;text-align:left;padding:16px 0 0 0;position:relative}
-.orgtree.s > .ot-ul > .ot-li{padding-top:0}
-.orgtree.s > .ot-ul > .ot-li + .ot-li{padding-top:28px}
-/* the vertical spine runs down the left of a group of children; each child has an elbow into its card */
-.orgtree.s .ot-li::before{content:'';position:absolute;display:block;left:-24px;top:0;width:0;height:100%;border-top:0;border-left:2px solid var(--c)}
-.orgtree.s .ot-li:last-child::before{height:42px}
-.orgtree.s .ot-li:first-child::before{display:block}
-.orgtree.s .ot-li::after{content:'';position:absolute;display:block;left:-24px;top:42px;width:22px;height:0;border-left:0;border-top:2px solid var(--c)}
-.orgtree.s > .ot-ul > .ot-li::before,.orgtree.s > .ot-ul > .ot-li::after{display:none}
-.orgtree.s .orgtree-card{margin:0}
-.orgtree.s .ot-down{display:none}
 @media print{.orgtree-scroll{overflow:visible !important}.orgtree-card .ot-tools{display:none !important}}
 `
+
+// ---- layout ------------------------------------------------------------------------------
+// standard: children in a row below. both: children in two columns either side of a centre
+// line. left / right hanging: children stacked on one side of a line under the parent.
+// horizontal: children in a column to the right.
+type Mode = 'v' | 'both' | 'l' | 'r' | 'h'
+const MODE_LABEL: Record<Mode, string> = { v: 'Standard', both: 'Both', l: 'Left hanging', r: 'Right hanging', h: 'Horizontal' }
+const MODES: Mode[] = ['v', 'both', 'l', 'r', 'h']
+
+const CW = 240        // card width (w-60)
+const DEFAULT_H = 120 // card height until it has been measured
+const SIB = 24        // gap between side-by-side branches
+const DROP = 44       // vertical gap parent -> children (standard)
+const INDENT = 30     // card edge to the centre line (hanging)
+const STACK = 14      // gap between stacked cards
+const ROWGAP = 16     // gap between rows in the horizontal layout
+
+type Lay = { cards: { id: string; x: number; y: number }[]; lines: string[]; minX: number; maxX: number; minY: number; maxY: number }
+
+const shiftLay = (l: Lay, dx: number, dy: number): Lay => ({
+  cards: l.cards.map(c => ({ ...c, x: c.x + dx, y: c.y + dy })),
+  lines: l.lines.map(d => d.replace(/(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/g, (_m, x, y) => `${+x + dx},${+y + dy}`)),
+  minX: l.minX + dx, maxX: l.maxX + dx, minY: l.minY + dy, maxY: l.maxY + dy,
+})
+const join = (parts: Lay[]): Lay => ({
+  cards: parts.flatMap(p => p.cards), lines: parts.flatMap(p => p.lines),
+  minX: Math.min(...parts.map(p => p.minX)), maxX: Math.max(...parts.map(p => p.maxX)),
+  minY: Math.min(...parts.map(p => p.minY)), maxY: Math.max(...parts.map(p => p.maxY)),
+})
+
+type LayCtx = { h: (id: string) => number; mode: (id: string) => Mode; open: (n: Node, depth: number) => boolean }
+
+function layoutNode(n: Node, depth: number, ctx: LayCtx): Lay {
+  const H = ctx.h(n.id)
+  const self: Lay = { cards: [{ id: n.id, x: 0, y: 0 }], lines: [], minX: 0, maxX: CW, minY: 0, maxY: H }
+  if (!ctx.open(n, depth) || n.children.length === 0) return self
+  const kids = n.children.map(c => layoutNode(c, depth + 1, ctx))
+  const mode = ctx.mode(n.id)
+  const cx = CW / 2
+
+  if (mode === 'v') {
+    let cursor = 0
+    const placed: Lay[] = [], centers: number[] = []
+    kids.forEach(k => {
+      const dx = cursor - k.minX
+      placed.push(shiftLay(k, dx, H + DROP))
+      centers.push(dx + cx)
+      cursor += k.maxX - k.minX + SIB
+    })
+    const pcx = (centers[0] + centers[centers.length - 1]) / 2
+    const sx = -(pcx - cx) // put the parent card at x = 0
+    const kidsL = placed.map(k => shiftLay(k, sx, 0))
+    const cs = centers.map(c => c + sx)
+    const busY = H + DROP / 2
+    const lines = [`M${cx},${H} L${cx},${busY}`]
+    if (cs.length > 1) lines.push(`M${cs[0]},${busY} L${cs[cs.length - 1]},${busY}`)
+    cs.forEach(c => lines.push(`M${c},${busY} L${c},${H + DROP}`))
+    return join([self, ...kidsL, { cards: [], lines, minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }])
+  }
+
+  if (mode === 'h') {
+    const x0 = CW + 44, spineX = CW + 22
+    let cursor = 0
+    const placed: Lay[] = [], centers: number[] = []
+    kids.forEach(k => {
+      const dy = cursor - k.minY
+      placed.push(shiftLay(k, x0, dy))
+      centers.push(dy + ctx.h(k.cards[0].id) / 2)
+      cursor += k.maxY - k.minY + ROWGAP
+    })
+    const pcy = (centers[0] + centers[centers.length - 1]) / 2
+    const sy = H / 2 - pcy // put the parent card at y = 0
+    const kidsL = placed.map(k => shiftLay(k, 0, sy))
+    const cs = centers.map(c => c + sy)
+    const lines = [`M${CW},${H / 2} L${spineX},${H / 2}`]
+    if (cs.length > 1) lines.push(`M${spineX},${cs[0]} L${spineX},${cs[cs.length - 1]}`)
+    cs.forEach(c => lines.push(`M${spineX},${c} L${x0},${c}`))
+    return join([self, ...kidsL, { cards: [], lines, minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }])
+  }
+
+  // hanging layouts: right = cards to the right of the centre line, left = to the left, both = alternate
+  const side = (i: number): 'l' | 'r' => (mode === 'both' ? (i % 2 === 0 ? 'l' : 'r') : mode)
+  const cursors = { l: H + 18, r: H + 18 }
+  const placed: Lay[] = []
+  const lines: string[] = []
+  let lastMid = H
+  kids.forEach((k, i) => {
+    const sd = side(i)
+    const x0 = sd === 'r' ? cx + INDENT : cx - INDENT - CW
+    const dy = cursors[sd] - k.minY
+    placed.push(shiftLay(k, x0, dy))
+    const mid = dy + ctx.h(k.cards[0].id) / 2
+    lastMid = Math.max(lastMid, mid)
+    lines.push(sd === 'r' ? `M${cx},${mid} L${x0},${mid}` : `M${cx},${mid} L${x0 + CW},${mid}`)
+    cursors[sd] += k.maxY - k.minY + STACK
+  })
+  lines.unshift(`M${cx},${H} L${cx},${lastMid}`)
+  return join([self, ...placed, { cards: [], lines, minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }])
+}
 
 type SeatContact = { seat_id: string; id: string; name: string }
 
@@ -106,10 +169,20 @@ export default function OrgChartView({ seats, seatPeople, seatContacts, people, 
   const tree = useMemo(() => buildTree(seats, seatPeople, peopleById, seatContacts), [seats, seatPeople, peopleById, seatContacts])
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
   const [zoom, setZoom] = useState(100)
-  // A chart with many seats side by side is far wider than the page; start it sideways (a column
-  // of branches) so it fits without shrinking the text.
-  const [layout, setLayout] = useState<'v' | 'h' | 's'>(() => (leafCount(tree) > 10 ? 's' : 'v'))
-  const horizontal = layout === 'h'
+  // The layout for every branch (a branch can be given its own from its card). A chart with many seats
+  // side by side is far wider than the page, so it starts sideways.
+  const [layoutPref, setLayoutPref] = useLocalPref('av-org-layout', '')
+  const layout: Mode = (MODES as string[]).includes(layoutPref) ? (layoutPref as Mode) : leafCount(tree) > 10 ? 'h' : 'v'
+  const setLayout = (m: Mode) => { setLayoutPref(m); setNodeModesPref('{}') }
+  const [nodeModesPref, setNodeModesPref] = useLocalPref('av-org-node-modes', '{}')
+  const nodeModes = useMemo<Record<string, Mode>>(() => { try { return JSON.parse(nodeModesPref) ?? {} } catch { return {} } }, [nodeModesPref])
+  const setNodeMode = (id: string, m: Mode | '') => {
+    const next = { ...nodeModes }
+    if (m) next[id] = m; else delete next[id]
+    setNodeModesPref(JSON.stringify(next))
+  }
+  const modeOf = (id: string): Mode => (MODES as string[]).includes(nodeModes[id]) ? nodeModes[id] : layout
+  const [heights, setHeights] = useState<Record<string, number>>({})
   const [query, setQuery] = useState('')
   const [rolesPref, setRolesPref] = useLocalPref('av-org-roles', '1')
   const [peoplePref, setPeoplePref] = useLocalPref('av-org-people', '1')
@@ -123,14 +196,6 @@ export default function OrgChartView({ seats, seatPeople, seatContacts, people, 
   const [printing, setPrinting] = useState<{ paper: 'A4' | 'A3'; landscape: boolean; fit: 'page' | 'width' } | null>(null)
   const [printBusy, setPrintBusy] = useState(false)
 
-  // A tall sideways chart puts the top seat in the middle of the page; bring it into view on load.
-  useEffect(() => {
-    if (!horizontal) return
-    const id = requestAnimationFrame(() => scroller.current?.querySelector('.orgtree-card')?.scrollIntoView({ block: 'center' }))
-    return () => cancelAnimationFrame(id)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
   const q = query.trim().toLowerCase()
   const usersInSeats = new Set(seatPeople.map(sp => sp.user_id)).size + new Set(seatContacts.map(c => c.id)).size
   const levels = depthOf(tree)
@@ -142,6 +207,55 @@ export default function OrgChartView({ seats, seatPeople, seatContacts, people, 
     walk(tree)
     return out
   }, [tree])
+
+  const isOpen = (n: Node, depth: number) => n.children.length > 0 && !collapsed.has(n.id) && !(maxLevels && depth + 1 >= maxLevels)
+  const placement = useMemo(() => {
+    const ctx: LayCtx = { h: id => heights[id] ?? DEFAULT_H, mode: modeOf, open: isOpen }
+    // Several top seats sit side by side.
+    let cursor = 0
+    const parts = tree.map(r => {
+      const l = layoutNode(r, 0, ctx)
+      const out = shiftLay(l, cursor - l.minX, 0)
+      cursor += l.maxX - l.minX + 56
+      return out
+    })
+    if (parts.length === 0) return { cards: [] as Lay['cards'], lines: [] as string[], w: 0, h: 0 }
+    const all = join(parts)
+    const pad = 16
+    const moved = shiftLay(all, pad - all.minX, pad - all.minY)
+    return { cards: moved.cards, lines: moved.lines, w: moved.maxX + pad, h: moved.maxY + pad + 12 }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tree, heights, collapsed, maxLevels, layout, nodeModes])
+
+  // Card heights depend on their text, so measure them once drawn and lay out again if any changed.
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      const root = treeRef.current
+      if (!root) return
+      let changed = false
+      const next = { ...heights }
+      root.querySelectorAll<HTMLElement>('[data-seat]').forEach(el => {
+        const sid = el.dataset.seat as string
+        const h = el.offsetHeight
+        if (h > 0 && Math.abs((next[sid] ?? -1) - h) > 0.5) { next[sid] = h; changed = true }
+      })
+      if (changed) setHeights(next)
+    })
+    return () => cancelAnimationFrame(id)
+  })
+
+  // Bring the top seat into view when the chart opens or its layout changes (a sideways chart centres it).
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const root = tree[0] && treeRef.current?.querySelector<HTMLElement>(`[data-seat="${tree[0].id}"]`)
+      if (!root) return
+      const sc = scroller.current
+      if (sc) sc.scrollTo({ left: Math.max(0, (root.offsetLeft + CW / 2) * (zoom / 100) - sc.clientWidth / 2) })
+      if (layout === 'h') root.scrollIntoView({ block: 'center' })
+    }, 350)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layout])
 
   function openAdd(parent: string | null) {
     setEditing({ parent_id: parent, title: '', subtitle: '', roles: '', people_ids: [] })
@@ -199,7 +313,7 @@ export default function OrgChartView({ seats, seatPeople, seatContacts, people, 
       .ot-tools,button{display:none!important}
       .orgtree-card{break-inside:avoid;box-shadow:none!important}
       #pt{font:600 15px Arial,sans-serif;margin:0 0 4px;color:#0f172a} #pt span{font-weight:400;color:#64748b;font-size:11px;margin-left:8px}
-    </style></head><body><div id="pt">Organizational Chart<span>${stamp}</span></div><div id="tree" class="orgtree ${layout === 'v' ? '' : layout}" style="width:max-content;margin:0 auto">${el.innerHTML}</div></body></html>`)
+    </style></head><body><div id="pt">Organizational Chart<span>${stamp}</span></div><div id="tree" class="orgtree" style="width:max-content;margin:0 auto">${el.innerHTML}</div></body></html>`)
     doc.close()
     // Let the style sheets and fonts arrive, then measure the chart and shrink it to the page.
     await new Promise(r => setTimeout(r, 900))
@@ -218,15 +332,8 @@ export default function OrgChartView({ seats, seatPeople, seatContacts, people, 
   // Zoom so the whole chart fits the width of the page.
   function fit() {
     const box = scroller.current
-    if (!box) return
-    const visibleLeaves = (nodes: Node[], depth: number): number =>
-      nodes.reduce((sum, n) => {
-        const open = n.children.length > 0 && !collapsed.has(n.id) && !(maxLevels && depth + 1 >= maxLevels)
-        return sum + (open ? visibleLeaves(n.children, depth + 1) : 1)
-      }, 0)
-    const shownDepth = maxLevels || levels
-    const natural = layout === 's' ? shownDepth * 38 + 300 : horizontal ? shownDepth * 300 : visibleLeaves(tree, 0) * 270
-    setZoom(Math.max(30, Math.min(100, Math.floor(((box.clientWidth - 48) / Math.max(natural, 1)) * 100))))
+    if (!box || !placement.w) return
+    setZoom(Math.max(30, Math.min(100, Math.floor(((box.clientWidth - 48) / placement.w) * 100))))
   }
 
   const renderSeat = (n: Node, depth: number) => {
@@ -237,10 +344,23 @@ export default function OrgChartView({ seats, seatPeople, seatContacts, people, 
     const count = descendantIds(n).length
     const colour = LEVEL_COLOURS[depth % LEVEL_COLOURS.length]
     return (
-      <div className={`orgtree-card group relative block mx-auto text-left w-60 rounded-xl border border-slate-300 bg-white shadow-md ${hit ? 'ring-4 ring-amber-300' : ''} ${dim ? 'opacity-35' : ''}`}>
+      <div className={`orgtree-card group relative block text-left w-60 rounded-xl border border-slate-300 bg-white shadow-md ${hit ? 'ring-4 ring-amber-300' : ''} ${dim ? 'opacity-35' : ''}`}>
         <div className="px-3 py-2 rounded-t-xl text-white" style={{ background: colour }}>
           <div className="font-bold leading-tight">{n.title}</div>
           {n.subtitle && <div className="text-xs text-white/80">{n.subtitle}</div>}
+          {n.children.length > 0 && (
+            <select
+              value={nodeModes[n.id] ?? ''}
+              onChange={e => setNodeMode(n.id, e.target.value as Mode | '')}
+              onClick={e => e.stopPropagation()}
+              aria-label={`Layout of the branch under ${n.title}`}
+              title="Layout of this branch"
+              className="ot-tools absolute top-1.5 right-1.5 hidden group-hover:block group-focus-within:block max-w-[7.5rem] rounded bg-white/20 text-white text-[11px] py-0.5 px-1 border border-white/30 print:hidden"
+            >
+              <option value="" className="text-slate-900">Layout: same as chart</option>
+              {MODES.map(m => <option key={m} value={m} className="text-slate-900">{MODE_LABEL[m]}</option>)}
+            </select>
+          )}
           {canEdit && (
             <div className="ot-tools mt-1 -mx-1 hidden group-hover:flex group-focus-within:flex items-center gap-0.5 print:hidden">
               <Tool onClick={() => act(() => moveSeat(n.id, 'up'))} label="Move up a level"><ArrowUp className="w-3.5 h-3.5" /></Tool>
@@ -286,19 +406,13 @@ export default function OrgChartView({ seats, seatPeople, seatContacts, people, 
     )
   }
 
-  const renderNodes = (nodes: Node[], depth: number) => (
-    <ul className="ot-ul">
-      {nodes.map(n => {
-        const showKids = n.children.length > 0 && !collapsed.has(n.id) && !(maxLevels && depth + 1 >= maxLevels)
-        return (
-          <li key={n.id} className="ot-li">
-            {renderSeat(n, depth)}
-            {showKids && <><span className="ot-down" />{renderNodes(n.children, depth + 1)}</>}
-          </li>
-        )
-      })}
-    </ul>
-  )
+  const nodeById = useMemo(() => new Map(allNodes.map(n => [n.id, n])), [allNodes])
+  const depthById = useMemo(() => {
+    const m = new Map<string, number>()
+    const walk = (ns: Node[], d: number) => ns.forEach(n => { m.set(n.id, d); walk(n.children, d + 1) })
+    walk(tree, 0)
+    return m
+  }, [tree])
 
   const parentOptions = editing
     ? allNodes.filter(n => {
@@ -332,13 +446,11 @@ export default function OrgChartView({ seats, seatPeople, seatContacts, people, 
           <button onClick={() => setZoom(z => Math.min(200, z + 10))} aria-label="Zoom in" className="px-2.5 py-1.5 hover:bg-gray-50"><Plus className="w-4 h-4" /></button>
         </div>
         <button onClick={fit} className={`${btn} inline-flex items-center gap-1`}><Maximize2 className="w-4 h-4" /> Fit screen</button>
-        <button onClick={() => setPrinting({ paper: 'A3', landscape: true, fit: layout === 'v' ? 'page' : 'width' })} className={`${btn} inline-flex items-center gap-1`}><Printer className="w-4 h-4" /> Print…</button>
+        <button onClick={() => setPrinting({ paper: 'A3', landscape: true, fit: 'page' })} className={`${btn} inline-flex items-center gap-1`}><Printer className="w-4 h-4" /> Print…</button>
         <label className="inline-flex items-center gap-1.5 text-sm text-gray-700">
           Layout
-          <select value={layout} onChange={e => setLayout(e.target.value as 'v' | 's' | 'h')} className="border rounded-lg px-2 py-1.5 text-sm bg-white" aria-label="Chart layout">
-            <option value="s">Stacked (narrow)</option>
-            <option value="v">Vertical (wide)</option>
-            <option value="h">Sideways</option>
+          <select value={layout} onChange={e => setLayout(e.target.value as Mode)} className="border rounded-lg px-2 py-1.5 text-sm bg-white" aria-label="Chart layout">
+            {MODES.map(m => <option key={m} value={m}>{MODE_LABEL[m]}</option>)}
           </select>
         </label>
         <div className="relative">
@@ -360,8 +472,16 @@ export default function OrgChartView({ seats, seatPeople, seatContacts, people, 
         >
           {/* margin auto (not flex centring) keeps the chart centred when it is
               narrower than the page, yet scrollable from its left edge when wider. */}
-          <div ref={treeRef} style={{ zoom: zoom / 100, width: 'max-content', margin: '0 auto' }} className={`orgtree ${layout === 'v' ? '' : layout}`}>
-            {renderNodes(tree, 0)}
+          <div ref={treeRef} style={{ zoom: zoom / 100, width: placement.w, margin: '0 auto' }} className="orgtree">
+            <div className="relative" style={{ width: placement.w, height: placement.h }}>
+              <svg width={placement.w} height={placement.h} className="absolute inset-0 pointer-events-none" aria-hidden="true">
+                {placement.lines.map((d, i) => <path key={i} d={d} fill="none" stroke={LINE} strokeWidth={2} strokeLinecap="square" />)}
+              </svg>
+              {placement.cards.map(c => {
+                const n = nodeById.get(c.id)
+                return n ? <div key={c.id} data-seat={c.id} className="absolute" style={{ left: c.x, top: c.y, width: CW }}>{renderSeat(n, depthById.get(c.id) ?? 0)}</div> : null
+              })}
+            </div>
           </div>
         </div>
       )}

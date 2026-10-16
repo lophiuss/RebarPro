@@ -41,6 +41,43 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false)
   const [savedMsg, setSavedMsg] = useState<string | null>(null)
 
+  // Sign-in details
+  const [newEmail, setNewEmail] = useState('')
+  const [emailMsg, setEmailMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [emailBusy, setEmailBusy] = useState(false)
+  const [curPw, setCurPw] = useState('')
+  const [newPw, setNewPw] = useState('')
+  const [newPw2, setNewPw2] = useState('')
+  const [pwMsg, setPwMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [pwBusy, setPwBusy] = useState(false)
+
+  async function changeEmail(e: React.FormEvent) {
+    e.preventDefault()
+    const next = newEmail.trim().toLowerCase()
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(next)) { setEmailMsg({ ok: false, text: 'That does not look like an e-mail address.' }); return }
+    if (next === email.toLowerCase()) { setEmailMsg({ ok: false, text: 'That is already your sign-in e-mail.' }); return }
+    setEmailBusy(true); setEmailMsg(null)
+    const { error } = await supabase.auth.updateUser({ email: next })
+    setEmailBusy(false)
+    if (error) setEmailMsg({ ok: false, text: error.message })
+    else { setEmailMsg({ ok: true, text: `We sent a confirmation link to ${next} (and possibly to your current address). Your sign-in e-mail changes once you open it. Until then keep signing in with ${email}.` }); setNewEmail('') }
+  }
+
+  async function changePassword(e: React.FormEvent) {
+    e.preventDefault()
+    if (newPw.length < 8) { setPwMsg({ ok: false, text: 'Use at least 8 characters.' }); return }
+    if (newPw !== newPw2) { setPwMsg({ ok: false, text: 'The two new passwords do not match.' }); return }
+    if (!curPw) { setPwMsg({ ok: false, text: 'Type your current password.' }); return }
+    setPwBusy(true); setPwMsg(null)
+    // Check the current password first, so a borrowed open session cannot change it.
+    const check = await supabase.auth.signInWithPassword({ email, password: curPw })
+    if (check.error) { setPwBusy(false); setPwMsg({ ok: false, text: 'Your current password is not right.' }); return }
+    const { error } = await supabase.auth.updateUser({ password: newPw })
+    setPwBusy(false)
+    if (error) setPwMsg({ ok: false, text: error.message })
+    else { setPwMsg({ ok: true, text: 'Password changed. Use it the next time you sign in.' }); setCurPw(''); setNewPw(''); setNewPw2('') }
+  }
+
   useEffect(() => { load() }, [])
 
   async function load() {
@@ -92,7 +129,7 @@ export default function ProfilePage() {
   return (
     <div className="p-4 md:p-8 max-w-lg mx-auto">
       <h1 className="text-3xl font-bold mb-2">My Profile</h1>
-      <p className="text-sm text-gray-500 mb-8">Update your display name and profile picture — this is how you appear across every department.</p>
+      <p className="text-sm text-gray-500 mb-8">Update your name, picture, sign-in e-mail and password. Your name is how you appear across every department.</p>
 
       <div className="bg-white border rounded-xl shadow-sm p-6">
         <div className="flex items-center gap-4 mb-6">
@@ -110,7 +147,7 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        <label className="block text-xs font-medium text-gray-500 mb-1">Full Name</label>
+        <label className="block text-xs font-medium text-gray-500 mb-1">Name (username shown to others)</label>
         <input value={name} onChange={e => setName(e.target.value)} placeholder="Your name" className="w-full border rounded-md px-3 py-2 text-sm mb-4" />
 
         <button onClick={save} disabled={saving} className="w-full bg-blue-600 disabled:opacity-50 text-white text-sm font-semibold py-2.5 rounded-lg hover:bg-blue-700">
@@ -118,6 +155,27 @@ export default function ProfilePage() {
         </button>
         {savedMsg && <p className="text-sm text-green-600 font-medium text-center mt-3">{savedMsg}</p>}
       </div>
+
+      <form onSubmit={changeEmail} className="bg-white border rounded-xl shadow-sm p-6 mt-6">
+        <h2 className="font-bold mb-1">Sign-in e-mail</h2>
+        <p className="text-xs text-gray-500 mb-3">Currently <b>{email}</b>. A confirmation link is sent to the new address; the change applies once you open it.</p>
+        <label className="block text-xs font-medium text-gray-500 mb-1">New e-mail</label>
+        <input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="name@company.com" autoComplete="email" className="w-full border rounded-md px-3 py-2 text-sm mb-3" />
+        <button disabled={emailBusy || !newEmail.trim()} className="w-full bg-slate-800 disabled:opacity-50 text-white text-sm font-semibold py-2.5 rounded-lg hover:bg-slate-900">{emailBusy ? 'Sending…' : 'Change e-mail'}</button>
+        {emailMsg && <p className={`text-sm mt-3 ${emailMsg.ok ? 'text-green-700' : 'text-red-600'}`}>{emailMsg.text}</p>}
+      </form>
+
+      <form onSubmit={changePassword} className="bg-white border rounded-xl shadow-sm p-6 mt-6">
+        <h2 className="font-bold mb-3">Change password</h2>
+        <label className="block text-xs font-medium text-gray-500 mb-1">Current password</label>
+        <input type="password" value={curPw} onChange={e => setCurPw(e.target.value)} autoComplete="current-password" className="w-full border rounded-md px-3 py-2 text-sm mb-3" />
+        <label className="block text-xs font-medium text-gray-500 mb-1">New password <span className="text-gray-400">(at least 8 characters)</span></label>
+        <input type="password" value={newPw} onChange={e => setNewPw(e.target.value)} autoComplete="new-password" minLength={8} className="w-full border rounded-md px-3 py-2 text-sm mb-3" />
+        <label className="block text-xs font-medium text-gray-500 mb-1">Repeat new password</label>
+        <input type="password" value={newPw2} onChange={e => setNewPw2(e.target.value)} autoComplete="new-password" className="w-full border rounded-md px-3 py-2 text-sm mb-3" />
+        <button disabled={pwBusy || !curPw || !newPw} className="w-full bg-slate-800 disabled:opacity-50 text-white text-sm font-semibold py-2.5 rounded-lg hover:bg-slate-900">{pwBusy ? 'Changing…' : 'Change password'}</button>
+        {pwMsg && <p className={`text-sm mt-3 ${pwMsg.ok ? 'text-green-700' : 'text-red-600'}`}>{pwMsg.text}</p>}
+      </form>
     </div>
   )
 }

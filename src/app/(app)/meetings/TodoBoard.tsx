@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { CalendarDays, FileText, Plus } from 'lucide-react'
 import { setTodoStatus, addTodo, addPersonalTodo, setPersonalTodoStatus } from './actions'
 import { act } from './act'
+import { useLocalPref } from './usePref'
 import Avatar from './Avatar'
 import { TODO_COLUMNS, ymd, type Person, type TodoStatus } from '@/lib/meetings'
 
@@ -50,6 +51,15 @@ export default function TodoBoard({
   const [draftMeeting, setDraftMeeting] = useState('')
   const [saving, setSaving] = useState(false)
   const today = ymd(new Date())
+  // Which columns to show (To do is always shown). Remembered per person, for every board.
+  const [colsPref, setColsPref] = useLocalPref('av-todo-cols', 'in_progress,blocked,done')
+  const shownCols = new Set<string>(['todo', ...colsPref.split(',')])
+  const toggleCol = (k: TodoStatus) => {
+    const next = new Set(colsPref.split(',').filter(Boolean))
+    if (next.has(k)) next.delete(k); else next.add(k)
+    setColsPref([...next].join(','))
+  }
+  const visibleCols = TODO_COLUMNS.filter(c => shownCols.has(c.key))
 
   const statusOf = (t: BoardTodo): TodoStatus => moved[t.id] ?? (t.done_at ? 'done' : t.status)
 
@@ -74,9 +84,20 @@ export default function TodoBoard({
     if (ok) { setDraft(''); setAdding(null) }
   }
 
+  const gridCols = ['', 'sm:grid-cols-1', 'sm:grid-cols-2', 'sm:grid-cols-3', 'sm:grid-cols-2 xl:grid-cols-4'][visibleCols.length]
+
   return (
-    <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 h-full min-h-0">
-      {TODO_COLUMNS.map(col => {
+    <div className="flex flex-col h-full min-h-0 gap-2">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600 shrink-0" role="group" aria-label="Columns to show">
+        <span className="font-semibold uppercase tracking-wide text-gray-400">Show</span>
+        {TODO_COLUMNS.filter(c => c.key !== 'todo').map(c => (
+          <label key={c.key} className="inline-flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" checked={shownCols.has(c.key)} onChange={() => toggleCol(c.key)} /> {c.label}
+          </label>
+        ))}
+      </div>
+    <div className={`grid gap-3 grid-cols-1 ${gridCols} flex-1 min-h-0`}>
+      {visibleCols.map(col => {
         let cards = todos.filter(t => statusOf(t) === col.key)
         if (col.key === 'done') cards = cards.sort((a, b) => (b.done_at ?? '').localeCompare(a.done_at ?? ''))
         else cards = cards.sort((a, b) => (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999'))
@@ -97,7 +118,7 @@ export default function TodoBoard({
               <span className="flex items-center gap-1.5">
                 <span className="text-xs font-semibold text-gray-500 tabular-nums">{total}</span>
                 {addIn && addIn.length > 0 && (
-                  <button type="button" onClick={() => { setAdding(adding === col.key ? null : col.key); setDraft(''); setDraftMeeting(addIn[0].id) }} aria-label={`Add a to-do to ${col.label}`} title={`Add a to-do to ${col.label}`} className="w-5 h-5 rounded-full border bg-white text-gray-500 hover:text-blue-600 hover:border-blue-400 inline-flex items-center justify-center"><Plus className="w-3 h-3" /></button>
+                  <button type="button" onClick={() => { setAdding(adding === col.key ? null : col.key); setDraft(''); setDraftMeeting(addIn.find(m => m.id === PERSONAL_ID)?.id ?? addIn[0].id) }} aria-label={`Add a to-do to ${col.label}`} title={`Add a to-do to ${col.label}`} className="w-5 h-5 rounded-full border bg-white text-gray-500 hover:text-blue-600 hover:border-blue-400 inline-flex items-center justify-center"><Plus className="w-3 h-3" /></button>
                 )}
               </span>
             </header>
@@ -156,6 +177,7 @@ export default function TodoBoard({
           </section>
         )
       })}
+    </div>
     </div>
   )
 }

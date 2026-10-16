@@ -21,6 +21,7 @@ import {
 import { SummaryTab, type SummaryRow } from './SummaryArchive'
 import { ArchiveTab, type History } from './ArchiveRange'
 import { MeetingWorkspace, GrowthPlan } from './Overview'
+import MeetingWhiteboard from './MeetingWhiteboard'
 import MeetingSettings from './MeetingSettings'
 import type { Schedule } from '../WorkspaceBodies'
 import { useLocalPref, setAppSidebarCollapsed, readAppSidebarCollapsed } from '../usePref'
@@ -58,6 +59,10 @@ export type ShellProps = {
   icebreakerNotes: string
   // People in the meeting who have no login here (imported); shown by name.
   contactNames: string[]
+  // Whiteboard tab
+  whiteboards: { id: string; title: string }[]
+  whiteboard: { id: string; title: string; items: unknown[] } | null
+  myName: string
 }
 
 type LiveState = { current_page: PageType; page_seconds: Record<string, number> }
@@ -311,6 +316,7 @@ export default function MeetingShell(props: ShellProps) {
               <MeetingWorkspace meetingName={meeting.name} schedule={props.schedule} layout={props.workspaceLayout} coreValues={props.coreValues} otherMeetings={props.otherMeetings} headlines={props.headlines} todos={props.todos} issues={props.issues} goals={props.goals} kpis={props.kpis} kpiValues={props.kpiValues} kpiGoals={props.kpiGoals} summaries={props.summaries} />
             </div>
           )}
+          {tab === 'WHITEBOARD' && <MeetingWhiteboard meetingId={meeting.id} boards={props.whiteboards} board={props.whiteboard} myName={props.myName} />}
           {tab === 'GROWTH_PLAN' && (
             <div className={`${pad} w-full`}>
               <GrowthPlan goals={props.goals} kpis={props.kpis} kpiValues={props.kpiValues} kpiGoals={props.kpiGoals} coreValues={props.coreValues} />

@@ -39,3 +39,25 @@ export async function importEmails(text: string) {
   revalidatePath('/meetings/people')
   return { saved, unmatched, already }
 }
+
+// Access Control: someone typed a name and e-mail to invite. Finds or creates the contact the
+// invitation is sent for (an existing contact with that e-mail or name is reused).
+export async function addInviteContact(fullName: string, email: string) {
+  const { supabase } = await requireMeetingsAdmin()
+  const name = fullName.trim().replace(/\s+/g, ' ').slice(0, 120)
+  const mail = email.trim().toLowerCase()
+  if (!name) throw new Error('Type their name')
+  if (!EMAIL.test(mail)) throw new Error('That does not look like an e-mail address')
+  const { data: byMail } = await supabase.from('mtg_contacts').select('id').eq('email', mail).maybeSingle()
+  if (byMail) return byMail.id as string
+  const { data: byName } = await supabase.from('mtg_contacts').select('id, user_id').ilike('full_name', name).is('user_id', null).maybeSingle()
+  if (byName) {
+    const { error } = await supabase.from('mtg_contacts').update({ email: mail }).eq('id', byName.id)
+    if (error) throw error
+    return byName.id as string
+  }
+  const { data, error } = await supabase.from('mtg_contacts').insert({ full_name: name, email: mail }).select('id').single()
+  if (error) throw error
+  revalidatePath('/meetings/people')
+  return data.id as string
+}

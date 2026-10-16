@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
   ArrowLeft, MousePointer2, Hand, Pencil, Highlighter, Minus, MoveUpRight, Square, Circle, StickyNote, Type, Eraser,
-  Undo2, Redo2, Trash2, ZoomIn, ZoomOut, Download, Users, Check, Loader2, AlertCircle, ImagePlus, Crop,
+  Undo2, Redo2, Trash2, ZoomIn, ZoomOut, Download, Users, Check, Loader2, AlertCircle, ImagePlus, Crop, BringToFront, SendToBack, ArrowUp, ArrowDown, Presentation, X as XIcon, Eraser as EraserIcon,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { saveWhiteboard, renameWhiteboard } from '../actions'
@@ -135,8 +135,10 @@ function arrowHead(x1: number, y1: number, x2: number, y2: number, size: number)
 
 // ---------------------------------------------------------------- component
 
-export default function Whiteboard({ id, initialTitle, initialItems, meetingId, myName }: {
+export default function Whiteboard({ id, initialTitle, initialItems, meetingId, myName, embedded }: {
   id: string; initialTitle: string; initialItems: unknown[]; meetingId: string | null; myName: string
+  // Shown inside a meeting's Whiteboard tab (no back link, shorter)
+  embedded?: boolean
 }) {
   const [items, setItemsState] = useState<Item[]>(() => initialItems.map(clean).filter((i): i is Item => !!i))
   const [title, setTitle] = useState(initialTitle)
@@ -343,6 +345,69 @@ export default function Whiteboard({ id, initialTitle, initialItems, meetingId, 
   }
 
   const selected = items.find(i => i.id === selectedId) ?? null
+  const [editMode, setEditMode] = useState<'crop' | 'bg'>('crop')
+  const [presenting, setPresenting] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  // Zooms and scrolls so everything on the board fits the screen.
+  function fitToContent() {
+    const sc = scroller.current
+    if (!sc) return
+    const list = itemsRef.current
+    let minX = 0, minY = 0, maxX = 1200, maxY = 800
+    if (list.length) {
+      minX = Infinity; minY = Infinity; maxX = -Infinity; maxY = -Infinity
+      const grow = (x: number, y: number) => { minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y) }
+      for (const i of list) {
+        if (i.t === 'stroke') for (let k = 0; k < i.pts.length; k += 2) grow(i.pts[k], i.pts[k + 1])
+        else if (i.t === 'shape') { grow(i.x1, i.y1); grow(i.x2, i.y2) }
+        else if (i.t === 'sticky' || i.t === 'image') { grow(i.x, i.y); grow(i.x + i.w, i.y + i.h) }
+        else { grow(i.x, i.y); grow(i.x + Math.max(...i.text.split('\n').map(l => l.length)) * i.size * 0.6, i.y + i.text.split('\n').length * i.size * 1.4) }
+      }
+    }
+    minX = Math.max(0, minX - 40); minY = Math.max(0, minY - 40); maxX += 40; maxY += 40
+    const z = Math.min(2, Math.max(0.25, Math.min((sc.clientWidth - 32) / (maxX - minX), (sc.clientHeight - 32) / (maxY - minY))))
+    setZoom(+z.toFixed(2))
+    requestAnimationFrame(() => { sc.scrollLeft = minX * z; sc.scrollTop = minY * z })
+  }
+
+  const zoomBefore = useRef(0.6)
+  function startPresenting() {
+    zoomBefore.current = zoom
+    setSelectedId(null)
+    setTool('hand')
+    setPresenting(true)
+    rootRef.current?.requestFullscreen?.().catch(() => {})
+    setTimeout(fitToContent, 150)
+  }
+  const stopPresenting = useCallback(() => {
+    setPresenting(false)
+    setZoom(zoomBefore.current)
+    setTool('select')
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
+  }, [])
+  useEffect(() => {
+    if (!presenting) return
+    const onFs = () => { if (!document.fullscreenElement) stopPresenting() }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') stopPresenting() }
+    document.addEventListener('fullscreenchange', onFs)
+    window.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('fullscreenchange', onFs); window.removeEventListener('keydown', onKey) }
+  }, [presenting, stopPresenting])
+
+  // Stacking order (like any drawing tool): later in the list is in front.
+  function reorder(where: 'front' | 'forward' | 'backward' | 'back') {
+    if (!selectedId) return
+    const cur = itemsRef.current
+    const idx = cur.findIndex(i => i.id === selectedId)
+    if (idx < 0) return
+    const next = cur.slice()
+    const [it] = next.splice(idx, 1)
+    const to = where === 'front' ? next.length : where === 'back' ? 0 : where === 'forward' ? Math.min(next.length, idx + 1) : Math.max(0, idx - 1)
+    if (to === idx) return
+    next.splice(to, 0, it)
+    commit(next)
+  }
 
   function deleteSelected() {
     if (!selectedId) return
@@ -639,14 +704,59 @@ export default function Whiteboard({ id, initialTitle, initialItems, meetingId, 
   }
 
   const drawable = useMemo(() => (draft ? [...items, draft] : items), [items, draft])
+  // Everything is painted in list order, so the order of the list is the stacking order: runs of
+  // strokes/shapes share one SVG layer, and every note, text box or picture is its own layer.
+  const segments = useMemo(() => {
+    const out: ({ key: string; svg: Item[] } | { key: string; item: Item })[] = []
+    for (const i of drawable) {
+      if (i.t === 'stroke' || i.t === 'shape') {
+        const last = out[out.length - 1]
+        if (last && 'svg' in last) last.svg.push(i)
+        else out.push({ key: `svg-${i.id}`, svg: [i] })
+      } else out.push({ key: i.id, item: i })
+    }
+    return out
+  }, [drawable])
   const interactive = tool === 'select'
   const cursor = tool === 'hand' ? 'grab' : tool === 'select' ? 'default' : tool === 'eraser' ? 'cell' : 'crosshair'
   const btn = 'p-2 rounded-lg border bg-white hover:bg-gray-50 disabled:opacity-40'
 
+  // One drawn thing (stroke or shape) as SVG
+  const drawNode = (i: Item) => {
+                const sel = i.id === selectedId
+                const common = { onPointerDown: (e: React.PointerEvent) => startDrag(e, i), style: { pointerEvents: interactive ? 'stroke' as const : 'none' as const, cursor: interactive ? 'move' : undefined } }
+                if (i.t === 'stroke') {
+                  const d = `M${i.pts[0]},${i.pts[1]}` + Array.from({ length: (i.pts.length - 2) / 2 }, (_, k) => `L${i.pts[2 + k * 2]},${i.pts[3 + k * 2]}`).join('')
+                  return <path key={i.id} d={d} fill="none" stroke={i.color} strokeOpacity={i.a} strokeWidth={i.w} strokeLinecap="round" strokeLinejoin="round" {...common} className={sel ? 'drop-shadow-[0_0_3px_rgba(37,99,235,.9)]' : ''} />
+                }
+                if (i.t === 'shape') {
+                  const props = { stroke: i.color, strokeWidth: i.w, fill: 'none', strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
+                  const glow = sel ? 'drop-shadow-[0_0_3px_rgba(37,99,235,.9)]' : ''
+                  if (i.kind === 'rect') return <rect key={i.id} x={Math.min(i.x1, i.x2)} y={Math.min(i.y1, i.y2)} width={Math.abs(i.x2 - i.x1)} height={Math.abs(i.y2 - i.y1)} rx={4} {...props} {...common} className={glow} />
+                  if (i.kind === 'ellipse') return <ellipse key={i.id} cx={(i.x1 + i.x2) / 2} cy={(i.y1 + i.y2) / 2} rx={Math.abs(i.x2 - i.x1) / 2} ry={Math.abs(i.y2 - i.y1) / 2} {...props} {...common} className={glow} />
+                  return (
+                    <g key={i.id} className={glow}>
+                      <line x1={i.x1} y1={i.y1} x2={i.x2} y2={i.y2} {...props} {...common} />
+                      {i.kind === 'arrow' && <polyline points={arrowHead(i.x1, i.y1, i.x2, i.y2, i.w)} {...props} {...common} />}
+                    </g>
+                  )
+                }
+                return null
+  }
+
   return (
-    <div className="flex flex-col h-[calc(100dvh-5rem)] min-h-[34rem]">
-      <div className="flex flex-wrap items-center gap-2 px-3 py-2 border-b bg-white">
-        <Link href="/meetings/coach" className="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900"><ArrowLeft className="w-4 h-4" /> Boards</Link>
+    <div ref={rootRef} className={presenting ? 'fixed inset-0 z-[80] flex flex-col bg-slate-900' : `flex flex-col min-h-[34rem] ${embedded ? 'h-[calc(100dvh-13rem)]' : 'h-[calc(100dvh-5rem)]'}`}>
+      {presenting && (
+        <div className="absolute top-3 right-3 z-10 inline-flex items-center gap-1 rounded-lg bg-slate-800/90 text-white p-1 shadow-lg">
+          <button onClick={() => setZoom(z => Math.max(0.25, +(z - 0.1).toFixed(2)))} className="p-2 rounded hover:bg-slate-700" aria-label="Zoom out"><ZoomOut className="w-4 h-4" /></button>
+          <span className="text-xs tabular-nums w-10 text-center">{Math.round(zoom * 100)}%</span>
+          <button onClick={() => setZoom(z => Math.min(2, +(z + 0.1).toFixed(2)))} className="p-2 rounded hover:bg-slate-700" aria-label="Zoom in"><ZoomIn className="w-4 h-4" /></button>
+          <button onClick={fitToContent} className="px-2 py-1.5 text-xs font-semibold rounded hover:bg-slate-700">Fit</button>
+          <button onClick={stopPresenting} className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded bg-white text-slate-900 hover:bg-gray-200"><XIcon className="w-3.5 h-3.5" /> Exit</button>
+        </div>
+      )}
+      <div className={`flex flex-wrap items-center gap-2 px-3 py-2 border-b bg-white ${presenting ? 'hidden' : ''}`}>
+        {!embedded && <Link href="/meetings/coach" className="inline-flex items-center gap-1 text-sm text-gray-600 hover:text-gray-900"><ArrowLeft className="w-4 h-4" /> Boards</Link>}
         <input
           value={title}
           onChange={e => setTitle(e.target.value)}
@@ -654,16 +764,17 @@ export default function Whiteboard({ id, initialTitle, initialItems, meetingId, 
           className="font-bold text-lg bg-transparent border border-transparent hover:border-gray-300 focus:border-blue-400 rounded px-2 py-0.5 min-w-40"
           aria-label="Whiteboard name"
         />
-        {meetingId && <Link href={`/meetings/${meetingId}`} className="text-xs font-semibold text-blue-600 hover:underline">Meeting</Link>}
+        {meetingId && !embedded && <Link href={`/meetings/${meetingId}`} className="text-xs font-semibold text-blue-600 hover:underline">Meeting</Link>}
         <span className="text-xs text-gray-500 inline-flex items-center gap-1 ml-1">
           {saveState === 'saved' && <><Check className="w-3.5 h-3.5 text-green-600" /> Saved</>}
           {(saveState === 'dirty' || saveState === 'saving') && <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving…</>}
           {saveState === 'error' && <button onClick={flushSave} className="inline-flex items-center gap-1 text-red-600"><AlertCircle className="w-3.5 h-3.5" /> Not saved. Retry</button>}
         </span>
-        <span className="ml-auto inline-flex items-center gap-1 text-xs text-gray-500" title={here.join(', ')}><Users className="w-4 h-4" /> {here.length || 1} here{here.length > 1 ? `: ${here.slice(0, 3).join(', ')}${here.length > 3 ? '…' : ''}` : ''}</span>
+        <button onClick={startPresenting} className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700" title="Show this board full screen"><Presentation className="w-4 h-4" /> Present</button>
+        <span className="inline-flex items-center gap-1 text-xs text-gray-500" title={here.join(', ')}><Users className="w-4 h-4" /> {here.length || 1} here{here.length > 1 ? `: ${here.slice(0, 3).join(', ')}${here.length > 3 ? '…' : ''}` : ''}</span>
       </div>
 
-      <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-b bg-gray-50">
+      <div className={`flex flex-wrap items-center gap-1.5 px-3 py-2 border-b bg-gray-50 ${presenting ? 'hidden' : ''}`}>
         {TOOLS.map(t => (
           <button key={t.key} onClick={() => setTool(t.key)} title={t.label} aria-label={t.label} aria-pressed={tool === t.key}
             className={`p-2 rounded-lg border ${tool === t.key ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white hover:bg-gray-50'}`}><t.icon className="w-4 h-4" /></button>
@@ -712,7 +823,18 @@ export default function Whiteboard({ id, initialTitle, initialItems, meetingId, 
           {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />} Photo
         </button>
         {selected?.t === 'image' && (
-          <button onClick={() => setEditingImgId(selected.id)} className={`${btn} inline-flex items-center gap-1 text-sm px-3`} title="Crop or remove the background"><Crop className="w-4 h-4" /> Crop / remove background</button>
+          <>
+            <button onClick={() => { setEditMode('crop'); setEditingImgId(selected.id) }} className={`${btn} inline-flex items-center gap-1 text-sm px-3`} title="Crop the picture"><Crop className="w-4 h-4" /> Crop</button>
+            <button onClick={() => { setEditMode('bg'); setEditingImgId(selected.id) }} className={`${btn} inline-flex items-center gap-1 text-sm px-3`} title="Remove the background"><EraserIcon className="w-4 h-4" /> Remove background</button>
+          </>
+        )}
+        {selected && interactive && (
+          <span className="inline-flex items-center gap-0.5" role="group" aria-label="Arrange">
+            <button onClick={() => reorder('front')} className={btn} title="Bring to front" aria-label="Bring to front"><BringToFront className="w-4 h-4" /></button>
+            <button onClick={() => reorder('forward')} className={btn} title="Bring forward one step" aria-label="Bring forward"><ArrowUp className="w-4 h-4" /></button>
+            <button onClick={() => reorder('backward')} className={btn} title="Send backward one step" aria-label="Send backward"><ArrowDown className="w-4 h-4" /></button>
+            <button onClick={() => reorder('back')} className={btn} title="Send to back" aria-label="Send to back"><SendToBack className="w-4 h-4" /></button>
+          </span>
         )}
         <span className="w-px h-6 bg-gray-300 mx-1" />
         <button onClick={undo} disabled={!past.length} className={btn} title="Undo (Ctrl+Z)" aria-label="Undo"><Undo2 className="w-4 h-4" /></button>
@@ -742,30 +864,17 @@ export default function Whiteboard({ id, initialTitle, initialItems, meetingId, 
                 <pattern id="wb-grid" width="40" height="40" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#cbd5e1" /></pattern>
               </defs>
               <rect width={W} height={H} fill="url(#wb-grid)" />
-              {drawable.map(i => {
-                const sel = i.id === selectedId
-                const common = { onPointerDown: (e: React.PointerEvent) => startDrag(e, i), style: { pointerEvents: interactive ? 'stroke' as const : 'none' as const, cursor: interactive ? 'move' : undefined } }
-                if (i.t === 'stroke') {
-                  const d = `M${i.pts[0]},${i.pts[1]}` + Array.from({ length: (i.pts.length - 2) / 2 }, (_, k) => `L${i.pts[2 + k * 2]},${i.pts[3 + k * 2]}`).join('')
-                  return <path key={i.id} d={d} fill="none" stroke={i.color} strokeOpacity={i.a} strokeWidth={i.w} strokeLinecap="round" strokeLinejoin="round" {...common} className={sel ? 'drop-shadow-[0_0_3px_rgba(37,99,235,.9)]' : ''} />
-                }
-                if (i.t === 'shape') {
-                  const props = { stroke: i.color, strokeWidth: i.w, fill: 'none', strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const }
-                  const glow = sel ? 'drop-shadow-[0_0_3px_rgba(37,99,235,.9)]' : ''
-                  if (i.kind === 'rect') return <rect key={i.id} x={Math.min(i.x1, i.x2)} y={Math.min(i.y1, i.y2)} width={Math.abs(i.x2 - i.x1)} height={Math.abs(i.y2 - i.y1)} rx={4} {...props} {...common} className={glow} />
-                  if (i.kind === 'ellipse') return <ellipse key={i.id} cx={(i.x1 + i.x2) / 2} cy={(i.y1 + i.y2) / 2} rx={Math.abs(i.x2 - i.x1) / 2} ry={Math.abs(i.y2 - i.y1) / 2} {...props} {...common} className={glow} />
-                  return (
-                    <g key={i.id} className={glow}>
-                      <line x1={i.x1} y1={i.y1} x2={i.x2} y2={i.y2} {...props} {...common} />
-                      {i.kind === 'arrow' && <polyline points={arrowHead(i.x1, i.y1, i.x2, i.y2, i.w)} {...props} {...common} />}
-                    </g>
-                  )
-                }
-                return null
-              })}
             </svg>
 
-            {items.map(i => {
+            {segments.map(seg => {
+              if ('svg' in seg) {
+                return (
+                  <svg key={seg.key} width={W} height={H} className="absolute inset-0" style={{ pointerEvents: 'none' }}>
+                    {seg.svg.map(drawNode)}
+                  </svg>
+                )
+              }
+              const i = seg.item
               if (i.t === 'sticky') {
                 const sel = i.id === selectedId
                 return (
@@ -837,7 +946,7 @@ export default function Whiteboard({ id, initialTitle, initialItems, meetingId, 
       {editingImgId && (() => {
         const cur = items.find(i => i.id === editingImgId)
         const src = cur && cur.t === 'image' ? imageUrls[cur.path] : null
-        return src ? <ImageEditor url={src} onApply={applyEditedImage} onClose={() => setEditingImgId(null)} /> : null
+        return src ? <ImageEditor url={src} initialMode={editMode} onApply={applyEditedImage} onClose={() => setEditingImgId(null)} /> : null
       })()}
     </div>
   )
