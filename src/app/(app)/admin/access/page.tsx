@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ShieldCheck, Trash2, UserPlus, Pencil, X, User as UserIcon, Eye, Settings as SettingsIcon, LogOut, RefreshCw } from 'lucide-react'
 import MeetingsInvite from './MeetingsInvite'
-import { listPeople, createPerson, updatePersonProfile, resetPersonPassword, setPersonActive, type Person } from './actions'
+import { listPeople, createPerson, updatePersonProfile, resetPersonPassword, setPersonActive, deletePerson, updatePersonEmail, type Person } from './actions'
 import { NAV_ITEMS, type Department } from '@/components/AppNavigation'
 
 // Resize to max 512px and re-encode as ~70%-quality JPEG, same approach as
@@ -91,6 +91,7 @@ export default function AccessControlPage() {
 
   const [editPerson, setEditPerson] = useState<Person | null>(null)
   const [editName, setEditName] = useState('')
+  const [editEmail, setEditEmail] = useState('')
   const [editAvatarFile, setEditAvatarFile] = useState<File | null>(null)
   const [editAvatarPreview, setEditAvatarPreview] = useState<string | null>(null)
   const [savingEdit, setSavingEdit] = useState(false)
@@ -207,6 +208,7 @@ export default function AccessControlPage() {
   function openEdit(p: Person) {
     setEditPerson(p)
     setEditName(p.full_name || '')
+    setEditEmail(p.email)
     setEditAvatarFile(null)
     setEditAvatarPreview(p.avatar_url)
     setEditNewPassword('')
@@ -230,6 +232,7 @@ export default function AccessControlPage() {
         avatarUrl = supabase.storage.from('avatars').getPublicUrl(path).data.publicUrl
       }
       await updatePersonProfile(editPerson.id, editName, avatarUrl)
+      if (editEmail.trim().toLowerCase() !== editPerson.email.toLowerCase()) await updatePersonEmail(editPerson.id, editEmail)
       setEditPerson(null)
       await load()
     } catch (err: any) {
@@ -270,6 +273,28 @@ export default function AccessControlPage() {
     } finally {
       setTogglingActive(null)
     }
+  }
+
+  async function removePerson(p: Person) {
+    if (p.id === myId) { alert("You can't delete your own account"); return }
+    const typed = prompt(`Permanently delete ${p.full_name || p.email}?
+
+Their login and department access are removed. Anything they owned in Meetings stays but loses its owner. This cannot be undone.
+
+Type DELETE to confirm.`)
+    if (typed !== 'DELETE') return
+    try {
+      await deletePerson(p.id)
+      setProfiles(prev => prev.filter(x => x.id !== p.id))
+      await load()
+    } catch (err: any) {
+      alert(err.message)
+    }
+  }
+
+  function setRoleFor(p: Person, d: Department, role: string) {
+    if (!role) { revoke(p.id, d); return }
+    grant(p.id, d, role)
   }
 
   function openViewAs(p: Person) {
@@ -336,7 +361,7 @@ export default function AccessControlPage() {
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-5xl mx-auto">
+    <div className={`p-4 md:p-8 mx-auto ${overview ? 'max-w-[1500px]' : 'max-w-5xl'}`}>
       <div className="flex items-start justify-between gap-4 mb-2">
         <h1 className="text-3xl font-bold">Access Control</h1>
         <div className="flex items-center gap-2 flex-shrink-0">
@@ -386,39 +411,56 @@ export default function AccessControlPage() {
         const rows = [...profiles]
           .sort((a, b) => (a.full_name || a.email).localeCompare(b.full_name || b.email))
           .filter(p => !q || (p.full_name ?? '').toLowerCase().includes(q) || p.email.toLowerCase().includes(q))
-        const roleChip = (p: Person, d: Department) => {
-          const row = accessFor(p.id, d)
-          if (!row) return <span className="text-gray-300">—</span>
-          const tone = row.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-50 text-blue-700'
-          return <span className={`inline-block text-[11px] font-semibold capitalize rounded-full px-2 py-0.5 ${tone}`}>{roleLabel(d, row.role)}</span>
-        }
         return (
           <div className="bg-white border rounded-xl shadow-sm overflow-x-auto mb-10">
             <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between gap-3 flex-wrap">
               <h2 className="text-sm font-bold text-slate-700">All people — {rows.length} of {profiles.length}</h2>
+              <button onClick={() => setShowAddPerson(true)} className="inline-flex items-center gap-1.5 bg-slate-900 text-white text-sm font-medium px-3 py-1.5 rounded-lg hover:bg-slate-800"><UserPlus className="w-4 h-4" /> Add person</button>
               <input value={ovQuery} onChange={e => setOvQuery(e.target.value)} placeholder="Search name or e-mail" className="border rounded-lg px-3 py-1.5 text-sm w-64" aria-label="Search people" />
             </div>
             <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Person</th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                   {myAdminDepts.map(d => <th key={d} className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">{DEPT_LABEL[d]}</th>)}
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Access</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Manage</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {rows.map(p => {
                   const n = myAdminDepts.filter(d => accessFor(p.id, d)).length
                   return (
-                    <tr key={p.id} className="hover:bg-gray-50">
+                    <tr key={p.id} className="hover:bg-gray-50 align-middle">
                       <td className="px-4 py-2">
                         <div className="font-medium">{p.full_name || '(no name)'}</div>
-                        <div className="text-xs text-gray-400">{p.email}</div>
+                        <div className="text-xs text-gray-400">{p.email}{n === 0 && <span className="ml-2 text-amber-600">no department</span>}</div>
                       </td>
-                      <td className="px-4 py-2">{p.is_active ? <span className="text-xs font-semibold text-green-700 bg-green-50 rounded-full px-2 py-0.5">Active</span> : <span className="text-xs font-semibold text-red-700 bg-red-50 rounded-full px-2 py-0.5">Inactive</span>}</td>
-                      {myAdminDepts.map(d => <td key={d} className="px-3 py-2">{roleChip(p, d)}</td>)}
-                      <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">{n === 0 ? <span className="text-amber-600">No department</span> : `${n} department${n === 1 ? '' : 's'}`}</td>
+                      <td className="px-3 py-2">
+                        <button
+                          onClick={() => toggleActive(p)}
+                          disabled={togglingActive === p.id || p.id === myId}
+                          title={p.id === myId ? "You can't deactivate your own account" : p.is_active ? 'Set inactive: blocks sign-in' : 'Set active'}
+                          className={`text-[11px] font-semibold px-2.5 py-1 rounded-full disabled:opacity-40 ${p.is_active ? 'bg-green-50 text-green-700 hover:bg-green-100' : 'bg-red-50 text-red-700 hover:bg-red-100'}`}
+                        >{p.is_active ? 'Active' : 'Inactive'}</button>
+                      </td>
+                      {myAdminDepts.map(d => (
+                        <td key={d} className="px-3 py-2">
+                          <select
+                            value={accessFor(p.id, d)?.role ?? ''}
+                            onChange={e => setRoleFor(p, d, e.target.value)}
+                            aria-label={`${DEPT_LABEL[d]} access for ${p.full_name || p.email}`}
+                            className={`border rounded-md px-1.5 py-1 text-xs capitalize ${accessFor(p.id, d) ? 'bg-blue-50 border-blue-200 text-blue-800 font-semibold' : 'bg-white text-gray-400'}`}
+                          >
+                            <option value="">No access</option>
+                            {ROLES[d].map(r => <option key={r} value={r}>{roleLabel(d, r)}</option>)}
+                          </select>
+                        </td>
+                      ))}
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        <button onClick={() => openEdit(p)} className="text-xs font-semibold text-blue-600 hover:underline mr-3" title="Edit name, e-mail or picture, and reset the password">Edit details</button>
+                        <button onClick={() => removePerson(p)} disabled={p.id === myId} className="text-xs font-semibold text-red-600 hover:underline disabled:opacity-30 disabled:no-underline" title="Delete this account">Delete</button>
+                      </td>
                     </tr>
                   )
                 })}
@@ -649,7 +691,7 @@ export default function AccessControlPage() {
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-bold">Edit Person</h2>
+              <h2 className="text-lg font-bold">Edit details</h2>
               <button onClick={() => setEditPerson(null)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
             </div>
 
@@ -664,12 +706,13 @@ export default function AccessControlPage() {
                   Change Picture
                   <input type="file" accept="image/*" className="hidden" onChange={e => pickAvatarFile(e.target.files?.[0] ?? null)} />
                 </label>
-                <p className="text-[11px] text-gray-400 mt-1">{editPerson.email}</p>
               </div>
             </div>
 
             <label className="block text-xs font-medium text-gray-500 mb-1">Full Name</label>
-            <input value={editName} onChange={e => setEditName(e.target.value)} className="w-full border rounded-md px-3 py-2 text-sm mb-4" />
+            <input value={editName} onChange={e => setEditName(e.target.value)} className="w-full border rounded-md px-3 py-2 text-sm mb-3" />
+            <label className="block text-xs font-medium text-gray-500 mb-1">Sign-in e-mail</label>
+            <input type="email" value={editEmail} onChange={e => setEditEmail(e.target.value)} className="w-full border rounded-md px-3 py-2 text-sm mb-4" />
 
             <div className="flex justify-end gap-3 mb-6">
               <button onClick={() => setEditPerson(null)} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm font-medium hover:bg-gray-200">Cancel</button>

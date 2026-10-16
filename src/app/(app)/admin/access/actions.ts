@@ -109,3 +109,32 @@ export async function resetPersonPassword(userId: string, newPassword: string): 
   const { error } = await admin.auth.admin.updateUserById(userId, { password: newPassword })
   if (error) throw error
 }
+
+// Permanently removes an account. Their department access, attendance, seats, notes and personal
+// to-dos go with it; anything they owned in Meetings (to-dos, issues, KPIs, priorities) stays but
+// loses its owner. Someone who has made audited changes can't be deleted: deactivate them instead.
+export async function deletePerson(userId: string): Promise<void> {
+  const { user } = await requireDeptAdmin()
+  if (userId === user.id) throw new Error("You can't delete your own account")
+  const admin = createAdminClient()
+  // Access that this person granted to others must not block the delete.
+  await admin.from('user_department_access').update({ granted_by: null }).eq('granted_by', userId)
+  const { error } = await admin.auth.admin.deleteUser(userId)
+  if (error) {
+    if (/foreign key|violates|database error/i.test(error.message)) {
+      throw new Error('This person has recorded history, so they can\'t be deleted. Set them to Inactive instead: they can no longer sign in.')
+    }
+    throw error
+  }
+}
+
+// Changes someone's sign-in e-mail directly (no confirmation e-mail; an admin is vouching for it).
+// Meetings invitations that were already linked to them keep working.
+export async function updatePersonEmail(userId: string, email: string): Promise<void> {
+  await requireDeptAdmin()
+  const next = email.trim().toLowerCase()
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(next)) throw new Error('That does not look like an e-mail address')
+  const admin = createAdminClient()
+  const { error } = await admin.auth.admin.updateUserById(userId, { email: next, email_confirm: true })
+  if (error) throw error
+}
