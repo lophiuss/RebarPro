@@ -108,7 +108,7 @@ export async function setPersonActive(userId: string, active: boolean): Promise<
 export async function createPerson(email: string, password: string, fullName: string): Promise<void> {
   const { user } = await requireDeptAdmin()
   if (!email.trim() || !password) throw new Error('Email and password are required')
-  if (password.length < 8) throw new Error('Password must be at least 8 characters')
+  if (password.length < 10) throw new Error('Password must be at least 10 characters')
 
   const admin = createAdminClient()
   const { data: created, error } = await admin.auth.admin.createUser({
@@ -137,7 +137,7 @@ export async function updatePersonProfile(userId: string, fullName: string, avat
 
 export async function resetPersonPassword(userId: string, newPassword: string): Promise<void> {
   const { user, admin } = await requireCanManage(userId)
-  if (newPassword.length < 8) throw new Error('Password must be at least 8 characters')
+  if (newPassword.length < 10) throw new Error('Password must be at least 10 characters')
   const { error } = await admin.auth.admin.updateUserById(userId, { password: newPassword })
   if (error) throw error
   await logAccountAction(admin, user.id, userId, 'account.password_reset')

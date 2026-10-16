@@ -65,7 +65,7 @@ export default function ProfilePage() {
 
   async function changePassword(e: React.FormEvent) {
     e.preventDefault()
-    if (newPw.length < 8) { setPwMsg({ ok: false, text: 'Use at least 8 characters.' }); return }
+    if (newPw.length < 10) { setPwMsg({ ok: false, text: 'Use at least 10 characters.' }); return }
     if (newPw !== newPw2) { setPwMsg({ ok: false, text: 'The two new passwords do not match.' }); return }
     if (!curPw) { setPwMsg({ ok: false, text: 'Type your current password.' }); return }
     setPwBusy(true); setPwMsg(null)
@@ -169,8 +169,8 @@ export default function ProfilePage() {
         <h2 className="font-bold mb-3">Change password</h2>
         <label className="block text-xs font-medium text-gray-500 mb-1">Current password</label>
         <input type="password" value={curPw} onChange={e => setCurPw(e.target.value)} autoComplete="current-password" className="w-full border rounded-md px-3 py-2 text-sm mb-3" />
-        <label className="block text-xs font-medium text-gray-500 mb-1">New password <span className="text-gray-400">(at least 8 characters)</span></label>
-        <input type="password" value={newPw} onChange={e => setNewPw(e.target.value)} autoComplete="new-password" minLength={8} className="w-full border rounded-md px-3 py-2 text-sm mb-3" />
+        <label className="block text-xs font-medium text-gray-500 mb-1">New password <span className="text-gray-400">(at least 10 characters)</span></label>
+        <input type="password" value={newPw} onChange={e => setNewPw(e.target.value)} autoComplete="new-password" minLength={10} className="w-full border rounded-md px-3 py-2 text-sm mb-3" />
         <label className="block text-xs font-medium text-gray-500 mb-1">Repeat new password</label>
         <input type="password" value={newPw2} onChange={e => setNewPw2(e.target.value)} autoComplete="new-password" className="w-full border rounded-md px-3 py-2 text-sm mb-3" />
         <button disabled={pwBusy || !curPw || !newPw} className="w-full bg-slate-800 disabled:opacity-50 text-white text-sm font-semibold py-2.5 rounded-lg hover:bg-slate-900">{pwBusy ? 'Changing…' : 'Change password'}</button>

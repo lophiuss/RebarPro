@@ -2,12 +2,13 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 import { createClient } from '@/lib/supabase/server'
+import { getSignedInUser } from '@/lib/supabase/user'
 import { PenTool } from 'lucide-react'
 import CoachList from './CoachList'
 
 export default async function CoachPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSignedInUser(supabase)
   const [{ data: boards }, { data: meetings }, { data: people }] = await Promise.all([
     supabase.from('mtg_whiteboards').select('id, title, meeting_id, created_by, updated_at, created_at').order('updated_at', { ascending: false }),
     supabase.from('mtg_meetings').select('id, name').eq('is_archived', false).order('name'),

@@ -2,12 +2,13 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 import { createClient } from '@/lib/supabase/server'
+import { getSignedInUser } from '@/lib/supabase/user'
 import { Network } from 'lucide-react'
 import OrgChartView from './OrgChartView'
 
 export default async function OrgChartPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSignedInUser(supabase)
 
   const [{ data: seats }, { data: seatPeople }, { data: people }, { data: access }, { data: seatContacts }] = await Promise.all([
     supabase.from('mtg_seats').select('id, parent_id, title, subtitle, roles, position').order('position'),

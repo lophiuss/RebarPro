@@ -244,7 +244,7 @@ export default function AccessControlPage() {
 
   async function doResetPassword() {
     if (!editPerson) return
-    if (editNewPassword.length < 8) { alert('Password must be at least 8 characters'); return }
+    if (editNewPassword.length < 10) { alert('Password must be at least 10 characters'); return }
     if (!confirm(`Reset the password for ${editPerson.email}?`)) return
     setResettingPassword(true)
     try {

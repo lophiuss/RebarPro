@@ -16,7 +16,7 @@ export default function PeopleView({ people, isAdmin }: { people: P[]; isAdmin: 
   const [emails, setEmails] = useState<Record<string, string>>({})
   const [filter, setFilter] = useState<'waiting' | 'all'>('waiting')
   const [message, setMessage] = useState('')
-  const [mode, setMode] = useState<'password' | 'link'>('password')
+  const [mode, setMode] = useState<'password' | 'link'>('link')
   const [paste, setPaste] = useState<string | null>(null)
   const [pasteResult, setPasteResult] = useState<{ saved: string[]; unmatched: string[]; already: string[] } | null>(null)
   const [busy, setBusy] = useState(false)
@@ -86,8 +86,8 @@ export default function PeopleView({ people, isAdmin }: { people: P[]; isAdmin: 
 
       <fieldset className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
         <legend className="text-sm font-medium mb-1">How do they get in?</legend>
-        <label className="inline-flex items-center gap-2"><input type="radio" name="mode" checked={mode === 'password'} onChange={() => setMode('password')} /> Random temporary password by e-mail (must be changed at first sign-in)</label>
-        <label className="inline-flex items-center gap-2"><input type="radio" name="mode" checked={mode === 'link'} onChange={() => setMode('link')} /> One-time link to choose their own password (no password e-mailed)</label>
+        <label className="inline-flex items-center gap-2"><input type="radio" name="mode" checked={mode === 'password'} onChange={() => setMode('password')} /> Random temporary password by e-mail (less safe: the password travels in the e-mail)</label>
+        <label className="inline-flex items-center gap-2"><input type="radio" name="mode" checked={mode === 'link'} onChange={() => setMode('link')} /> One-time link to choose their own password (recommended: no password is e-mailed)</label>
       </fieldset>
       <label className="block text-sm font-medium mb-4">Message in the invitation <span className="text-gray-400 font-normal">(optional)</span>
         <textarea value={message} onChange={e => setMessage(e.target.value)} rows={2} placeholder="e.g. We are moving our weekly meetings to AlphaVision from Monday." className="mt-1 w-full border rounded-lg px-3 py-2 text-sm font-normal" />

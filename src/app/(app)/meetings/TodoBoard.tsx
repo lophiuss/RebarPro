@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useOptimistic, useState, useTransition } from 'react'
 import { CalendarDays, FileText, Plus } from 'lucide-react'
 import { setTodoStatus, addTodo, addPersonalTodo, setPersonalTodoStatus } from './actions'
 import { act } from './act'
@@ -20,6 +20,8 @@ export type BoardTodo = {
   created_at: string
   // A to-do that belongs to one person, not to a meeting
   personal?: boolean
+  // Shown straight away while it is being saved
+  pending?: boolean
 }
 
 export const PERSONAL_ID = 'personal'
@@ -49,7 +51,9 @@ export default function TodoBoard({
   const [adding, setAdding] = useState<TodoStatus | null>(null)
   const [draft, setDraft] = useState('')
   const [draftMeeting, setDraftMeeting] = useState('')
-  const [saving, setSaving] = useState(false)
+  // A new card shows at once; the saved one replaces it when the page refreshes.
+  const [, startTransition] = useTransition()
+  const [shownTodos, addShown] = useOptimistic(todos, (cur: BoardTodo[], add: BoardTodo) => [...cur, add])
   const today = ymd(new Date())
   // Which columns to show (To do is always shown). Remembered per person, for every board.
   const [colsPref, setColsPref] = useLocalPref('av-todo-cols', 'in_progress,blocked,done')
@@ -67,8 +71,8 @@ export default function TodoBoard({
     const id = dragId
     setDragId(null)
     setOverCol(null)
-    const todo = todos.find(t => t.id === id)
-    if (!todo || statusOf(todo) === col) return
+    const todo = shownTodos.find(t => t.id === id)
+    if (!todo || todo.pending || statusOf(todo) === col) return
     setMoved(m => ({ ...m, [todo.id]: col }))
     const ok = await act(async () => { if (todo.personal) await setPersonalTodoStatus(todo.id, col); else await setTodoStatus(todo.meeting_id, todo.id, col); return true })
     if (!ok) setMoved(m => { const next = { ...m }; delete next[todo.id]; return next })
@@ -78,10 +82,13 @@ export default function TodoBoard({
     const title = draft.trim()
     const meetingId = draftMeeting || addIn?.[0]?.id
     if (!title || !meetingId) return
-    setSaving(true)
-    const ok = await act(async () => { if (meetingId === PERSONAL_ID) await addPersonalTodo(title, null, col); else await addTodo(meetingId, { title, owner_id: null, due_date: null, status: col }); return true })
-    setSaving(false)
-    if (ok) { setDraft(''); setAdding(null) }
+    setDraft('')
+    setAdding(null)
+    const now = new Date().toISOString()
+    startTransition(async () => {
+      addShown({ id: `pending-${now}`, title, details: null, owner_id: null, due_date: null, done_at: col === 'done' ? now : null, status: col, meeting_id: meetingId, created_at: now, personal: meetingId === PERSONAL_ID, pending: true })
+      await act(async () => { if (meetingId === PERSONAL_ID) await addPersonalTodo(title, null, col); else await addTodo(meetingId, { title, owner_id: null, due_date: null, status: col }); return true })
+    })
   }
 
   const gridCols = ['', 'sm:grid-cols-1', 'sm:grid-cols-2', 'sm:grid-cols-3', 'sm:grid-cols-2 xl:grid-cols-4'][visibleCols.length]
@@ -98,7 +105,7 @@ export default function TodoBoard({
       </div>
     <div className={`grid gap-3 grid-cols-1 ${gridCols} flex-1 min-h-0`}>
       {visibleCols.map(col => {
-        let cards = todos.filter(t => statusOf(t) === col.key)
+        let cards = shownTodos.filter(t => statusOf(t) === col.key)
         if (col.key === 'done') cards = cards.sort((a, b) => (b.done_at ?? '').localeCompare(a.done_at ?? ''))
         else cards = cards.sort((a, b) => (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999'))
         const total = cards.length
@@ -140,7 +147,7 @@ export default function TodoBoard({
                 )}
                 <div className="flex justify-end gap-1.5">
                   <button type="button" onClick={() => setAdding(null)} className="px-2 py-1 text-xs rounded-md border bg-white">Cancel</button>
-                  <button disabled={saving || !draft.trim()} className="px-2.5 py-1 text-xs rounded-md bg-blue-600 text-white font-semibold disabled:opacity-50">{saving ? 'Adding…' : 'Add'}</button>
+                  <button disabled={!draft.trim()} className="px-2.5 py-1 text-xs rounded-md bg-blue-600 text-white font-semibold disabled:opacity-50">Add</button>
                 </div>
               </form>
             )}
@@ -151,17 +158,17 @@ export default function TodoBoard({
                 return (
                   <li
                     key={t.id}
-                    draggable
+                    draggable={!t.pending}
                     onDragStart={e => { setDragId(t.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', t.id) }}
                     onDragEnd={() => { setDragId(null); setOverCol(null) }}
-                    className={`rounded-lg border bg-white shadow-sm p-2.5 cursor-grab active:cursor-grabbing ${dragId === t.id ? 'opacity-40' : ''}`}
+                    className={`rounded-lg border bg-white shadow-sm p-2.5 ${t.pending ? 'opacity-60' : 'cursor-grab active:cursor-grabbing'} ${dragId === t.id ? 'opacity-40' : ''}`}
                   >
-                    <button onClick={() => onOpen(t)} className={`block w-full text-left text-sm font-medium hover:text-blue-700 ${statusOf(t) === 'done' ? 'line-through text-gray-400' : ''}`}>
+                    <button onClick={() => { if (!t.pending) onOpen(t) }} className={`block w-full text-left text-sm font-medium hover:text-blue-700 ${statusOf(t) === 'done' ? 'line-through text-gray-400' : ''}`}>
                       {t.title}
                       {t.details && <FileText className="inline-block w-3.5 h-3.5 ml-1.5 text-gray-400 align-[-2px]" aria-label="Has details" />}
                     </button>
                     <div className="mt-2 flex items-center gap-2 text-[11px] text-gray-500">
-                      <span className="truncate flex-1 uppercase tracking-wide">{t.personal ? 'Personal' : (meetingNames.get(t.meeting_id) ?? '')}</span>
+                      <span className="truncate flex-1 uppercase tracking-wide">{t.pending ? 'Saving…' : t.personal ? 'Personal' : (meetingNames.get(t.meeting_id) ?? '')}</span>
                       {t.due_date && (
                         <span className={`inline-flex items-center gap-1 whitespace-nowrap ${overdue ? 'text-red-600 font-semibold' : ''}`}><CalendarDays className="w-3 h-3" />{t.due_date}</span>
                       )}

@@ -28,12 +28,12 @@ export default async function SetPasswordPage({ searchParams }: { searchParams: 
           <input type="hidden" name="welcome" value={welcome ? '1' : '0'} />
           <input type="hidden" name="force" value={force ? '1' : '0'} />
           <label className="text-sm font-medium text-slate-700">New password
-            <input name="password" type="password" minLength={8} required autoComplete="new-password" className={`${field} mt-1.5`} />
+            <input name="password" type="password" minLength={10} required autoComplete="new-password" className={`${field} mt-1.5`} />
           </label>
           <label className="text-sm font-medium text-slate-700">Confirm password
-            <input name="confirm" type="password" minLength={8} required autoComplete="new-password" className={`${field} mt-1.5`} />
+            <input name="confirm" type="password" minLength={10} required autoComplete="new-password" className={`${field} mt-1.5`} />
           </label>
-          <p className="text-xs text-gray-500 -mt-2">At least 8 characters.</p>
+          <p className="text-xs text-gray-500 -mt-2">At least 10 characters.</p>
           <button className="w-full h-10 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700">Save password and continue</button>
           {sp.message && <p className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm text-center">{sp.message}</p>}
         </form>

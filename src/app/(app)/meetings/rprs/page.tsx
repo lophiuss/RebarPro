@@ -2,13 +2,14 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 import { createClient } from '@/lib/supabase/server'
+import { getSignedInUser } from '@/lib/supabase/user'
 import { UserCheck } from 'lucide-react'
 import RprsView from './RprsView'
 import { downline, everyone, seatsBelow } from './scope'
 
 export default async function RprsPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSignedInUser(supabase)
 
   const [{ data: settings }, { data: assessments }, { data: seatPeople }, { data: seats }, { data: people }, { data: access }, { data: criteria }] = await Promise.all([
     supabase.from('mtg_settings').select('core_values').eq('id', 1).maybeSingle(),

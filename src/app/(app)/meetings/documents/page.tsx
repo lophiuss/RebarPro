@@ -2,12 +2,13 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 import { createClient } from '@/lib/supabase/server'
+import { getSignedInUser } from '@/lib/supabase/user'
 import { FileText } from 'lucide-react'
 import DocumentsView from './DocumentsView'
 
 export default async function DocumentsPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSignedInUser(supabase)
 
   const [{ data: docs }, { data: meetings }, { data: people }, { data: access }, { data: boards }] = await Promise.all([
     supabase.from('mtg_documents').select('id, title, description, url, category, meeting_id, created_by, created_at, file_name, file_size, mime_type, file_path, department').order('created_at', { ascending: false }),

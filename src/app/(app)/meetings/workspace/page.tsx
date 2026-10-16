@@ -2,12 +2,13 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 import { createClient } from '@/lib/supabase/server'
+import { getSignedInUser } from '@/lib/supabase/user'
 import { LayoutDashboard } from 'lucide-react'
 import WorkspaceTiles from './WorkspaceTiles'
 
 export default async function MeetingsWorkspacePage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSignedInUser(supabase)
   const myId = user?.id ?? ''
 
   const [
@@ -41,12 +42,6 @@ export default async function MeetingsWorkspacePage() {
   const since = sinceDate.toISOString().slice(0, 10)
 
   const kpiIds = (kpis ?? []).map(k => k.id as string)
-  const [{ data: values }, { data: kpiGoals }] = kpiIds.length
-    ? await Promise.all([
-        supabase.from('mtg_kpi_values').select('kpi_id, period_start, value').in('kpi_id', kpiIds).gte('period_start', since),
-        supabase.from('mtg_kpi_goals').select('kpi_id, period_start, goal_rule, goal_value, goal_value_max').in('kpi_id', kpiIds),
-      ])
-    : [{ data: [] as any[] }, { data: [] as any[] }]
 
   const meetings = (attendance ?? [])
     .map((a: any) => a.meeting)
@@ -54,12 +49,15 @@ export default async function MeetingsWorkspacePage() {
     .map((m: any) => ({ id: m.id as string, name: m.name as string }))
     .sort((a: any, b: any) => a.name.localeCompare(b.name))
 
-  // Meetings that were actually held, for the calendar (about four months either side).
+  // Meetings that were actually held, for the calendar (about four months either side). Fetched in
+  // the same round as the KPI history, since both only need the first round's answers.
   const meetingIds = meetings.map((m: any) => m.id as string)
   const heldSince = new Date(); heldSince.setDate(heldSince.getDate() - 130)
-  const { data: runs } = meetingIds.length
-    ? await supabase.from('mtg_runs').select('meeting_id, started_at').in('meeting_id', meetingIds).gte('started_at', heldSince.toISOString())
-    : { data: [] as any[] }
+  const [{ data: values }, { data: kpiGoals }, { data: runs }] = await Promise.all([
+    kpiIds.length ? supabase.from('mtg_kpi_values').select('kpi_id, period_start, value').in('kpi_id', kpiIds).gte('period_start', since) : Promise.resolve({ data: [] as any[] }),
+    kpiIds.length ? supabase.from('mtg_kpi_goals').select('kpi_id, period_start, goal_rule, goal_value, goal_value_max').in('kpi_id', kpiIds) : Promise.resolve({ data: [] as any[] }),
+    meetingIds.length ? supabase.from('mtg_runs').select('meeting_id, started_at').in('meeting_id', meetingIds).gte('started_at', heldSince.toISOString()) : Promise.resolve({ data: [] as any[] }),
+  ])
   const nameById = new Map(meetings.map((m: any) => [m.id as string, m.name as string]))
   const calHeld = (runs ?? []).map((r: any) => ({
     meeting_id: r.meeting_id as string,

@@ -2,12 +2,13 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 import { createClient } from '@/lib/supabase/server'
+import { getSignedInUser } from '@/lib/supabase/user'
 import { CalendarDays } from 'lucide-react'
 import MeetingsList from './MeetingsList'
 
 export default async function MeetingsPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSignedInUser(supabase)
 
   const [{ data: meetings }, { data: attendees }, { data: people }, { data: activeRuns }, { data: doneRuns }] = await Promise.all([
     supabase.from('mtg_meetings').select('id, name, description, leader_id, meeting_type').eq('is_archived', false).order('name'),

@@ -55,7 +55,7 @@ function Tile({ tile, layout, onLayout, gridRef, dragging, setDragging }: {
   return (
     <section
       draggable={!locked && armed}
-      onDragStart={e => { setDragging(id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', id) }}
+      onDragStart={e => { if (e.target !== e.currentTarget) return; setDragging(id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', id) }}
       onDragEnd={() => { setDragging(null); setArmed(false); setOver(false) }}
       onDragOver={e => { if (!locked && dragging && dragging !== id) { e.preventDefault(); setOver(true) } }}
       onDragLeave={() => setOver(false)}
@@ -132,6 +132,13 @@ export default function TileGrid({ tiles, prefKey, savedLayout, defaults, childr
   const ids = tiles.map(t => t.id)
   const [layout, setLayout] = useState<Layout>(() => cleanLayout(savedLayout, ids, defaults))
   const [dragging, setDragging] = useState<string | null>(null)
+  // A drag that ends anywhere (even if the dragged element was removed meanwhile) must not leave a panel dimmed.
+  useEffect(() => {
+    const clear = () => setDragging(null)
+    window.addEventListener('dragend', clear)
+    window.addEventListener('drop', clear)
+    return () => { window.removeEventListener('dragend', clear); window.removeEventListener('drop', clear) }
+  }, [])
   const [menu, setMenu] = useState(false)
   const gridRef = useRef<HTMLDivElement>(null)
   const lastSaved = useRef<string>(JSON.stringify(cleanLayout(savedLayout, ids, defaults)))

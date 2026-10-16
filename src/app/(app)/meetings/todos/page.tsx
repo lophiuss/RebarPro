@@ -2,13 +2,14 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 import { createClient } from '@/lib/supabase/server'
+import { getSignedInUser } from '@/lib/supabase/user'
 import { ListChecks } from 'lucide-react'
 import TodosBoard from './TodosBoard'
 import { nameOwners, withNameOwners } from '@/lib/owners'
 
 export default async function MeetingsTodosPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSignedInUser(supabase)
 
   const [{ data: todos }, { data: meetings }, { data: people }] = await Promise.all([
     supabase

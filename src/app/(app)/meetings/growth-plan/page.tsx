@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 import { createClient } from '@/lib/supabase/server'
+import { getSignedInUser } from '@/lib/supabase/user'
 import { Target } from 'lucide-react'
 import GrowthPlanView from './GrowthPlanView'
 import type { GrowthPlanContent } from '@/lib/meetings'
@@ -9,7 +10,7 @@ import { nameOwners, withNameOwners } from '@/lib/owners'
 
 export default async function GrowthPlanPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSignedInUser(supabase)
 
   const [{ data: plan }, { data: settings }, { data: goals }, { data: parked }, { data: access }, { data: people }] = await Promise.all([
     supabase.from('mtg_growth_plan').select('content, updated_at, updated_by').eq('id', 1).maybeSingle(),

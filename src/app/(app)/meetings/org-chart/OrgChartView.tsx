@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Plus, Minus, Search, Pencil, Trash2, Printer, Maximize2, X, UserRound, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, ChevronDown, ChevronRight, Eye, EyeOff } from 'lucide-react'
 import { saveSeat, deleteSeat, moveSeat } from './actions'
 import { act } from '../act'
@@ -29,9 +29,9 @@ const TREE_CSS = `
 // standard: children in a row below. both: children in two columns either side of a centre
 // line. left / right hanging: children stacked on one side of a line under the parent.
 // horizontal: children in a column to the right.
-type Mode = 'v' | 'both' | 'l' | 'r' | 'h'
-const MODE_LABEL: Record<Mode, string> = { v: 'Standard', both: 'Both', l: 'Left hanging', r: 'Right hanging', h: 'Horizontal' }
-const MODES: Mode[] = ['v', 'both', 'l', 'r', 'h']
+type Mode = 'auto' | 'v' | 'both' | 'l' | 'r' | 'h'
+const MODE_LABEL: Record<Mode, string> = { auto: 'Compact (recommended)', v: 'Standard', both: 'Both', l: 'Left hanging', r: 'Right hanging', h: 'Horizontal' }
+const MODES: Mode[] = ['auto', 'v', 'both', 'l', 'r', 'h']
 
 const CW = 240        // card width (w-60)
 const DEFAULT_H = 120 // card height until it has been measured
@@ -61,27 +61,55 @@ function layoutNode(n: Node, depth: number, ctx: LayCtx): Lay {
   const self: Lay = { cards: [{ id: n.id, x: 0, y: 0 }], lines: [], minX: 0, maxX: CW, minY: 0, maxY: H }
   if (!ctx.open(n, depth) || n.children.length === 0) return self
   const kids = n.children.map(c => layoutNode(c, depth + 1, ctx))
-  const mode = ctx.mode(n.id)
+  let mode = ctx.mode(n.id)
+  const compact = mode === 'auto'
+  // Compact: a group of end seats hangs on both sides of a line (narrow), anything with seats under
+  // it spreads out in the standard way.
+  if (mode === 'auto') mode = n.children.length >= 3 && n.children.every(c => !ctx.open(c, depth + 1)) ? 'both' : 'v'
   const cx = CW / 2
 
   if (mode === 'v') {
-    let cursor = 0
-    const placed: Lay[] = [], centers: number[] = []
-    kids.forEach(k => {
-      const dx = cursor - k.minX
-      placed.push(shiftLay(k, dx, H + DROP))
-      centers.push(dx + cx)
-      cursor += k.maxX - k.minX + SIB
-    })
-    const pcx = (centers[0] + centers[centers.length - 1]) / 2
-    const sx = -(pcx - cx) // put the parent card at x = 0
-    const kidsL = placed.map(k => shiftLay(k, sx, 0))
-    const cs = centers.map(c => c + sx)
-    const busY = H + DROP / 2
-    const lines = [`M${cx},${H} L${cx},${busY}`]
-    if (cs.length > 1) lines.push(`M${cs[0]},${busY} L${cs[cs.length - 1]},${busY}`)
-    cs.forEach(c => lines.push(`M${c},${busY} L${c},${H + DROP}`))
-    return join([self, ...kidsL, { cards: [], lines, minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }])
+    // Compact charts wrap a long row of branches onto several rows (at most 4 per row), hung off one
+    // line down the middle, so the chart stays about as wide as a screen.
+    const perRow = compact ? 4 : Infinity
+    const rows: Lay[][] = []
+    for (let i = 0; i < kids.length; i += perRow === Infinity ? kids.length : perRow) rows.push(kids.slice(i, i + (perRow === Infinity ? kids.length : perRow)))
+    const multi = rows.length > 1
+    const parts: Lay[] = [self]
+    const lines: string[] = []
+    let rowTop = H + DROP
+    let lastBus = H + DROP / 2
+    for (const row of rows) {
+      const placed: { k: Lay; dx: number }[] = []
+      if (!multi) {
+        // one row: centre the parent over its first and last child
+        let cursor = 0
+        for (const k of row) { placed.push({ k, dx: cursor - k.minX }); cursor += k.maxX - k.minX + SIB }
+        const c0 = placed[0].dx + cx, cN = placed[placed.length - 1].dx + cx
+        const sx = cx - (c0 + cN) / 2
+        placed.forEach(p => { p.dx += sx })
+      } else {
+        // several rows: half the row on each side of the centre line, leaving a gap for the line
+        const half = Math.ceil(row.length / 2)
+        let right = cx - SIB
+        for (const k of row.slice(0, half).reverse()) { placed.unshift({ k, dx: right - k.maxX }); right -= k.maxX - k.minX + SIB }
+        let left = cx + SIB
+        for (const k of row.slice(half)) { placed.push({ k, dx: left - k.minX }); left += k.maxX - k.minX + SIB }
+      }
+      const busY = rowTop - DROP / 2
+      const cs = placed.map(p => p.dx + cx)
+      lines.push(`M${Math.min(cs[0], cx)},${busY} L${Math.max(cs[cs.length - 1], cx)},${busY}`)
+      cs.forEach(c => lines.push(`M${c},${busY} L${c},${rowTop}`))
+      let bottom = rowTop
+      for (const p of placed) {
+        parts.push(shiftLay(p.k, p.dx, rowTop - p.k.minY))
+        bottom = Math.max(bottom, rowTop + (p.k.maxY - p.k.minY))
+      }
+      lastBus = busY
+      rowTop = bottom + DROP
+    }
+    lines.unshift(`M${cx},${H} L${cx},${lastBus}`)
+    return join([...parts, { cards: [], lines, minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }])
   }
 
   if (mode === 'h') {
@@ -105,23 +133,48 @@ function layoutNode(n: Node, depth: number, ctx: LayCtx): Lay {
   }
 
   // hanging layouts: right = cards to the right of the centre line, left = to the left, both = alternate
-  const side = (i: number): 'l' | 'r' => (mode === 'both' ? (i % 2 === 0 ? 'l' : 'r') : mode)
-  const cursors = { l: H + 18, r: H + 18 }
+  // left and right in rows. A whole branch (with everything under it) stays on its own side of the
+  // line, so branches never run into each other or across the line.
+  const place = (k: Lay, sd: 'l' | 'r', y: number) => {
+    const dx = sd === 'r' ? cx + INDENT - k.minX : cx - INDENT - k.maxX
+    const dy = y - k.minY
+    placed.push(shiftLay(k, dx, dy))
+    const mid = dy + ctx.h(k.cards[0].id) / 2
+    lastMid = Math.max(lastMid, mid)
+    lines.push(sd === 'r' ? `M${cx},${mid} L${dx},${mid}` : `M${cx},${mid} L${dx + CW},${mid}`)
+    return k.maxY - k.minY
+  }
   const placed: Lay[] = []
   const lines: string[] = []
   let lastMid = H
-  kids.forEach((k, i) => {
-    const sd = side(i)
-    const x0 = sd === 'r' ? cx + INDENT : cx - INDENT - CW
-    const dy = cursors[sd] - k.minY
-    placed.push(shiftLay(k, x0, dy))
-    const mid = dy + ctx.h(k.cards[0].id) / 2
-    lastMid = Math.max(lastMid, mid)
-    lines.push(sd === 'r' ? `M${cx},${mid} L${x0},${mid}` : `M${cx},${mid} L${x0 + CW},${mid}`)
-    cursors[sd] += k.maxY - k.minY + STACK
-  })
+  let cursor = H + 18
+  if (mode === 'both') {
+    for (let i = 0; i < kids.length; i += 2) {
+      const hl = place(kids[i], 'l', cursor)
+      const hr = kids[i + 1] ? place(kids[i + 1], 'r', cursor) : 0
+      cursor += Math.max(hl, hr) + STACK
+    }
+  } else {
+    kids.forEach(k => { cursor += place(k, mode as 'l' | 'r', cursor) + STACK })
+  }
   lines.unshift(`M${cx},${H} L${cx},${lastMid}`)
   return join([self, ...placed, { cards: [], lines, minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity }])
+}
+
+// Lays out every top seat side by side and returns positions relative to the chart's top-left corner.
+function layoutForest(tree: Node[], ctx: LayCtx) {
+  let cursor = 0
+  const parts: Lay[] = []
+  for (const r of tree) {
+    const l = layoutNode(r, 0, ctx)
+    parts.push(shiftLay(l, cursor - l.minX, 0))
+    cursor += l.maxX - l.minX + 56
+  }
+  if (parts.length === 0) return { cards: [] as Lay['cards'], lines: [] as string[], w: 0, h: 0 }
+  const all = join(parts)
+  const pad = 16
+  const moved = shiftLay(all, pad - all.minX, pad - all.minY)
+  return { cards: moved.cards, lines: moved.lines, w: moved.maxX + pad, h: moved.maxY + pad + 12 }
 }
 
 type SeatContact = { seat_id: string; id: string; name: string }
@@ -140,10 +193,6 @@ function buildTree(seats: Seat[], seatPeople: SeatPerson[], peopleById: Map<stri
     children: depth > 50 ? [] : (byParent.get(s.id) ?? []).sort((a, b) => a.position - b.position).map(c => make(c, depth + 1)),
   })
   return (byParent.get(null) ?? []).sort((a, b) => a.position - b.position).map(r => make(r, 0))
-}
-
-function leafCount(nodes: Node[]): number {
-  return nodes.reduce((sum, n) => sum + (n.children.length ? leafCount(n.children) : 1), 0)
 }
 
 function depthOf(nodes: Node[]): number {
@@ -172,7 +221,7 @@ export default function OrgChartView({ seats, seatPeople, seatContacts, people, 
   // The layout for every branch (a branch can be given its own from its card). A chart with many seats
   // side by side is far wider than the page, so it starts sideways.
   const [layoutPref, setLayoutPref] = useLocalPref('av-org-layout', '')
-  const layout: Mode = (MODES as string[]).includes(layoutPref) ? (layoutPref as Mode) : leafCount(tree) > 10 ? 'h' : 'v'
+  const layout: Mode = (MODES as string[]).includes(layoutPref) ? (layoutPref as Mode) : 'auto'
   const setLayout = (m: Mode) => { setLayoutPref(m); setNodeModesPref('{}') }
   const [nodeModesPref, setNodeModesPref] = useLocalPref('av-org-node-modes', '{}')
   const nodeModes = useMemo<Record<string, Mode>>(() => { try { return JSON.parse(nodeModesPref) ?? {} } catch { return {} } }, [nodeModesPref])
@@ -211,37 +260,25 @@ export default function OrgChartView({ seats, seatPeople, seatContacts, people, 
   const isOpen = (n: Node, depth: number) => n.children.length > 0 && !collapsed.has(n.id) && !(maxLevels && depth + 1 >= maxLevels)
   const placement = useMemo(() => {
     const ctx: LayCtx = { h: id => heights[id] ?? DEFAULT_H, mode: modeOf, open: isOpen }
-    // Several top seats sit side by side.
-    let cursor = 0
-    const parts = tree.map(r => {
-      const l = layoutNode(r, 0, ctx)
-      const out = shiftLay(l, cursor - l.minX, 0)
-      cursor += l.maxX - l.minX + 56
-      return out
-    })
-    if (parts.length === 0) return { cards: [] as Lay['cards'], lines: [] as string[], w: 0, h: 0 }
-    const all = join(parts)
-    const pad = 16
-    const moved = shiftLay(all, pad - all.minX, pad - all.minY)
-    return { cards: moved.cards, lines: moved.lines, w: moved.maxX + pad, h: moved.maxY + pad + 12 }
+    return layoutForest(tree, ctx)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tree, heights, collapsed, maxLevels, layout, nodeModes])
 
-  // Card heights depend on their text, so measure them once drawn and lay out again if any changed.
-  useEffect(() => {
-    const id = requestAnimationFrame(() => {
-      const root = treeRef.current
-      if (!root) return
-      let changed = false
-      const next = { ...heights }
-      root.querySelectorAll<HTMLElement>('[data-seat]').forEach(el => {
-        const sid = el.dataset.seat as string
-        const h = el.offsetHeight
-        if (h > 0 && Math.abs((next[sid] ?? -1) - h) > 0.5) { next[sid] = h; changed = true }
-      })
-      if (changed) setHeights(next)
+  // Card heights depend on their text, so measure them once drawn (before paint) and lay out again if
+  // any changed. Converges in one extra pass.
+  useLayoutEffect(() => {
+    const root = treeRef.current
+    if (!root) return
+    let changed = false
+    const next = { ...heights }
+    root.querySelectorAll<HTMLElement>('[data-seat]').forEach(el => {
+      const sid = el.dataset.seat as string
+      const h = el.offsetHeight
+      if (h > 0 && Math.abs((next[sid] ?? -1) - h) > 0.5) { next[sid] = h; changed = true }
     })
-    return () => cancelAnimationFrame(id)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (changed) setHeights(next)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   })
 
   // Bring the top seat into view when the chart opens or its layout changes (a sideways chart centres it).

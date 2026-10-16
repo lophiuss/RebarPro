@@ -3,6 +3,7 @@ export const revalidate = 0
 
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { getSignedInUser } from '@/lib/supabase/user'
 import OneOnOneForm from './OneOnOneForm'
 import type { OneOnOneAnswers } from '@/lib/meetings'
 
@@ -11,7 +12,7 @@ export default async function OneOnOneDetailPage({ params }: { params: Promise<{
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound()
 
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSignedInUser(supabase)
 
   // RLS returns nothing unless the caller is the manager, the report or an admin.
   const { data: session } = await supabase

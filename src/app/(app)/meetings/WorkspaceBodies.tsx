@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useOptimistic, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { Check, Plus, Trash2, StickyNote, FileText, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react'
 import { addTodo, setTodoDone, setKpiValue, addPrivateNote, updatePrivateNote, deletePrivateNote, addPersonalTodo, setPersonalTodoDone, deletePersonalTodo } from './actions'
@@ -32,17 +32,30 @@ export function TodosBody({ todos, meetings, onOpen }: { todos: WTodo[]; meeting
   const [form, setForm] = useState({ title: '', meeting_id: meetings[0]?.id ?? '', due_date: '' })
   const meetingName = useMemo(() => new Map(meetings.map(m => [m.id, m.name])), [meetings])
   const today = ymd(new Date())
-  const active = todos.filter(t => !t.done_at)
-  const shown = showDone ? todos : active
+  // Ticks and new to-dos show at once; the saved version takes over when the page refreshes.
+  const [, startTransition] = useTransition()
+  const [list, change] = useOptimistic(todos, (cur: WTodo[], c: { add?: WTodo; toggle?: string }) =>
+    c.add ? [...cur, c.add] : cur.map(t => (t.id === c.toggle ? { ...t, done_at: t.done_at ? null : new Date().toISOString() } : t)))
+  const active = list.filter(t => !t.done_at)
+  const shown = showDone ? list : active
 
-  async function add(e: React.FormEvent) {
+  function add(e: React.FormEvent) {
     e.preventDefault()
     if (!form.title.trim() || !form.meeting_id) return
-    const ok = await act(async () => {
-      await addTodo(form.meeting_id, { title: form.title, owner_id: null, due_date: form.due_date || null })
-      return true
+    const draft = { ...form }
+    setForm({ ...form, title: '', due_date: '' })
+    const now = new Date().toISOString()
+    startTransition(async () => {
+      change({ add: { id: `pending-${now}`, title: draft.title.trim(), details: null, due_date: draft.due_date || null, done_at: null, status: 'todo', meeting_id: draft.meeting_id, owner_id: null, created_at: now } })
+      await act(() => addTodo(draft.meeting_id, { title: draft.title, owner_id: null, due_date: draft.due_date || null }))
     })
-    if (ok) setForm({ ...form, title: '', due_date: '' })
+  }
+  function toggle(t: WTodo) {
+    if (t.id.startsWith('pending-')) return
+    startTransition(async () => {
+      change({ toggle: t.id })
+      await act(() => setTodoDone(t.meeting_id, t.id, !t.done_at))
+    })
   }
 
   return (
@@ -57,11 +70,11 @@ export function TodosBody({ todos, meetings, onOpen }: { todos: WTodo[]; meeting
             return (
               <li key={t.id} className="flex items-center gap-2.5 px-1 py-1.5">
                 <button
-                  onClick={() => act(() => setTodoDone(t.meeting_id, t.id, !t.done_at))}
+                  onClick={() => toggle(t)}
                   aria-label={t.done_at ? 'Mark not done' : 'Mark done'}
                   className={`w-5 h-5 rounded-full border-2 shrink-0 inline-flex items-center justify-center ${t.done_at ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300 hover:border-blue-500'}`}
                 >{t.done_at && <Check className="w-3 h-3" />}</button>
-                <button onClick={() => onOpen(t)} className="flex-1 min-w-0 text-left" title="Open details">
+                <button onClick={() => { if (!t.id.startsWith('pending-')) onOpen(t) }} className={`flex-1 min-w-0 text-left ${t.id.startsWith('pending-') ? 'opacity-60' : ''}`} title="Open details">
                   <div className={`text-sm truncate ${t.done_at ? 'line-through text-gray-400' : ''}`}>{t.title}{t.details && <FileText className="inline-block w-3.5 h-3.5 ml-1.5 text-gray-400 align-[-2px]" />}</div>
                   <div className="text-[11px] text-gray-400 uppercase tracking-wide truncate">{meetingName.get(t.meeting_id)}</div>
                 </button>
@@ -204,14 +217,38 @@ export function PersonalTodosBody({ todos }: { todos: WPersonalTodo[] }) {
   const [due, setDue] = useState('')
   const [showDone, setShowDone] = useState(false)
   const today = ymd(new Date())
-  const active = todos.filter(t => !t.done_at)
-  const shown = showDone ? todos : active
+  const [, startTransition] = useTransition()
+  const [list, change] = useOptimistic(todos, (cur: WPersonalTodo[], c: { add?: WPersonalTodo; toggle?: string; remove?: string }) =>
+    c.add ? [c.add, ...cur]
+    : c.remove ? cur.filter(t => t.id !== c.remove)
+    : cur.map(t => (t.id === c.toggle ? { ...t, done_at: t.done_at ? null : new Date().toISOString(), status: (t.done_at ? 'todo' : 'done') as TodoStatus } : t)))
+  const active = list.filter(t => !t.done_at)
+  const shown = showDone ? list : active
 
-  async function add(e: React.FormEvent) {
+  function add(e: React.FormEvent) {
     e.preventDefault()
     if (!title.trim()) return
-    const ok = await act(async () => { await addPersonalTodo(title, due || null); return true })
-    if (ok) { setTitle(''); setDue('') }
+    const t = title.trim(), d = due
+    setTitle(''); setDue('')
+    const now = new Date().toISOString()
+    startTransition(async () => {
+      change({ add: { id: `pending-${now}`, title: t, due_date: d || null, done_at: null, status: 'todo' } })
+      await act(() => addPersonalTodo(t, d || null))
+    })
+  }
+  function toggle(t: WPersonalTodo, done: boolean) {
+    if (t.id.startsWith('pending-')) return
+    startTransition(async () => {
+      change({ toggle: t.id })
+      await act(() => setPersonalTodoDone(t.id, done))
+    })
+  }
+  function remove(t: WPersonalTodo) {
+    if (t.id.startsWith('pending-') || !confirm('Delete this to-do?')) return
+    startTransition(async () => {
+      change({ remove: t.id })
+      await act(() => deletePersonalTodo(t.id))
+    })
   }
 
   return (
@@ -222,15 +259,15 @@ export function PersonalTodosBody({ todos }: { todos: WPersonalTodo[] }) {
         <input type="date" value={due} onChange={e => setDue(e.target.value)} className={input} aria-label="Due date" />
         <button className={`${primary} px-3`} aria-label="Add personal to-do"><Plus className="w-4 h-4" /></button>
       </form>
-      <label className="flex items-center gap-2 text-xs text-gray-500 mb-2"><input type="checkbox" checked={showDone} onChange={e => setShowDone(e.target.checked)} /> Show completed ({todos.length - active.length})</label>
+      <label className="flex items-center gap-2 text-xs text-gray-500 mb-2"><input type="checkbox" checked={showDone} onChange={e => setShowDone(e.target.checked)} /> Show completed ({list.length - active.length})</label>
       {shown.length === 0 ? <Empty>Nothing here. Add your first personal to-do above.</Empty> : (
         <ul className="divide-y">
           {shown.map(t => (
             <li key={t.id} className="flex items-center gap-2 py-2">
-              <input type="checkbox" checked={!!t.done_at} onChange={e => act(() => setPersonalTodoDone(t.id, e.target.checked))} aria-label={`Mark "${t.title}" done`} />
+              <input type="checkbox" checked={!!t.done_at} onChange={e => toggle(t, e.target.checked)} aria-label={`Mark "${t.title}" done`} />
               <span className={`flex-1 text-sm ${t.done_at ? 'line-through text-gray-400' : ''}`}>{t.title}</span>
               {t.due_date && <span className={`text-[11px] whitespace-nowrap ${!t.done_at && t.due_date < today ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>{t.due_date}</span>}
-              <button onClick={() => confirm('Delete this to-do?') && act(() => deletePersonalTodo(t.id))} aria-label="Delete to-do" className="text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
+              <button onClick={() => remove(t)} aria-label="Delete to-do" className="text-gray-300 hover:text-red-500"><Trash2 className="w-3.5 h-3.5" /></button>
             </li>
           ))}
         </ul>

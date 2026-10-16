@@ -1,5 +1,6 @@
 import 'server-only'
 import { createClient } from '@/lib/supabase/server'
+import { getSignedInUser } from '@/lib/supabase/user'
 
 // Access checks shared by every Meetings server-action file. Lives outside any
 // 'use server' file on purpose: exports of a 'use server' module become
@@ -10,7 +11,7 @@ import { createClient } from '@/lib/supabase/server'
 // additional app-level guard where role matters.
 export async function requireMeetingsAccess() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSignedInUser(supabase)
   if (!user) throw new Error('Not signed in')
   const { data: hasAccess } = await supabase.rpc('has_dept_access', { dept: 'meetings' })
   if (!hasAccess) throw new Error('Not authorized')

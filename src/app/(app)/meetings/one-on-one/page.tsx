@@ -2,12 +2,13 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 import { createClient } from '@/lib/supabase/server'
+import { getSignedInUser } from '@/lib/supabase/user'
 import { MessagesSquare } from 'lucide-react'
 import OneOnOneList from './OneOnOneList'
 
 export default async function OneOnOnePage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSignedInUser(supabase)
 
   const [{ data: sessions }, { data: people }, { data: access }] = await Promise.all([
     supabase.from('mtg_one_on_ones').select('id, manager_id, report_id, quarter, status, updated_at').order('quarter', { ascending: false }).order('updated_at', { ascending: false }),

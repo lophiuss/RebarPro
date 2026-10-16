@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { getSignedInUser } from '@/lib/supabase/user'
 import { redirect } from 'next/navigation'
 import AppNavigation from '@/components/AppNavigation'
 
@@ -8,7 +9,7 @@ export default async function AppLayout({
   children: React.ReactNode
 }) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSignedInUser(supabase)
 
   if (!user) {
     redirect('/login')

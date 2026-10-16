@@ -64,7 +64,7 @@ Deno.serve(async (req: Request) => {
     const contactIds: string[] = Array.isArray(body.contact_ids) ? body.contact_ids.filter((x: unknown) => typeof x === "string").slice(0, 100) : [];
     const dry = !!body.dry_run;
     const resend = !!body.resend;
-    const mode: "password" | "link" = body.mode === "link" ? "link" : "password";
+    const mode: "password" | "link" = body.mode === "password" ? "password" : "link"; // the safer link is the default
     const message = typeof body.message === "string" ? body.message.trim().slice(0, 1000) : "";
     if (contactIds.length === 0) return json({ error: "No one selected" }, 400);
 
@@ -73,9 +73,14 @@ Deno.serve(async (req: Request) => {
       const u = new URL(String(body.site_url));
       const local = u.hostname === "localhost" || u.hostname === "127.0.0.1";
       if (u.protocol !== "https:" && !local) throw new Error("site_url must be https");
+      // The e-mail's buttons point at this address, so only our own sites are accepted (otherwise a stolen
+      // admin session could send convincing invitations that lead to a look-alike site).
+      // Add more with the ALLOWED_SITE_ORIGINS secret, comma separated.
+      const allowed = (Deno.env.get("ALLOWED_SITE_ORIGINS") ?? "https://alphavision-psi.vercel.app").split(",").map((x) => x.trim()).filter(Boolean);
+      if (!local && !allowed.includes(u.origin)) throw new Error("not allowed");
       origin = u.origin;
     } catch {
-      return json({ error: "A valid site_url (the address people use to open the app) is required" }, 400);
+      return json({ error: "That site address is not allowed. Send invitations from the real AlphaVision site (or ask the owner to add this address)." }, 400);
     }
 
     const mailUser = Deno.env.get("ALERT_EMAIL_USER");

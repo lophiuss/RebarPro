@@ -27,22 +27,24 @@ export async function proxy(request: NextRequest) {
     }
   )
 
-  // IMPORTANT: Avoid writing any logic between createServerClient and
-  // supabase.auth.getUser(). A simple mistake could make it very hard to debug
-  // issues with users being randomly logged out.
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  // IMPORTANT: Avoid writing any logic between createServerClient and the auth call below.
+  // A simple mistake could make it very hard to debug users being randomly logged out.
+  //
+  // getClaims() checks the sign-in token's signature locally (asymmetric keys) and refreshes the
+  // session cookie when needed, instead of asking the auth server on every request.
+  const { data: claimData } = await supabase.auth.getClaims()
+  const claims = claimData?.claims
+  const user = claims?.sub ? { id: claims.sub, app_metadata: (claims.app_metadata ?? {}) as { must_change_password?: boolean } } : null
+  const path = request.nextUrl.pathname
 
   if (
     !user &&
-    !request.nextUrl.pathname.startsWith('/login') &&
-    !request.nextUrl.pathname.startsWith('/auth') &&
-    !request.nextUrl.pathname.startsWith('/visitor-checkin') &&
-    !request.nextUrl.pathname.startsWith('/maintenance-request') &&
-    !request.nextUrl.pathname.startsWith('/privacy') &&
-    !request.nextUrl.pathname.startsWith('/terms')
+    !path.startsWith('/login') &&
+    !path.startsWith('/auth') &&
+    !path.startsWith('/visitor-checkin') &&
+    !path.startsWith('/maintenance-request') &&
+    !path.startsWith('/privacy') &&
+    !path.startsWith('/terms')
   ) {
     // no user, potentially respond by redirecting the user to the login page
     const url = request.nextUrl.clone()
@@ -50,12 +52,19 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // A deactivated account is banned in Supabase Auth too (blocks new sign-ins
-  // outright — see admin/access/actions.ts), but that alone leaves an
-  // already-open session usable until its access token next expires. Cut it
-  // immediately instead.
-  if (user && !request.nextUrl.pathname.startsWith('/login') && !request.nextUrl.pathname.startsWith('/auth')) {
-    const { data: profile } = await supabase.from('profiles').select('is_active').eq('id', user.id).maybeSingle()
+  // One query for both checks below: is the account still active, and which departments it has.
+  const deptSegment = path.split('/')[1]
+  const isDeptPage = ['rebar', 'cement', 'security', 'maintenance', 'mould', 'plantpro', 'meetings'].includes(deptSegment)
+  if (user && !path.startsWith('/login') && !path.startsWith('/auth')) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('is_active, access:user_department_access!user_department_access_user_id_fkey(department)')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    // A deactivated account is banned in Supabase Auth too (blocks new sign-ins outright, see
+    // admin/access/actions.ts), but an already-open session would stay usable until its token
+    // expires. Cut it immediately instead.
     if (profile && profile.is_active === false) {
       await supabase.auth.signOut()
       const url = request.nextUrl.clone()
@@ -63,46 +72,32 @@ export async function proxy(request: NextRequest) {
       url.searchParams.set('message', 'Your account has been deactivated. Contact an admin.')
       return NextResponse.redirect(url)
     }
-  }
 
-  // A person who was given a temporary password must choose their own before anything else.
-  if (
-    user &&
-    (user.app_metadata as { must_change_password?: boolean } | undefined)?.must_change_password === true &&
-    !request.nextUrl.pathname.startsWith('/auth') &&
-    !request.nextUrl.pathname.startsWith('/login')
-  ) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/auth/set-password'
-    url.search = '?force=1'
-    return NextResponse.redirect(url)
-  }
-
-  // If user is logged in and tries to access /login, send them to their department home
-  if (user && request.nextUrl.pathname === '/login') {
+    // A person who was given a temporary password must choose their own before anything else.
+    if (user.app_metadata.must_change_password === true) {
       const url = request.nextUrl.clone()
-      url.pathname = '/'
+      url.pathname = '/auth/set-password'
+      url.search = '?force=1'
       return NextResponse.redirect(url)
-  }
+    }
 
-  // If a logged-in user hits a department's pages without access to that
-  // department (stale bookmark, another department's session, etc.), bounce
-  // them to "/" instead of silently rendering that department's page with no
-  // nav — this was reported for a security-only account landing on Rebar.
-  if (user) {
-    const deptSegment = request.nextUrl.pathname.split('/')[1]
-    if (deptSegment === 'rebar' || deptSegment === 'cement' || deptSegment === 'security' || deptSegment === 'maintenance' || deptSegment === 'mould' || deptSegment === 'plantpro' || deptSegment === 'meetings') {
-      const { data: access } = await supabase
-        .from('user_department_access')
-        .select('department')
-        .eq('user_id', user.id)
-      const departments = (access ?? []).map(a => a.department)
+    // A logged-in user on a department's pages without access to that department (stale bookmark,
+    // another department's session, etc.) goes to "/" instead of an empty page with no nav.
+    if (isDeptPage) {
+      const departments = ((profile?.access ?? []) as { department: string }[]).map(a => a.department)
       if (!departments.includes(deptSegment)) {
         const url = request.nextUrl.clone()
         url.pathname = '/'
         return NextResponse.redirect(url)
       }
     }
+  }
+
+  // If user is logged in and tries to access /login, send them to their department home
+  if (user && path === '/login') {
+    const url = request.nextUrl.clone()
+    url.pathname = '/'
+    return NextResponse.redirect(url)
   }
 
   // Same idea for AI Helper — direct navigation without access bounces home

@@ -2,12 +2,13 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 import { createClient } from '@/lib/supabase/server'
+import { getSignedInUser } from '@/lib/supabase/user'
 import { ClipboardList } from 'lucide-react'
 import SessionPrepView from './SessionPrepView'
 
 export default async function SessionPrepPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSignedInUser(supabase)
   const myId = user?.id ?? ''
 
   const [{ data: sessions }, { data: responses }, { data: docs }, { data: meetings }, { data: attendance }, { data: access }] = await Promise.all([

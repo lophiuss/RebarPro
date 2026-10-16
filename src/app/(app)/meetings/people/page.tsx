@@ -2,13 +2,14 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 import { createClient } from '@/lib/supabase/server'
+import { getSignedInUser } from '@/lib/supabase/user'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { UserPlus } from 'lucide-react'
 import PeopleView from './PeopleView'
 
 export default async function PeoplePage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSignedInUser(supabase)
   const { data: access } = user
     ? await supabase.from('user_department_access').select('role').eq('user_id', user.id).eq('department', 'meetings').maybeSingle()
     : { data: null }

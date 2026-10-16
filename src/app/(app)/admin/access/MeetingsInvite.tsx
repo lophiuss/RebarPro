@@ -12,7 +12,7 @@ type Result = { name: string; email: string | null; status: string; reason?: str
 export default function MeetingsInvite({ onDone }: { onDone: () => void }) {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
-  const [mode, setMode] = useState<'password' | 'link'>('password')
+  const [mode, setMode] = useState<'password' | 'link'>('link')
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -58,8 +58,8 @@ export default function MeetingsInvite({ onDone }: { onDone: () => void }) {
         </button>
       </div>
       <fieldset className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm">
-        <label className="inline-flex items-center gap-2"><input type="radio" name="inv-mode" checked={mode === 'password'} onChange={() => setMode('password')} /> Random temporary password (must be changed at first sign-in)</label>
-        <label className="inline-flex items-center gap-2"><input type="radio" name="inv-mode" checked={mode === 'link'} onChange={() => setMode('link')} /> One-time link to choose their own password</label>
+        <label className="inline-flex items-center gap-2"><input type="radio" name="inv-mode" checked={mode === 'password'} onChange={() => setMode('password')} /> Random temporary password (less safe: the password travels in the e-mail)</label>
+        <label className="inline-flex items-center gap-2"><input type="radio" name="inv-mode" checked={mode === 'link'} onChange={() => setMode('link')} /> One-time link to choose their own password (recommended)</label>
       </fieldset>
       <input value={message} onChange={e => setMessage(e.target.value)} placeholder="Optional message in the e-mail" className="mt-3 w-full max-w-xl border rounded-md px-3 py-2 text-sm" aria-label="Message in the invitation" />
       {error && <p className="mt-3 text-sm text-red-600 flex items-center gap-1.5"><AlertTriangle className="w-4 h-4" /> {error}</p>}

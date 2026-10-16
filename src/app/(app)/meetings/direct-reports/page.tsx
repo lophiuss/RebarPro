@@ -2,12 +2,13 @@ export const dynamic = 'force-dynamic'
 export const revalidate = 0
 
 import { createClient } from '@/lib/supabase/server'
+import { getSignedInUser } from '@/lib/supabase/user'
 import { Users } from 'lucide-react'
 import DirectReportsView from './DirectReportsView'
 
 export default async function DirectReportsPage() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSignedInUser(supabase)
   const myId = user?.id ?? ''
 
   const [{ data: seats }, { data: seatPeople }, { data: people }, { data: qaMeetings }] = await Promise.all([
