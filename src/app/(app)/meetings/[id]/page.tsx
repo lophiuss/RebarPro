@@ -93,6 +93,8 @@ export default async function MeetingPage({
   let whiteboards: { id: string; title: string }[] = []
   let whiteboard: { id: string; title: string; items: unknown[] } | null = null
   let myName = 'Someone'
+  let docs: unknown[] = []
+  let boards: unknown[] = []
   if (tab === 'WHITEBOARD') {
     const { data: boards } = await supabase.from('mtg_whiteboards').select('id, title').eq('meeting_id', id).order('created_at')
     whiteboards = (boards ?? []).map(b => ({ id: b.id as string, title: b.title as string }))
@@ -103,6 +105,15 @@ export default async function MeetingPage({
     }
     const { data: me } = user ? await supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle() : { data: null }
     myName = (me?.full_name as string | null) ?? 'Someone'
+  }
+
+  if (tab === 'DOCUMENTS') {
+    const [{ data: d }, { data: b }] = await Promise.all([
+      supabase.from('mtg_documents').select('id, title, description, url, category, meeting_id, created_by, created_at, file_name, file_size, mime_type, file_path, department').eq('meeting_id', id).order('created_at', { ascending: false }),
+      supabase.from('mtg_whiteboards').select('id, title, meeting_id, created_by, created_at, updated_at').eq('meeting_id', id).order('updated_at', { ascending: false }),
+    ])
+    docs = d ?? []
+    boards = b ?? []
   }
 
   const found = new Set<string>()
@@ -155,6 +166,8 @@ export default async function MeetingPage({
       whiteboards={whiteboards}
       whiteboard={whiteboard}
       myName={myName}
+      docs={docs as any}
+      boards={boards as any}
     />
   )
 }

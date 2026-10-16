@@ -23,6 +23,38 @@ async function requireDeptAdmin() {
   return { supabase, user }
 }
 
+type AdminClient = ReturnType<typeof createAdminClient>
+
+// Taking over, locking out or deleting an account is more powerful than granting access, so being
+// "an admin of some department" is not enough. You can manage someone's account only if
+//   * it is your own, or you are a super admin, or
+//   * every department they have access to is one you are an admin of (people with no access yet
+//     are fine, so a new person can be set up).
+// A super admin's account is only ever managed by another super admin.
+async function requireCanManage(targetId: string) {
+  const ctx = await requireDeptAdmin()
+  const admin = createAdminClient()
+  if (targetId === ctx.user.id) return { ...ctx, admin }
+  const isSuper = async (id: string) => !!(await admin.from('app_super_admins').select('user_id').eq('user_id', id).maybeSingle()).data
+  if (await isSuper(ctx.user.id)) return { ...ctx, admin }
+  if (await isSuper(targetId)) throw new Error('Only a super admin can change a super admin account.')
+  const [{ data: mine }, { data: theirs }] = await Promise.all([
+    admin.from('user_department_access').select('department').eq('user_id', ctx.user.id).eq('role', 'admin'),
+    admin.from('user_department_access').select('department').eq('user_id', targetId),
+  ])
+  const myDepts = new Set((mine ?? []).map(r => r.department as string))
+  const outside = [...new Set((theirs ?? []).map(r => r.department as string).filter(d => !myDepts.has(d)))]
+  if (outside.length) throw new Error(`You can't manage this account: it also has access to ${outside.join(', ')}, where you are not an admin. Ask an admin of that department, or a super admin.`)
+  return { ...ctx, admin }
+}
+
+// Every account-level action leaves a trace: who did what to whom.
+async function logAccountAction(admin: AdminClient, actorId: string, targetId: string, action: string, detail: Record<string, unknown> = {}) {
+  try {
+    await admin.from('audit_log').insert({ table_name: 'account', record_id: targetId, action, new_data: detail, changed_by: actorId })
+  } catch { /* a logging hiccup must not undo the action itself */ }
+}
+
 // Combines the Auth user list (for email — this project's `profiles` table has
 // no email column) with `profiles` (for full_name/avatar_url). Requires
 // SUPABASE_SECRET_KEY; never called from the browser.
@@ -57,10 +89,9 @@ export async function listPeople(): Promise<Person[]> {
 // proxy.ts also checks on every request so an already-open session is cut
 // immediately rather than only at their next token refresh.
 export async function setPersonActive(userId: string, active: boolean): Promise<void> {
-  const { user } = await requireDeptAdmin()
+  const { user, admin } = await requireCanManage(userId)
   if (userId === user.id && !active) throw new Error("You can't deactivate your own account")
 
-  const admin = createAdminClient()
   const { error: banErr } = await admin.auth.admin.updateUserById(userId, {
     ban_duration: active ? 'none' : '876000h', // ~100 years — GoTrue has no "forever", this is the standard idiom
   })
@@ -68,24 +99,26 @@ export async function setPersonActive(userId: string, active: boolean): Promise<
 
   const { error } = await admin.from('profiles').update({ is_active: active }).eq('id', userId)
   if (error) throw error
+  await logAccountAction(admin, user.id, userId, active ? 'account.activate' : 'account.deactivate')
 }
 
 // Creates a brand-new account directly, as an alternative to self-signup —
 // e.g. for someone who won't use the login page themselves. Department
 // access is granted separately via the existing Grant Access form.
 export async function createPerson(email: string, password: string, fullName: string): Promise<void> {
-  await requireDeptAdmin()
+  const { user } = await requireDeptAdmin()
   if (!email.trim() || !password) throw new Error('Email and password are required')
-  if (password.length < 6) throw new Error('Password must be at least 6 characters')
+  if (password.length < 8) throw new Error('Password must be at least 8 characters')
 
   const admin = createAdminClient()
-  const { error } = await admin.auth.admin.createUser({
+  const { data: created, error } = await admin.auth.admin.createUser({
     email: email.trim(),
     password,
     email_confirm: true,
     user_metadata: { full_name: fullName.trim() || undefined },
   })
   if (error) throw error
+  if (created?.user) await logAccountAction(admin, user.id, created.user.id, 'account.create', { email: email.trim() })
 }
 
 // Updates someone else's name/picture. profiles' own RLS only lets people
@@ -94,7 +127,7 @@ export async function createPerson(email: string, password: string, fullName: st
 // the 'avatars' storage bucket by the caller (that bucket's own RLS allows a
 // dept admin to upload into anyone's folder) — this just records it.
 export async function updatePersonProfile(userId: string, fullName: string, avatarUrl?: string | null): Promise<void> {
-  await requireDeptAdmin()
+  await requireCanManage(userId)
   const admin = createAdminClient()
   const patch: { full_name: string | null; avatar_url?: string | null } = { full_name: fullName.trim() || null }
   if (avatarUrl !== undefined) patch.avatar_url = avatarUrl
@@ -103,22 +136,24 @@ export async function updatePersonProfile(userId: string, fullName: string, avat
 }
 
 export async function resetPersonPassword(userId: string, newPassword: string): Promise<void> {
-  await requireDeptAdmin()
-  if (newPassword.length < 6) throw new Error('Password must be at least 6 characters')
-  const admin = createAdminClient()
+  const { user, admin } = await requireCanManage(userId)
+  if (newPassword.length < 8) throw new Error('Password must be at least 8 characters')
   const { error } = await admin.auth.admin.updateUserById(userId, { password: newPassword })
   if (error) throw error
+  await logAccountAction(admin, user.id, userId, 'account.password_reset')
 }
 
 // Permanently removes an account. Their department access, attendance, seats, notes and personal
 // to-dos go with it; anything they owned in Meetings (to-dos, issues, KPIs, priorities) stays but
 // loses its owner. Someone who has made audited changes can't be deleted: deactivate them instead.
 export async function deletePerson(userId: string): Promise<void> {
-  const { user } = await requireDeptAdmin()
+  const { user, admin } = await requireCanManage(userId)
   if (userId === user.id) throw new Error("You can't delete your own account")
-  const admin = createAdminClient()
-  // Access that this person granted to others must not block the delete.
+  // Access that this person granted to others must not block the delete. Their audit entries stay:
+  // the deleted account's e-mail is recorded in the entry for the delete itself.
+  const { data: gone } = await admin.auth.admin.getUserById(userId)
   await admin.from('user_department_access').update({ granted_by: null }).eq('granted_by', userId)
+  await admin.from('audit_log').update({ changed_by: null }).eq('changed_by', userId)
   const { error } = await admin.auth.admin.deleteUser(userId)
   if (error) {
     if (/foreign key|violates|database error/i.test(error.message)) {
@@ -126,15 +161,17 @@ export async function deletePerson(userId: string): Promise<void> {
     }
     throw error
   }
+  await logAccountAction(admin, user.id, userId, 'account.delete', { email: gone?.user?.email ?? null })
 }
 
 // Changes someone's sign-in e-mail directly (no confirmation e-mail; an admin is vouching for it).
 // Meetings invitations that were already linked to them keep working.
 export async function updatePersonEmail(userId: string, email: string): Promise<void> {
-  await requireDeptAdmin()
+  const { user, admin } = await requireCanManage(userId)
   const next = email.trim().toLowerCase()
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(next)) throw new Error('That does not look like an e-mail address')
-  const admin = createAdminClient()
+  const { data: before } = await admin.auth.admin.getUserById(userId)
   const { error } = await admin.auth.admin.updateUserById(userId, { email: next, email_confirm: true })
   if (error) throw error
+  await logAccountAction(admin, user.id, userId, 'account.email_change', { from: before?.user?.email ?? null, to: next })
 }

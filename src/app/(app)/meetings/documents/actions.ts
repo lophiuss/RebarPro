@@ -49,6 +49,7 @@ export async function addDocument(input: {
   })
   if (error) throw error
   revalidatePath('/meetings/documents')
+  revalidatePath('/meetings/[id]', 'page')
 }
 
 // A short-lived link to an uploaded file. PDFs and images open in the browser;
@@ -72,4 +73,5 @@ export async function deleteDocument(id: string) {
   if (error) throw error
   if (doc.file_path) await supabase.storage.from('meeting-docs').remove([doc.file_path])
   revalidatePath('/meetings/documents')
+  revalidatePath('/meetings/[id]', 'page')
 }

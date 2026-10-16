@@ -244,7 +244,7 @@ export default function AccessControlPage() {
 
   async function doResetPassword() {
     if (!editPerson) return
-    if (editNewPassword.length < 6) { alert('Password must be at least 6 characters'); return }
+    if (editNewPassword.length < 8) { alert('Password must be at least 8 characters'); return }
     if (!confirm(`Reset the password for ${editPerson.email}?`)) return
     setResettingPassword(true)
     try {
@@ -412,19 +412,20 @@ Type DELETE to confirm.`)
           .sort((a, b) => (a.full_name || a.email).localeCompare(b.full_name || b.email))
           .filter(p => !q || (p.full_name ?? '').toLowerCase().includes(q) || p.email.toLowerCase().includes(q))
         return (
-          <div className="bg-white border rounded-xl shadow-sm overflow-x-auto mb-10">
-            <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between gap-3 flex-wrap">
+          <div className="bg-white border rounded-xl shadow-sm mb-10">
+            <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between gap-3 flex-wrap rounded-t-xl">
               <h2 className="text-sm font-bold text-slate-700">All people — {rows.length} of {profiles.length}</h2>
               <button onClick={() => setShowAddPerson(true)} className="inline-flex items-center gap-1.5 bg-slate-900 text-white text-sm font-medium px-3 py-1.5 rounded-lg hover:bg-slate-800"><UserPlus className="w-4 h-4" /> Add person</button>
               <input value={ovQuery} onChange={e => setOvQuery(e.target.value)} placeholder="Search name or e-mail" className="border rounded-lg px-3 py-1.5 text-sm w-64" aria-label="Search people" />
             </div>
+            <div className="overflow-auto max-h-[calc(100vh-17rem)]">
             <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Person</th>
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                  {myAdminDepts.map(d => <th key={d} className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">{DEPT_LABEL[d]}</th>)}
-                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Manage</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase sticky top-0 bg-gray-50 z-10">Person</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase sticky top-0 bg-gray-50 z-10">Status</th>
+                  {myAdminDepts.map(d => <th key={d} className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase sticky top-0 bg-gray-50 z-10">{DEPT_LABEL[d]}</th>)}
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase sticky top-0 bg-gray-50 z-10">Manage</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -467,6 +468,7 @@ Type DELETE to confirm.`)
                 {rows.length === 0 && <tr><td colSpan={myAdminDepts.length + 3} className="px-4 py-8 text-center text-gray-400">Nobody matches.</td></tr>}
               </tbody>
             </table>
+            </div>
             <p className="px-4 py-2 text-[11px] text-gray-400 border-t">Shows the departments you administer: {myAdminDepts.map(d => DEPT_LABEL[d]).join(', ') || 'none'}.</p>
           </div>
         )

@@ -47,11 +47,15 @@ function Tile({ icon: Icon, title, count, tone, onClick }: { icon: React.Compone
   )
 }
 
-export default function DocumentsView({ docs, boards, meetings, people, myId, isManager }: {
+export default function DocumentsView({ docs: allDocs, boards: allBoards, meetings, people, myId, isManager, lockedMeetingId }: {
   docs: Doc[]; boards: Board[]; meetings: { id: string; name: string }[]; people: Record<string, string>; myId: string; isManager: boolean
+  // Inside a meeting: only that meeting's documents, with no folder navigation
+  lockedMeetingId?: string
 }) {
+  const docs = lockedMeetingId ? allDocs.filter(d => d.meeting_id === lockedMeetingId) : allDocs
+  const boards = lockedMeetingId ? allBoards.filter(b => b.meeting_id === lockedMeetingId) : allBoards
   const router = useRouter()
-  const [folder, setFolder] = useState<FolderKey>({ k: 'root' })
+  const [folder, setFolder] = useState<FolderKey>(lockedMeetingId ? { k: 'meeting', id: lockedMeetingId } : { k: 'root' })
   const [query, setQuery] = useState('')
   const [adding, setAdding] = useState(false)
   const [mode, setMode] = useState<'file' | 'link'>('file')
@@ -138,7 +142,7 @@ export default function DocumentsView({ docs, boards, meetings, people, myId, is
     const name = prompt('Whiteboard name', folder.k === 'meeting' ? `${meetingName.get(folder.id) ?? 'Meeting'} whiteboard` : 'New whiteboard')
     if (!name?.trim()) return
     const id = await act(() => createWhiteboard({ title: name, meeting_id: folder.k === 'meeting' ? folder.id : null }))
-    if (id) router.push(`/meetings/coach/${id}`)
+    if (id) router.push(lockedMeetingId ? `/meetings/${lockedMeetingId}?tab=WHITEBOARD&board=${id}` : `/meetings/coach/${id}`)
   }
 
   async function open(d: Doc) {
@@ -152,7 +156,7 @@ export default function DocumentsView({ docs, boards, meetings, people, myId, is
   return (
     <div>
       <div className="flex flex-wrap items-center gap-3 mb-4">
-        <nav className="flex items-center gap-1 text-sm text-gray-600 min-w-0" aria-label="Folder path">
+        {!lockedMeetingId && <nav className="flex items-center gap-1 text-sm text-gray-600 min-w-0" aria-label="Folder path">
           {crumbs.map((c, i) => (
             <span key={i} className="inline-flex items-center gap-1 min-w-0">
               {i > 0 && <ChevronRight className="w-3.5 h-3.5 text-gray-400" />}
@@ -161,7 +165,7 @@ export default function DocumentsView({ docs, boards, meetings, people, myId, is
                 : <button onClick={() => { setFolder(c); setQuery('') }} className="hover:text-blue-700 hover:underline truncate">{title(c)}</button>}
             </span>
           ))}
-        </nav>
+        </nav>}
         <div className="relative ml-auto">
           <Search className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
           <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search everything" className="pl-8 pr-3 py-1.5 border rounded-lg text-sm bg-white w-56" aria-label="Search documents" />
@@ -277,12 +281,14 @@ export default function DocumentsView({ docs, boards, meetings, people, myId, is
               </label>
               <p className="text-xs text-gray-500 -mb-2">It is filed automatically in the folders you choose here. Leave both empty to put it in General.</p>
               <div className="grid gap-3 sm:grid-cols-2">
+                {!lockedMeetingId && (
                 <label className="block text-sm font-medium">Meeting
                   <select value={form.meeting_id} onChange={e => setForm({ ...form, meeting_id: e.target.value })} className={`${input} mt-1 font-normal`}>
                     <option value="">Not tied to a meeting</option>
                     {meetings.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                   </select>
                 </label>
+                )}
                 <label className="block text-sm font-medium">Department
                   <select value={form.department} onChange={e => setForm({ ...form, department: e.target.value })} className={`${input} mt-1 font-normal`}>
                     <option value="">No department</option>

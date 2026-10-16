@@ -304,8 +304,8 @@ export default function StockTakePage() {
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase sticky left-0 bg-gray-50 z-10">Date</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase sticky left-24 bg-gray-50 z-10">Project Type</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase sticky left-0 bg-gray-50 z-20 w-28 min-w-[7rem] max-w-[7rem]">Date</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase sticky left-28 bg-gray-50 z-20 min-w-[9rem] border-r border-gray-200">Project Type</th>
               {sizes.map(s => (
                 <th key={s.id} className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase border-l">
                   {s.size} <br/><span className="text-[10px] text-gray-400 font-normal">Count / Var ({uLabel})</span>
@@ -318,9 +318,9 @@ export default function StockTakePage() {
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {Object.values(groupedStockTakes).map((group: any, i) => (
-              <tr key={i} className="hover:bg-gray-50">
-                <td className="px-4 py-3 text-sm font-medium whitespace-nowrap sticky left-0 bg-inherit">{group.date}</td>
-                <td className="px-4 py-3 text-sm font-semibold text-slate-700 whitespace-nowrap sticky left-24 bg-inherit">{group.project_type_name}</td>
+              <tr key={i} className="group hover:bg-gray-50">
+                <td className="px-4 py-3 text-sm font-medium whitespace-nowrap sticky left-0 z-10 w-28 min-w-[7rem] max-w-[7rem] bg-white group-hover:bg-gray-50">{group.date}</td>
+                <td className="px-4 py-3 text-sm font-semibold text-slate-700 whitespace-nowrap sticky left-28 z-10 min-w-[9rem] bg-white group-hover:bg-gray-50 border-r border-gray-200">{group.project_type_name}</td>
                 
                 {sizes.map(s => {
                   const cell = group.sizes[s.id]
