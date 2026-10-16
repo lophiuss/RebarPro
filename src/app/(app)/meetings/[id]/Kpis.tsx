@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Plus, Trash2, X, Check, ListChecks, AlertCircle, BarChart3, Table2, StickyNote, MoreVertical } from 'lucide-react'
 import { addKpi, setKpiValue, setKpiNote, deleteKpi, updateKpi, setKpiMeetings, setKpiCustomGoal, deleteKpiCustomGoal } from '../actions'
 import { useMeeting, useRun } from './context'
@@ -56,6 +57,15 @@ function KpiCell({ kpi, start, value, goal, onCreate, note, onNote }: {
         key={`${start}-${value ?? ''}`}
         defaultValue={value === null || value === undefined ? '' : String(value)}
         onChange={e => save(e.target.value === '' ? null : Number(e.target.value))}
+        onKeyDown={e => {
+          if (e.key !== 'Enter') return
+          e.preventDefault()
+          const td = e.currentTarget.closest('td')
+          const row = td?.parentElement
+          const sibling = e.shiftKey ? row?.previousElementSibling : row?.nextElementSibling
+          const next = (sibling as HTMLTableRowElement | null)?.cells?.[(td as HTMLTableCellElement).cellIndex]?.querySelector<HTMLInputElement | HTMLSelectElement>('input, select')
+          if (next) { next.focus(); if (next instanceof HTMLInputElement) next.select() }
+        }}
         className={`w-full min-w-0 text-center border rounded px-0.5 py-0.5 text-xs ${tone}`}
         aria-label={`${kpi.name} ${start}`}
       >
@@ -73,6 +83,16 @@ function KpiCell({ kpi, start, value, goal, onCreate, note, onNote }: {
           const raw = e.target.value.trim()
           save(raw === '' ? null : Number(raw))
         }}
+        onKeyDown={e => {
+          if (e.key !== 'Enter') return
+          e.preventDefault()
+          // Like a spreadsheet: Enter saves and moves to the same week one KPI below (Shift+Enter: above).
+          const td = e.currentTarget.closest('td')
+          const row = td?.parentElement
+          const sibling = e.shiftKey ? row?.previousElementSibling : row?.nextElementSibling
+          const next = (sibling as HTMLTableRowElement | null)?.cells?.[(td as HTMLTableCellElement).cellIndex]?.querySelector<HTMLInputElement | HTMLSelectElement>('input, select')
+          if (next) { next.focus(); if (next instanceof HTMLInputElement) next.select() } else e.currentTarget.blur()
+        }}
         className={`w-full min-w-0 text-center border rounded px-1 py-0.5 text-xs ${tone}`}
         aria-label={`${kpi.name} ${start}`}
       />
@@ -83,6 +103,7 @@ function KpiCell({ kpi, start, value, goal, onCreate, note, onNote }: {
   // number or the cells beside it while the mouse passes over.
   const [menu, setMenu] = useState<{ top?: number; bottom?: number; left: number } | null>(null)
   const trigger = useRef<HTMLButtonElement>(null)
+  const cellBox = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!menu) return
     const close = () => setMenu(null)
@@ -93,15 +114,16 @@ function KpiCell({ kpi, start, value, goal, onCreate, note, onNote }: {
     return () => { window.removeEventListener('scroll', close, true); window.removeEventListener('resize', close); window.removeEventListener('keydown', onKey) }
   }, [menu])
   function openMenu() {
-    const r = trigger.current?.getBoundingClientRect()
+    // Opens right under the number (or right above it near the bottom of the screen), lined up with the cell.
+    const r = cellBox.current?.getBoundingClientRect() ?? trigger.current?.getBoundingClientRect()
     if (!r) return
-    const left = Math.min(r.left, window.innerWidth - 220)
-    setMenu(window.innerHeight - r.bottom < 170 ? { bottom: window.innerHeight - r.top + 4, left } : { top: r.bottom + 4, left })
+    const left = Math.max(4, Math.min(r.left, window.innerWidth - 176))
+    setMenu(window.innerHeight - r.bottom < 140 ? { bottom: window.innerHeight - r.top + 2, left } : { top: r.bottom + 2, left })
   }
-  const item = 'w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex items-center gap-2'
+  const item = 'w-full text-left px-2.5 py-1.5 text-[13px] hover:bg-gray-50 flex items-center gap-2'
 
   return (
-    <div className="group relative block w-full" title={note ? `Note: ${note}` : undefined}>
+    <div ref={cellBox} className="group relative block w-full" title={note ? `Note: ${note}` : undefined}>
       {control}
       {note && (
         <button type="button" onClick={onNote} aria-label={`Note: ${note}`} className="absolute top-0 right-0 w-0 h-0 border-t-[9px] border-l-[9px] border-t-amber-500 border-l-transparent rounded-tr" />
@@ -115,16 +137,16 @@ function KpiCell({ kpi, start, value, goal, onCreate, note, onNote }: {
         aria-expanded={!!menu}
         className="absolute top-0 left-0 h-3.5 w-3.5 hidden group-hover:inline-flex group-focus-within:inline-flex items-center justify-center rounded-sm bg-white/80 text-gray-500 hover:text-gray-900 hover:bg-white"
       ><MoreVertical className="w-3 h-3" /></button>
-      {menu && (
+      {menu && createPortal(
         <>
           <div className="fixed inset-0 z-[70]" onClick={() => setMenu(null)} />
-          <div role="menu" style={{ position: 'fixed', top: menu.top, bottom: menu.bottom, left: menu.left, width: 208 }} className="z-[71] bg-white border rounded-lg shadow-xl py-1">
+          <div role="menu" style={{ position: 'fixed', top: menu.top, bottom: menu.bottom, left: menu.left, width: 168 }} className="z-[71] bg-white border rounded-lg shadow-xl py-0.5">
             <button role="menuitem" type="button" onClick={() => { setMenu(null); onNote() }} className={item}><StickyNote className="w-4 h-4 text-amber-500" /> {note ? 'Edit note' : 'Add note'}</button>
             <button role="menuitem" type="button" onClick={() => { setMenu(null); onCreate('todo') }} className={item}><ListChecks className="w-4 h-4 text-blue-600" /> Create to-do</button>
             <button role="menuitem" type="button" onClick={() => { setMenu(null); onCreate('issue') }} className={item}><AlertCircle className="w-4 h-4 text-amber-600" /> Create issue</button>
           </div>
         </>
-      )}
+      , document.body)}
     </div>
   )
 }
