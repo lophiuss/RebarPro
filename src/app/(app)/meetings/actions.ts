@@ -612,6 +612,21 @@ export async function setKpiValue(meetingId: string, kpiId: string, periodStart:
   refresh(meetingId)
 }
 
+// A note on one KPI number (one per KPI per period). An empty note removes it.
+export async function setKpiNote(meetingId: string, kpiId: string, periodStart: string, note: string) {
+  const { supabase, user } = await requireMeetingsAccess()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(periodStart)) throw new Error('Pick a period')
+  const clean = note.trim().slice(0, 2000)
+  if (!clean) {
+    const { error } = await supabase.from('mtg_kpi_notes').delete().eq('kpi_id', kpiId).eq('period_start', periodStart)
+    if (error) throw error
+  } else {
+    const { error } = await supabase.from('mtg_kpi_notes').upsert({ kpi_id: kpiId, period_start: periodStart, note: clean, updated_by: user.id, updated_at: new Date().toISOString() })
+    if (error) throw error
+  }
+  refresh(meetingId)
+}
+
 export async function deleteKpi(meetingId: string, id: string) {
   const { supabase } = await requireMeetingsAccess()
   const { error } = await supabase.from('mtg_kpis').delete().eq('id', id)

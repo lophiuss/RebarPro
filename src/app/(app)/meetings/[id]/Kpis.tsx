@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { Plus, Trash2, X, Check, ListChecks, AlertCircle, BarChart3, Table2 } from 'lucide-react'
-import { addKpi, setKpiValue, deleteKpi, updateKpi, setKpiMeetings, setKpiCustomGoal, deleteKpiCustomGoal } from '../actions'
+import { Plus, Trash2, X, Check, ListChecks, AlertCircle, BarChart3, Table2, StickyNote } from 'lucide-react'
+import { addKpi, setKpiValue, setKpiNote, deleteKpi, updateKpi, setKpiMeetings, setKpiCustomGoal, deleteKpiCustomGoal } from '../actions'
 import { useMeeting, useRun } from './context'
 import Avatar from '../Avatar'
 import { PersonSelect } from '../PersonPicker'
@@ -34,9 +34,11 @@ const MISS = 'bg-red-50 border-red-300 text-red-800'
 
 // ---------------------------------------------------------------------- cell
 
-function KpiCell({ kpi, start, value, goal, onCreate }: {
+function KpiCell({ kpi, start, value, goal, onCreate, note, onNote }: {
   kpi: Kpi; start: string; value: number | null | undefined; goal: Goal
   onCreate: (kind: 'todo' | 'issue') => void
+  note?: string
+  onNote: () => void
 }) {
   const { meetingId } = useMeeting()
   const run = useRun()
@@ -78,9 +80,13 @@ function KpiCell({ kpi, start, value, goal, onCreate }: {
   }
 
   return (
-    <div className="group relative block w-full">
+    <div className="group relative block w-full" title={note ? `Note: ${note}` : undefined}>
       {control}
+      {note && (
+        <button type="button" onClick={onNote} aria-label={`Note: ${note}`} className="absolute top-0 right-0 w-0 h-0 border-t-[9px] border-l-[9px] border-t-amber-500 border-l-transparent rounded-tr" />
+      )}
       <div className="absolute -top-2.5 -right-2 hidden group-hover:flex group-focus-within:flex gap-0.5 rounded-md border bg-white shadow-sm p-0.5 z-10">
+        <button type="button" onClick={onNote} title={note ? 'Edit the note on this number' : 'Add a note to this number'} aria-label="Note on this KPI number" className="p-0.5 rounded text-slate-600 hover:bg-slate-100"><StickyNote className="w-3.5 h-3.5" /></button>
         <button type="button" onClick={() => onCreate('todo')} title="Create a to-do from this number" aria-label="Create to-do from this KPI number" className="p-0.5 rounded text-blue-600 hover:bg-blue-50"><ListChecks className="w-3.5 h-3.5" /></button>
         <button type="button" onClick={() => onCreate('issue')} title="Create an issue from this number" aria-label="Create issue from this KPI number" className="p-0.5 rounded text-amber-600 hover:bg-amber-50"><AlertCircle className="w-3.5 h-3.5" /></button>
       </div>
@@ -264,8 +270,9 @@ function KpiDrawer({ kpi, custom, allMeetings, onClose }: {
 
 // ------------------------------------------------------------------ section
 
-export function Metrics({ kpis, values, customGoals, otherMeetings, meetingName }: {
+export function Metrics({ kpis, values, customGoals, otherMeetings, meetingName, notes = [] }: {
   kpis: Kpi[]; values: KpiValue[]; customGoals: KpiCustomGoal[]; otherMeetings: OtherMeetings; meetingName: string
+  notes?: { kpi_id: string; period_start: string; note: string }[]
 }) {
   const { meetingId, myId, peopleById } = useMeeting()
   const run = useRun()
@@ -279,6 +286,27 @@ export function Metrics({ kpis, values, customGoals, otherMeetings, meetingName 
   const [draft, setDraft] = useState<{ kind: 'todo' | 'issue'; title: string; details: string } | null>(null)
   const [form, setForm] = useState({ name: '', owner_id: myId, unit_type: 'number' as UnitType, rule: 'gte' as GoalRule, value: '', max: '' })
   const byKey = useMemo(() => new Map(values.map(v => [`${v.kpi_id}|${v.period_start}`, v.value])), [values])
+  const serverNotes = useMemo(() => new Map(notes.map(n => [`${n.kpi_id}|${n.period_start}`, n.note])), [notes])
+  // A saved note shows straight away; the server's copy takes over once the page has refreshed.
+  const notesSig = notes.map(n => `${n.kpi_id}|${n.period_start}|${n.note}`).join('~')
+  const [seenNotes, setSeenNotes] = useState(notesSig)
+  const [localNotes, setLocalNotes] = useState<Record<string, string>>({})
+  if (seenNotes !== notesSig) { setSeenNotes(notesSig); setLocalNotes({}) }
+  const noteByKey = useMemo(() => {
+    const m = new Map(serverNotes)
+    for (const [k, v] of Object.entries(localNotes)) { if (v) m.set(k, v); else m.delete(k) }
+    return m
+  }, [serverNotes, localNotes])
+  const [noteEdit, setNoteEdit] = useState<{ kpi: Kpi; start: string; label: string; text: string } | null>(null)
+  const [noteBusy, setNoteBusy] = useState(false)
+  async function saveNote(text: string) {
+    if (!noteEdit) return
+    setNoteBusy(true)
+    const key = `${noteEdit.kpi.id}|${noteEdit.start}`
+    const ok = await run(async () => { await setKpiNote(meetingId, noteEdit.kpi.id, noteEdit.start, text); return true })
+    setNoteBusy(false)
+    if (ok) { setLocalNotes(prev => ({ ...prev, [key]: text.trim() })); setNoteEdit(null) }
+  }
   const periods = useMemo(() => periodsFor(cadence, range), [cadence, range])
   const shown = kpis.filter(k => k.cadence === cadence)
   const open = kpis.find(k => k.id === openId)
@@ -390,17 +418,18 @@ export function Metrics({ kpis, values, customGoals, otherMeetings, meetingName 
           goalFor={group === 'period' ? key => goalFor(chartKpi, key, customGoals) : undefined}
         />
       ) : (
-        <div className={`${card} overflow-x-auto`}>
+        <div className={`${card} overflow-auto max-h-[calc(100vh-14rem)]`}>
           {/* Fixed layout: the period columns share whatever width is left, so the value boxes grow with the page. */}
           <table className="w-full text-sm table-fixed" style={{ minWidth: `${22 + periods.length * 3.6}rem` }}>
             <colgroup><col style={{ width: '12rem' }} /><col style={{ width: '5.5rem' }} /><col style={{ width: '4.5rem' }} /><col style={{ width: '4.5rem' }} />{periods.map(p => <col key={p.start} />)}</colgroup>
             <thead className="bg-gray-50">
+              {/* The dates stay at the top and the first four columns stay on the left while scrolling. */}
               <tr className="text-[11px] uppercase tracking-wide text-gray-500">
-                <th className="text-left px-2 py-1.5 font-semibold">KPI</th>
-                <th className="px-1 py-1.5 font-semibold">Goal</th>
-                <th className="px-1 py-1.5 font-semibold">Sum</th>
-                <th className="px-1 py-1.5 font-semibold">Avg</th>
-                {periods.map(p => <th key={p.start} className="px-1 py-1.5 font-semibold whitespace-nowrap">{p.label}</th>)}
+                <th className="text-left px-2 py-1.5 font-semibold sticky top-0 left-0 z-30 bg-gray-50">KPI</th>
+                <th className="px-1 py-1.5 font-semibold sticky top-0 left-[12rem] z-30 bg-gray-50">Goal</th>
+                <th className="px-1 py-1.5 font-semibold sticky top-0 left-[17.5rem] z-30 bg-gray-50">Sum</th>
+                <th className="px-1 py-1.5 font-semibold sticky top-0 left-[22rem] z-30 bg-gray-50 shadow-[inset_-1px_0_0_#e5e7eb]">Avg</th>
+                {periods.map(p => <th key={p.start} className="px-1 py-1.5 font-semibold whitespace-nowrap sticky top-0 z-20 bg-gray-50">{p.label}</th>)}
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -409,19 +438,19 @@ export function Metrics({ kpis, values, customGoals, otherMeetings, meetingName 
                 const sum = nums.reduce((s, v) => s + v, 0)
                 const avg = nums.length ? sum / nums.length : null
                 return (
-                  <tr key={k.id}>
-                    <td className="px-2 py-1 min-w-[11rem]">
+                  <tr key={k.id} className="group/row">
+                    <td className="px-2 py-1 min-w-[11rem] sticky left-0 z-10 bg-white">
                       <button onClick={() => setOpenId(k.id)} className="flex items-center gap-2 text-left hover:text-blue-700" title="Open KPI details">
                         <Avatar person={peopleById.get(k.owner_id ?? '')} size="sm" />
                         <span className="font-medium">{k.name}</span>
                       </button>
                     </td>
-                    <td className="px-1 py-1 text-center text-gray-700 whitespace-nowrap font-medium">{formatGoal(baseGoal(k), k.unit_type)}</td>
-                    <td className="px-1 py-1 text-center text-gray-500 tabular-nums">{k.unit_type === 'yesno' || nums.length === 0 ? '—' : formatKpiValue(sum, k.unit_type)}</td>
-                    <td className="px-1 py-1 text-center text-gray-500 tabular-nums">{k.unit_type === 'yesno' || avg === null ? '—' : formatKpiValue(avg, k.unit_type)}</td>
+                    <td className="px-1 py-1 text-center text-gray-700 whitespace-nowrap font-medium sticky left-[12rem] z-10 bg-white">{formatGoal(baseGoal(k), k.unit_type)}</td>
+                    <td className="px-1 py-1 text-center text-gray-500 tabular-nums sticky left-[17.5rem] z-10 bg-white">{k.unit_type === 'yesno' || nums.length === 0 ? '—' : formatKpiValue(sum, k.unit_type)}</td>
+                    <td className="px-1 py-1 text-center text-gray-500 tabular-nums sticky left-[22rem] z-10 bg-white shadow-[inset_-1px_0_0_#e5e7eb]">{k.unit_type === 'yesno' || avg === null ? '—' : formatKpiValue(avg, k.unit_type)}</td>
                     {periods.map(p => (
                       <td key={p.start} className="px-1 py-1 text-center">
-                        <KpiCell kpi={k} start={p.start} value={byKey.get(`${k.id}|${p.start}`)} goal={goalFor(k, p.start, customGoals)} onCreate={kind => startDraft(kind, k, p)} />
+                        <KpiCell kpi={k} start={p.start} value={byKey.get(`${k.id}|${p.start}`)} goal={goalFor(k, p.start, customGoals)} onCreate={kind => startDraft(kind, k, p)} note={noteByKey.get(`${k.id}|${p.start}`)} onNote={() => setNoteEdit({ kpi: k, start: p.start, label: p.label, text: noteByKey.get(`${k.id}|${p.start}`) ?? '' })} />
                       </td>
                     ))}
                   </tr>
@@ -431,7 +460,7 @@ export function Metrics({ kpis, values, customGoals, otherMeetings, meetingName 
           </table>
         </div>
       )}
-      {view === 'table' && shown.length > 0 && <p className="text-xs text-gray-500 mt-2 inline-flex flex-wrap items-center gap-1"><Table2 className="w-3.5 h-3.5" /> Hover a number to create a to-do or issue from it. <BarChart3 className="w-3.5 h-3.5 ml-2" /> Switch to Chart for trends by quarter or year.</p>}
+      {view === 'table' && shown.length > 0 && <p className="text-xs text-gray-500 mt-2 inline-flex flex-wrap items-center gap-1"><Table2 className="w-3.5 h-3.5" /> Hover a number to add a note, or create a to-do or issue from it. A small orange corner means it has a note. <BarChart3 className="w-3.5 h-3.5 ml-2" /> Switch to Chart for trends by quarter or year.</p>}
 
       <form onSubmit={add} className={`${card} p-4 mt-4 space-y-3`}>
         <div className={labelCls}>Add a {cadence} KPI</div>
@@ -450,6 +479,29 @@ export function Metrics({ kpis, values, customGoals, otherMeetings, meetingName 
       </form>
 
       {open && <KpiDrawer key={open.id} kpi={open} custom={customGoals} allMeetings={allMeetings} onClose={() => setOpenId(null)} />}
+      {noteEdit && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setNoteEdit(null)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()} role="dialog" aria-label="KPI note">
+            <div className="flex items-center justify-between px-5 py-3 border-b">
+              <div>
+                <h2 className="font-bold flex items-center gap-1.5"><StickyNote className="w-4 h-4 text-amber-500" /> Note</h2>
+                <p className="text-xs text-gray-500">{noteEdit.kpi.name} · {noteEdit.label} · {formatKpiValue(byKey.get(`${noteEdit.kpi.id}|${noteEdit.start}`), noteEdit.kpi.unit_type)}</p>
+              </div>
+              <button onClick={() => setNoteEdit(null)} aria-label="Close"><X className="w-5 h-5 text-gray-400" /></button>
+            </div>
+            <div className="p-5">
+              <textarea autoFocus value={noteEdit.text} onChange={e => setNoteEdit({ ...noteEdit, text: e.target.value })} rows={5} maxLength={2000} placeholder="Why the number is what it is, what was agreed…" className={`${input} w-full`} aria-label="Note" />
+            </div>
+            <div className="flex items-center gap-2 px-5 py-3 border-t bg-gray-50 rounded-b-xl">
+              {noteByKey.has(`${noteEdit.kpi.id}|${noteEdit.start}`) && (
+                <button onClick={() => confirm('Delete this note?') && saveNote('')} disabled={noteBusy} className="text-sm text-red-600 hover:underline mr-auto">Delete note</button>
+              )}
+              <button onClick={() => setNoteEdit(null)} className="ml-auto px-4 py-2 text-sm rounded-lg border bg-white">Cancel</button>
+              <button onClick={() => saveNote(noteEdit.text)} disabled={noteBusy || !noteEdit.text.trim()} className="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white font-semibold disabled:opacity-50">{noteBusy ? 'Saving…' : 'Save note'}</button>
+            </div>
+          </div>
+        </div>
+      )}
       {draft && <NewItemDrawer key={draft.title} kind={draft.kind} draft={{ title: draft.title, details: draft.details, owner_id: null, due_date: null }} sourceLabel="Created from a KPI number." onClose={() => setDraft(null)} />}
     </div>
   )

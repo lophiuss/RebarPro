@@ -87,10 +87,11 @@ export default async function MeetingPage({
   const wantId = tab === 'WHITEBOARD' ? (whiteboards.find(b => b.id === sp.board)?.id ?? whiteboards[0]?.id) : undefined
 
   // Second (and last) round: what needed an answer from the first.
-  const [{ data: kpiValues }, { data: kpiGoals }, { data: full }] = await Promise.all([
+  const [{ data: kpiValues }, { data: kpiGoals }, { data: full }, { data: kpiNotes }] = await Promise.all([
     kpiIds.length ? supabase.from('mtg_kpi_values').select('kpi_id, period_start, value').in('kpi_id', kpiIds) : Promise.resolve({ data: [] as any[] }),
     kpiIds.length ? supabase.from('mtg_kpi_goals').select('kpi_id, period_start, goal_rule, goal_value, goal_value_max').in('kpi_id', kpiIds) : Promise.resolve({ data: [] as any[] }),
     wantId ? supabase.from('mtg_whiteboards').select('id, title, data').eq('id', wantId).maybeSingle() : none,
+    kpiIds.length ? supabase.from('mtg_kpi_notes').select('kpi_id, period_start, note').in('kpi_id', kpiIds) : Promise.resolve({ data: [] as any[] }),
   ])
   const whiteboard: { id: string; title: string; items: unknown[] } | null = full
     ? { id: (full as any).id as string, title: (full as any).title as string, items: (((full as any).data as any)?.items ?? []) as unknown[] }
@@ -135,6 +136,7 @@ export default async function MeetingPage({
       kpis={(mKpis as any[]).map(k => ({ ...k, meeting_ids: (k.links ?? []).map((l: any) => l.meeting_id as string) }))}
       kpiValues={(kpiValues ?? []) as any}
       kpiGoals={(kpiGoals ?? []) as any}
+      kpiNotes={(kpiNotes ?? []) as any}
       ratings={visibleRatings as any}
       lastFeedback={lastFeedback}
       summaries={(summaries ?? []) as any}

@@ -48,6 +48,7 @@ export type ShellProps = {
   kpis: Kpi[]
   kpiValues: KpiValue[]
   kpiGoals: KpiCustomGoal[]
+  kpiNotes: { kpi_id: string; period_start: string; note: string }[]
   ratings: Rating[]
   lastFeedback: Rating[]
   summaries: SummaryRow[]
@@ -444,7 +445,7 @@ export default function MeetingShell(props: ShellProps) {
 
                 {page === 'CHECK_IN' && <CheckIn lastFeedback={props.lastFeedback} ice={ice} onIce={shareIce} notes={props.icebreakerNotes} />}
                 {page === 'GOALS' && <Goals goals={props.goals} otherMeetings={props.otherMeetings} />}
-                {page === 'METRICS' && <Metrics kpis={props.kpis} values={props.kpiValues} customGoals={props.kpiGoals} otherMeetings={props.otherMeetings} meetingName={meeting.name} />}
+                {page === 'METRICS' && <Metrics kpis={props.kpis} values={props.kpiValues} customGoals={props.kpiGoals} notes={props.kpiNotes} otherMeetings={props.otherMeetings} meetingName={meeting.name} />}
                 {page === 'HEADLINES' && <Headlines headlines={props.headlines} todos={props.todos} issues={props.issues} otherMeetings={props.otherMeetings} />}
                 {page === 'TODOS' && <Todos todos={props.todos} otherMeetings={props.otherMeetings} />}
                 {page === 'ISSUES' && <Issues issues={props.issues} otherMeetings={props.otherMeetings} />}
