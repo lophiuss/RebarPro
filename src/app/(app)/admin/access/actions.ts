@@ -48,11 +48,13 @@ async function requireCanManage(targetId: string) {
   return { ...ctx, admin }
 }
 
-// Every account-level action leaves a trace: who did what to whom.
-async function logAccountAction(admin: AdminClient, actorId: string, targetId: string, action: string, detail: Record<string, unknown> = {}) {
-  try {
-    await admin.from('audit_log').insert({ table_name: 'account', record_id: targetId, action, new_data: detail, changed_by: actorId })
-  } catch { /* a logging hiccup must not undo the action itself */ }
+// Every account-level action leaves a trace: who did what to whom. audit_log only accepts insert,
+// update or delete as its action, so the specific event is named in the data.
+async function logAccountAction(admin: AdminClient, actorId: string, targetId: string, event: string, detail: Record<string, unknown> = {}) {
+  const action = event === 'account.create' ? 'insert' : event === 'account.delete' ? 'delete' : 'update'
+  const { error } = await admin.from('audit_log').insert({ table_name: 'account', record_id: targetId, action, new_data: { event, ...detail }, changed_by: actorId })
+  // A logging problem must never undo the action itself, but it must not be silent either.
+  if (error) console.error('audit log failed:', error.message)
 }
 
 // Combines the Auth user list (for email — this project's `profiles` table has

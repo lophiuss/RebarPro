@@ -39,17 +39,13 @@ Deno.serve(async (req: Request) => {
     const targetId = typeof body.user_id === "string" ? body.user_id : "";
     if (!/^[0-9a-f-]{36}$/i.test(targetId)) return json({ error: "Choose a person" }, 400);
 
-    let origin: string;
-    try {
-      const u = new URL(String(body.site_url));
-      const local = u.hostname === "localhost" || u.hostname === "127.0.0.1";
-      if (u.protocol !== "https:" && !local) throw new Error("https only");
-      const allowed = (Deno.env.get("ALLOWED_SITE_ORIGINS") ?? "https://alphavision-psi.vercel.app").split(",").map((x) => x.trim()).filter(Boolean);
-      if (!local && !allowed.includes(u.origin)) throw new Error("not allowed");
-      origin = u.origin;
-    } catch {
-      return json({ error: "That site address is not allowed. Send from the real AlphaVision site." }, 400);
-    }
+    // The links in the e-mail always point at the real site. If the admin happens to click from
+    // localhost or a preview address, the e-mail still carries the real address: a link to someone's
+    // own computer is useless to the person who receives it.
+    const allowed = (Deno.env.get("ALLOWED_SITE_ORIGINS") ?? "https://alphavision-psi.vercel.app").split(",").map((x) => x.trim()).filter(Boolean);
+    let requested = "";
+    try { requested = new URL(String(body.site_url)).origin; } catch { /* use the default */ }
+    const origin = allowed.includes(requested) ? requested : allowed[0];
 
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
@@ -93,9 +89,9 @@ Deno.serve(async (req: Request) => {
     const transporter = nodemailer.createTransport({ service: "gmail", auth: { user: mailUser, pass } });
     await transporter.sendMail({ from: `"AlphaVision" <${mailUser}>`, to: email, subject: "Choose a new AlphaVision password", html });
 
-    try {
-      await admin.from("audit_log").insert({ table_name: "account", record_id: targetId, action: "account.reset_link_sent", new_data: { email }, changed_by: user.id });
-    } catch { /* logging must never undo the send */ }
+    // audit_log only accepts insert / update / delete as the action, so the event is named in the data.
+    const { error: logErr } = await admin.from("audit_log").insert({ table_name: "account", record_id: targetId, action: "update", new_data: { event: "account.reset_link_sent", email }, changed_by: user.id });
+    if (logErr) console.error("audit log failed:", logErr.message); // never undoes the send
 
     return json({ ok: true, email, name: prof?.full_name ?? null });
   } catch (err) {

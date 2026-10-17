@@ -68,20 +68,15 @@ Deno.serve(async (req: Request) => {
     const message = typeof body.message === "string" ? body.message.trim().slice(0, 1000) : "";
     if (contactIds.length === 0) return json({ error: "No one selected" }, 400);
 
-    let origin: string;
-    try {
-      const u = new URL(String(body.site_url));
-      const local = u.hostname === "localhost" || u.hostname === "127.0.0.1";
-      if (u.protocol !== "https:" && !local) throw new Error("site_url must be https");
-      // The e-mail's buttons point at this address, so only our own sites are accepted (otherwise a stolen
-      // admin session could send convincing invitations that lead to a look-alike site).
-      // Add more with the ALLOWED_SITE_ORIGINS secret, comma separated.
-      const allowed = (Deno.env.get("ALLOWED_SITE_ORIGINS") ?? "https://alphavision-psi.vercel.app").split(",").map((x) => x.trim()).filter(Boolean);
-      if (!local && !allowed.includes(u.origin)) throw new Error("not allowed");
-      origin = u.origin;
-    } catch {
-      return json({ error: "That site address is not allowed. Send invitations from the real AlphaVision site (or ask the owner to add this address)." }, 400);
-    }
+    // The e-mail's buttons point only at our own site (otherwise a stolen admin session could send
+    // convincing invitations that lead to a look-alike site). If the admin clicks from localhost or a
+    // preview address the e-mail still carries the real address, because a link to someone's own
+    // computer is useless to the person who receives it.
+    // Add more addresses with the ALLOWED_SITE_ORIGINS secret, comma separated (the first is the default).
+    const allowed = (Deno.env.get("ALLOWED_SITE_ORIGINS") ?? "https://alphavision-psi.vercel.app").split(",").map((x) => x.trim()).filter(Boolean);
+    let requested = "";
+    try { requested = new URL(String(body.site_url)).origin; } catch { /* use the default */ }
+    const origin = allowed.includes(requested) ? requested : allowed[0];
 
     const mailUser = Deno.env.get("ALERT_EMAIL_USER");
     const pass = Deno.env.get("ALERT_EMAIL_PASS");
