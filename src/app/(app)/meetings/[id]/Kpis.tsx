@@ -1,5 +1,6 @@
 'use client'
 
+import Portal from '../ui/Portal'
 import { notify, confirmDialog } from '../ui/feedback'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -233,6 +234,7 @@ function KpiDrawer({ kpi, custom, allMeetings, onClose }: {
   const f = 'w-full border rounded-lg px-3 py-2 text-sm bg-white'
 
   return (
+    <Portal>
     <>
       <div className="fixed inset-0 bg-black/30 z-40 no-print" onClick={onClose} />
       <aside className="fixed inset-y-0 right-0 z-50 w-full sm:w-[34rem] bg-white shadow-2xl flex flex-col no-print" role="dialog" aria-label="Edit KPI">
@@ -324,6 +326,7 @@ function KpiDrawer({ kpi, custom, allMeetings, onClose }: {
         </footer>
       </aside>
     </>
+    </Portal>
   )
 }
 
@@ -624,6 +627,7 @@ export function Metrics({ kpis, values, customGoals, otherMeetings, meetingName,
 
       {open && <KpiDrawer key={open.id} kpi={open} custom={customGoals} allMeetings={allMeetings} onClose={() => setOpenId(null)} />}
       {noteEdit && (
+        <Portal>
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setNoteEdit(null)}>
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()} role="dialog" aria-label="KPI note">
             <div className="flex items-center justify-between px-5 py-3 border-b">
@@ -645,6 +649,7 @@ export function Metrics({ kpis, values, customGoals, otherMeetings, meetingName,
             </div>
           </div>
         </div>
+        </Portal>
       )}
       {draft && <NewItemDrawer key={draft.title} kind={draft.kind} draft={{ title: draft.title, details: draft.details, owner_id: null, due_date: null }} sourceLabel="Created from a KPI number." onClose={() => setDraft(null)} />}
     </div>

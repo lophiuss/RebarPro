@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { AlertTriangle, CheckCircle2, Info, X, HelpCircle } from 'lucide-react'
 import { FEEDBACK_EVENT, hostState, type ConfirmOptions, type FeedbackEvent, type TextOptions, type ToastKind } from './feedback'
@@ -22,14 +22,13 @@ const DANGER = /\b(delete|remove|clear|archive|discard|cannot be undone)\b/i
 export default function FeedbackHost() {
   const [toasts, setToasts] = useState<Toast[]>([])
   const [queue, setQueue] = useState<Dialog[]>([])
-  const [mounted, setMounted] = useState(false)
+  const mounted = useSyncExternalStore(() => () => {}, () => true, () => false)
   const next = useRef(1)
 
   const dismiss = useCallback((id: number) => setToasts(t => t.filter(x => x.id !== id)), [])
 
   useEffect(() => {
     hostState.mounted = true
-    setMounted(true)
     const onEvent = (e: Event) => {
       const d = (e as CustomEvent<FeedbackEvent>).detail
       if (d.type === 'toast') {

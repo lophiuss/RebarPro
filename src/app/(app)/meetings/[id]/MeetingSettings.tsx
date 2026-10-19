@@ -1,5 +1,6 @@
 'use client'
 
+import Portal from '../ui/Portal'
 import { confirmDialog } from '../ui/feedback'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
@@ -55,6 +56,7 @@ export default function MeetingSettings({
   }
 
   return (
+    <Portal>
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
       <form onSubmit={save} className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-4 border-b sticky top-0 bg-white rounded-t-xl">
@@ -138,5 +140,6 @@ export default function MeetingSettings({
         </div>
       </form>
     </div>
+    </Portal>
   )
 }

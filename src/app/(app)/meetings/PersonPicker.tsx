@@ -1,5 +1,6 @@
 'use client'
 
+import Portal from './ui/Portal'
 import { useMemo, useRef, useState } from 'react'
 import { ChevronDown, Search, Check } from 'lucide-react'
 import Avatar from './Avatar'
@@ -85,6 +86,7 @@ export function PersonSelect({
       </button>
 
       {open && pos && (
+        <Portal>
         <>
           <div className="fixed inset-0 z-[70]" onClick={() => setOpen(false)} />
           <div
@@ -145,6 +147,7 @@ export function PersonSelect({
             </ul>
           </div>
         </>
+        </Portal>
       )}
     </>
   )

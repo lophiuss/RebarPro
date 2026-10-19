@@ -1,5 +1,6 @@
 'use client'
 
+import Portal from '../ui/Portal'
 import { confirmDialog, askText } from '../ui/feedback'
 import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
@@ -242,6 +243,7 @@ export default function DocumentsView({ docs: allDocs, boards: allBoards, meetin
       )}
 
       {adding && (
+        <Portal>
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
           <form onSubmit={add} className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between px-5 py-4 border-b">
@@ -308,6 +310,7 @@ export default function DocumentsView({ docs: allDocs, boards: allBoards, meetin
             </div>
           </form>
         </div>
+        </Portal>
       )}
     </div>
   )

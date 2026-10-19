@@ -1,5 +1,6 @@
 'use client'
 
+import Portal from '../ui/Portal'
 import { useEffect, useRef, useState } from 'react'
 import { X, ListChecks, AlertCircle } from 'lucide-react'
 import { createLinkedItem } from '../actions'
@@ -62,6 +63,7 @@ export default function NewItemDrawer({
   }
 
   return (
+    <Portal>
     <>
       <div className="fixed inset-0 bg-black/30 z-40 no-print" onClick={onClose} />
       <aside className="fixed inset-y-0 right-0 z-50 w-full sm:w-[34rem] bg-white shadow-2xl flex flex-col no-print" role="dialog" aria-label={`New ${label}`}>
@@ -113,5 +115,6 @@ export default function NewItemDrawer({
         </footer>
       </aside>
     </>
+    </Portal>
   )
 }

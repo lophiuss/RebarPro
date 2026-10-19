@@ -373,7 +373,12 @@ export default function Whiteboard({ id, initialTitle, initialItems, meetingId, 
   }
 
   const zoomBefore = useRef(0.6)
+  // The meeting page can be zoomed; a full-screen board inside it must not inherit that zoom.
+  const [inheritedZoom, setInheritedZoom] = useState(1)
   function startPresenting() {
+    let z = 1
+    for (let el: HTMLElement | null = rootRef.current?.parentElement ?? null; el; el = el.parentElement) z *= parseFloat(getComputedStyle(el).zoom || '1') || 1
+    setInheritedZoom(z)
     zoomBefore.current = zoom
     setSelectedId(null)
     setTool('hand')
@@ -746,7 +751,7 @@ export default function Whiteboard({ id, initialTitle, initialItems, meetingId, 
   }
 
   return (
-    <div ref={rootRef} className={presenting ? 'fixed inset-0 z-[80] flex flex-col bg-slate-900' : `flex flex-col min-h-[34rem] ${embedded ? 'h-[calc(100dvh-13rem)]' : 'h-[calc(100dvh-5rem)]'}`}>
+    <div ref={rootRef} style={presenting && inheritedZoom !== 1 ? ({ zoom: 1 / inheritedZoom } as React.CSSProperties) : undefined} className={presenting ? 'fixed inset-0 z-[80] flex flex-col bg-slate-900' : `flex flex-col min-h-[34rem] ${embedded ? 'h-[calc(100dvh-13rem)]' : 'h-[calc(100dvh-5rem)]'}`}>
       {presenting && (
         <div className="absolute top-3 right-3 z-10 inline-flex items-center gap-1 rounded-lg bg-slate-800/90 text-white p-1 shadow-lg">
           <button onClick={() => setZoom(z => Math.max(0.25, +(z - 0.1).toFixed(2)))} className="p-2 rounded hover:bg-slate-700" aria-label="Zoom out"><ZoomOut className="w-4 h-4" /></button>

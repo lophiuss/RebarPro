@@ -1,5 +1,6 @@
 'use client'
 
+import Portal from '../ui/Portal'
 import { notify, confirmDialog } from '../ui/feedback'
 import { useEffect, useState } from 'react'
 import { X, Trash2, Archive, ArrowUpRight, Check, Copy, ListChecks, AlertCircle, Plus } from 'lucide-react'
@@ -121,6 +122,7 @@ export default function ItemDrawer({
   const hasDue = kind === 'todo' || kind === 'goal' || kind === 'issue'
 
   return (
+    <Portal>
     <>
       <div className="fixed inset-0 bg-black/30 z-40 no-print" onClick={onClose} />
       <aside className="fixed inset-y-0 right-0 z-50 w-full sm:w-[34rem] bg-white shadow-2xl flex flex-col no-print" role="dialog" aria-label={`Edit ${LABEL[kind]}`}>
@@ -285,5 +287,6 @@ export default function ItemDrawer({
         </footer>
       </aside>
     </>
+    </Portal>
   )
 }
