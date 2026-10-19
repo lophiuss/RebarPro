@@ -3,8 +3,8 @@
 import { notify, confirmDialog } from '../ui/feedback'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, Trash2, X, Check, ListChecks, AlertCircle, BarChart3, Table2, StickyNote, MoreVertical } from 'lucide-react'
-import { addKpi, setKpiValue, setKpiNote, deleteKpi, updateKpi, setKpiMeetings, setKpiCustomGoal, deleteKpiCustomGoal } from '../actions'
+import { Plus, Trash2, X, Check, ListChecks, AlertCircle, BarChart3, Table2, StickyNote, MoreVertical, GripVertical } from 'lucide-react'
+import { addKpi, setKpiValue, setKpiNote, reorderKpis, deleteKpi, updateKpi, setKpiMeetings, setKpiCustomGoal, deleteKpiCustomGoal } from '../actions'
 import { useMeeting, useRun } from './context'
 import Avatar from '../Avatar'
 import { PersonSelect } from '../PersonPicker'
@@ -367,7 +367,52 @@ export function Metrics({ kpis, values, customGoals, otherMeetings, meetingName,
     if (ok) { setLocalNotes(prev => ({ ...prev, [key]: text.trim() })); setNoteEdit(null) }
   }
   const periods = useMemo(() => periodsFor(cadence, range), [cadence, range])
-  const shown = kpis.filter(k => k.cadence === cadence)
+  const serverShown = kpis.filter(k => k.cadence === cadence)
+  // Drag to sort: the new order shows at once and is saved in the background; the saved order takes over
+  // when the page refreshes.
+  const orderSig = serverShown.map(k => k.id).join('|')
+  const [seenOrder, setSeenOrder] = useState(orderSig)
+  const [localOrder, setLocalOrder] = useState<Record<string, string[]>>({})
+  if (seenOrder !== orderSig) { setSeenOrder(orderSig); setLocalOrder({}) }
+  const shown = useMemo(() => {
+    const ids = localOrder[cadence]
+    if (!ids) return serverShown
+    const byId = new Map(serverShown.map(k => [k.id, k]))
+    const ordered = ids.map(id => byId.get(id)).filter((k): k is Kpi => !!k)
+    return ordered.length === serverShown.length ? ordered : serverShown
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [localOrder, cadence, orderSig])
+  const rowEls = useRef(new Map<string, HTMLTableRowElement>())
+  const [dragKpi, setDragKpi] = useState<string | null>(null)
+  const [dropAt, setDropAt] = useState<{ id: string; after: boolean } | null>(null)
+
+  function moveKpi(id: string, targetId: string, after: boolean) {
+    if (id === targetId) return
+    const ids = shown.map(k => k.id).filter(x => x !== id)
+    const at = ids.indexOf(targetId)
+    if (at < 0) return
+    ids.splice(after ? at + 1 : at, 0, id)
+    if (ids.join('|') === shown.map(k => k.id).join('|')) return
+    setLocalOrder(prev => ({ ...prev, [cadence]: ids }))
+    run(async () => { await reorderKpis(meetingId, ids); return true }).then(ok => { if (!ok) setLocalOrder(prev => { const next = { ...prev }; delete next[cadence]; return next }) })
+  }
+  // The columns of the table: a year row on top, then the dates as DD-MMM (months and quarters are shorter).
+  const dateHead = (start: string) => {
+    const d = new Date(`${start}T00:00:00Z`)
+    const mon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][d.getUTCMonth()]
+    if (cadence === 'monthly') return mon
+    if (cadence === 'quarterly') return `Q${Math.floor(d.getUTCMonth() / 3) + 1}`
+    return `${String(d.getUTCDate()).padStart(2, '0')}-${mon}`
+  }
+  const yearSpans = useMemo(() => {
+    const out: { year: string; count: number }[] = []
+    for (const p of periods) {
+      const y = p.start.slice(0, 4)
+      if (out.length && out[out.length - 1].year === y) out[out.length - 1].count++
+      else out.push({ year: y, count: 1 })
+    }
+    return out
+  }, [periods])
   const open = kpis.find(k => k.id === openId)
   const allMeetings = useMemo(() => [{ id: meetingId, name: meetingName }, ...otherMeetings], [meetingId, meetingName, otherMeetings])
   const customRangeIncomplete = range.preset === 'custom' && (!range.from || !range.to)
@@ -484,11 +529,14 @@ export function Metrics({ kpis, values, customGoals, otherMeetings, meetingName,
             <thead className="bg-gray-50">
               {/* The dates stay at the top and the first four columns stay on the left while scrolling. */}
               <tr className="text-xs uppercase tracking-wide text-gray-500">
-                <th className="text-left px-2 py-1.5 font-semibold sticky top-0 left-0 z-30 bg-gray-50">KPI</th>
-                <th className="px-1 py-1.5 font-semibold sticky top-0 left-[12rem] z-30 bg-gray-50">Goal</th>
-                <th className="px-1 py-1.5 font-semibold sticky top-0 left-[17.5rem] z-30 bg-gray-50">Sum</th>
-                <th className="px-1 py-1.5 font-semibold sticky top-0 left-[22rem] z-30 bg-gray-50 shadow-[inset_-1px_0_0_#e5e7eb]">Avg</th>
-                {periods.map(p => <th key={p.start} className="px-1 py-1.5 font-semibold whitespace-nowrap sticky top-0 z-20 bg-gray-50">{p.label}</th>)}
+                <th rowSpan={2} className="text-left px-2 py-1.5 font-semibold sticky top-0 left-0 z-30 bg-gray-50">KPI</th>
+                <th rowSpan={2} className="px-1 py-1.5 font-semibold sticky top-0 left-[12rem] z-30 bg-gray-50">Goal</th>
+                <th rowSpan={2} className="px-1 py-1.5 font-semibold sticky top-0 left-[17.5rem] z-30 bg-gray-50">Sum</th>
+                <th rowSpan={2} className="px-1 py-1.5 font-semibold sticky top-0 left-[22rem] z-30 bg-gray-50 shadow-[inset_-1px_0_0_#e5e7eb]">Avg</th>
+                {yearSpans.map(y => <th key={y.year} colSpan={y.count} className="h-7 px-1 text-center text-sm font-bold tracking-normal text-slate-700 sticky top-0 z-20 bg-gray-100 border-l border-gray-300 first:border-l-0">{y.year}</th>)}
+              </tr>
+              <tr className="text-xs uppercase tracking-wide text-gray-500">
+                {periods.map((p, i) => <th key={p.start} className={`px-1 py-1.5 font-semibold whitespace-nowrap sticky top-7 z-20 bg-gray-50 ${i > 0 && p.start.slice(0, 4) !== periods[i - 1].start.slice(0, 4) ? 'border-l border-gray-300' : ''}`}>{dateHead(p.start)}</th>)}
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -497,12 +545,49 @@ export function Metrics({ kpis, values, customGoals, otherMeetings, meetingName,
                 const sum = nums.reduce((s, v) => s + v, 0)
                 const avg = nums.length ? sum / nums.length : null
                 return (
-                  <tr key={k.id} className="group/row">
-                    <td className="px-2 py-1 min-w-[11rem] sticky left-0 z-10 bg-white">
-                      <button onClick={() => setOpenId(k.id)} className="flex items-center gap-2 text-left hover:text-blue-700" title="Open KPI details">
-                        <Avatar person={peopleById.get(k.owner_id ?? '')} size="sm" />
-                        <span className="font-medium">{k.name}</span>
-                      </button>
+                  <tr
+                    key={k.id}
+                    ref={el => { if (el) rowEls.current.set(k.id, el); else rowEls.current.delete(k.id) }}
+                    className={`group/row ${dragKpi === k.id ? 'opacity-40' : ''}`}
+                    onDragOver={e => {
+                      if (!dragKpi) return
+                      e.preventDefault()
+                      const r = e.currentTarget.getBoundingClientRect()
+                      const after = e.clientY > r.top + r.height / 2
+                      if (dropAt?.id !== k.id || dropAt.after !== after) setDropAt({ id: k.id, after })
+                    }}
+                    onDrop={e => { e.preventDefault(); if (dragKpi && dropAt) moveKpi(dragKpi, dropAt.id, dropAt.after); setDragKpi(null); setDropAt(null) }}
+                    style={dropAt?.id === k.id && dragKpi && dragKpi !== k.id ? { boxShadow: dropAt.after ? 'inset 0 -3px 0 #2563eb' : 'inset 0 3px 0 #2563eb' } : undefined}
+                  >
+                    <td className="px-1 py-1 min-w-[11rem] sticky left-0 z-10 bg-white">
+                      <div className="flex items-center gap-0.5">
+                        <button
+                          type="button"
+                          draggable
+                          onDragStart={e => {
+                            setDragKpi(k.id)
+                            e.dataTransfer.effectAllowed = 'move'
+                            e.dataTransfer.setData('text/plain', k.id)
+                            const row = rowEls.current.get(k.id)
+                            if (row) e.dataTransfer.setDragImage(row, 24, 16)
+                          }}
+                          onDragEnd={() => { setDragKpi(null); setDropAt(null) }}
+                          onKeyDown={e => {
+                            if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+                            e.preventDefault()
+                            const i = shown.findIndex(x => x.id === k.id)
+                            const to = shown[e.key === 'ArrowUp' ? i - 1 : i + 1]
+                            if (to) moveKpi(k.id, to.id, e.key === 'ArrowDown')
+                          }}
+                          aria-label={`Drag to reorder ${k.name}. Or press the up or down arrow keys.`}
+                          title="Drag to reorder"
+                          className="p-1.5 -ml-0.5 shrink-0 text-gray-400 hover:text-gray-700 cursor-grab active:cursor-grabbing touch-none"
+                        ><GripVertical className="w-4 h-4" /></button>
+                        <button onClick={() => setOpenId(k.id)} className="flex items-center gap-2 text-left hover:text-blue-700 min-w-0" title="Open KPI details">
+                          <Avatar person={peopleById.get(k.owner_id ?? '')} size="sm" />
+                          <span className="font-medium">{k.name}</span>
+                        </button>
+                      </div>
                     </td>
                     <td className="px-1 py-1 text-center text-gray-700 whitespace-nowrap font-medium sticky left-[12rem] z-10 bg-white">{formatGoal(baseGoal(k), k.unit_type)}</td>
                     <td className="px-1 py-1 text-center text-gray-500 tabular-nums sticky left-[17.5rem] z-10 bg-white">{k.unit_type === 'yesno' || nums.length === 0 ? '—' : formatKpiValue(sum, k.unit_type)}</td>

@@ -612,6 +612,23 @@ export async function setKpiValue(meetingId: string, kpiId: string, periodStart:
   refresh(meetingId)
 }
 
+// Drag to sort: the KPIs of one list (one cadence) in their new order. They keep the slots they already
+// occupied among all KPIs, so the order of everything else is untouched.
+export async function reorderKpis(meetingId: string, orderedIds: string[]) {
+  const { supabase } = await requireMeetingsAccess()
+  const ids = orderedIds.filter(id => /^[0-9a-f-]{36}$/i.test(id)).slice(0, 500)
+  if (ids.length < 2) return
+  const { data: rows, error: readErr } = await supabase.from('mtg_kpis').select('id, position').in('id', ids)
+  if (readErr) throw readErr
+  if ((rows ?? []).length !== ids.length) throw new Error('Some of those KPIs were not found')
+  let slots = (rows ?? []).map(r => Number(r.position ?? 0)).sort((a, b) => a - b)
+  if (new Set(slots).size !== slots.length) slots = ids.map((_, i) => i) // positions were not distinct: renumber
+  const results = await Promise.all(ids.map((id, i) => supabase.from('mtg_kpis').update({ position: slots[i] }).eq('id', id)))
+  const failed = results.find(r => r.error)
+  if (failed?.error) throw failed.error
+  refresh(meetingId)
+}
+
 // A note on one KPI number (one per KPI per period). An empty note removes it.
 export async function setKpiNote(meetingId: string, kpiId: string, periodStart: string, note: string) {
   const { supabase, user } = await requireMeetingsAccess()
