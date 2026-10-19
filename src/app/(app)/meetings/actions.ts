@@ -539,7 +539,7 @@ export async function addKpi(meetingId: string, input: {
 export async function updateKpi(meetingId: string, id: string, patch: {
   name?: string; details?: string | null; cadence?: Cadence; unit_type?: UnitType; owner_id?: string | null
 } & Partial<KpiGoalInput>) {
-  const { supabase } = await requireMeetingsAccess()
+  const { supabase, user } = await requireMeetingsAccess()
   const update: Record<string, unknown> = {}
   if (patch.name !== undefined) update.name = text(patch.name, 150)
   if (patch.details !== undefined) update.details = sanitizeRich(patch.details) || null
@@ -556,8 +556,7 @@ export async function updateKpi(meetingId: string, id: string, patch: {
       goal_value_max: patch.goal_value_max ?? null,
     }))
   }
-  const { error } = await supabase.from('mtg_kpis').update(update).eq('id', id)
-  if (error) throw error
+  await updateWithHistory(supabase, user.id, 'kpi', null, id, update)
   refresh(meetingId)
 }
 
@@ -663,6 +662,60 @@ const text = (v: string, max = 500) => {
 
 type ItemPatch = { title?: string; details?: string | null; owner_id?: string | null; due_date?: string | null }
 
+// ---------------------------------------------------------------------------
+// Edit history: one row per saved change to a title or details text, so the History view can replay it.
+// ---------------------------------------------------------------------------
+type HistoryKind = 'headline' | 'todo' | 'issue' | 'goal' | 'kpi'
+const HISTORY_TABLE: Record<HistoryKind, string> = { headline: 'mtg_headlines', todo: 'mtg_todos', issue: 'mtg_issues', goal: 'mtg_goals', kpi: 'mtg_kpis' }
+
+// Runs the update and, when the title or details really changed, records the new version. The first time
+// an item is edited its previous text is stored too, so there is an "original" to go back to.
+// History is a convenience: if writing it fails, the edit itself still stands.
+async function updateWithHistory(
+  supabase: Awaited<ReturnType<typeof requireMeetingsAccess>>['supabase'], userId: string,
+  kind: HistoryKind, meetingId: string | null, id: string, update: Record<string, unknown>,
+) {
+  const titleCol = kind === 'kpi' ? 'name' : 'title'
+  const tracked = titleCol in update || 'details' in update
+  const table = HISTORY_TABLE[kind]
+  const before = tracked
+    ? (await supabase.from(table).select(`${titleCol}, details`).eq('id', id).maybeSingle()).data as Record<string, string | null> | null
+    : null
+  const { error } = await supabase.from(table).update(update).eq('id', id)
+  if (error) throw error
+  if (!tracked || !before) return
+  try {
+    const next = {
+      title: (titleCol in update ? update[titleCol] : before[titleCol]) as string | null,
+      details: ('details' in update ? update.details : before.details) as string | null,
+    }
+    if (next.title === before[titleCol] && (next.details ?? null) === (before.details ?? null)) return
+    const { count } = await supabase.from('mtg_item_history').select('id', { count: 'exact', head: true }).eq('item_id', id)
+    const rows = []
+    // Explicit times: rows inserted together would otherwise share one timestamp and lose their order.
+    const nowMs = Date.now()
+    if (!count) rows.push({ kind, item_id: id, meeting_id: meetingId, title: before[titleCol], details: before.details, editor_id: null, created_at: new Date(nowMs - 1000).toISOString() })
+    rows.push({ kind, item_id: id, meeting_id: meetingId, title: next.title, details: next.details, editor_id: userId, created_at: new Date(nowMs).toISOString() })
+    await supabase.from('mtg_item_history').insert(rows)
+  } catch (err) {
+    console.error('Could not record edit history:', err)
+  }
+}
+
+// The saved versions of one item, oldest first (the newest 200).
+export async function getItemHistory(kind: HistoryKind, id: string) {
+  const { supabase } = await requireMeetingsAccess()
+  if (!HISTORY_TABLE[kind] || !/^[0-9a-f-]{36}$/i.test(id)) throw new Error('Unknown item')
+  const { data, error } = await supabase
+    .from('mtg_item_history')
+    .select('id, title, details, editor_id, created_at')
+    .eq('item_id', id)
+    .order('created_at', { ascending: false })
+    .limit(200)
+  if (error) throw error
+  return (data ?? []).reverse() as { id: string; title: string | null; details: string | null; editor_id: string | null; created_at: string }[]
+}
+
 // Shared by every item type. Only the fields present in `patch` change.
 function buildUpdate(patch: ItemPatch, allowed: { due: boolean }) {
   const update: Record<string, unknown> = {}
@@ -675,30 +728,26 @@ function buildUpdate(patch: ItemPatch, allowed: { due: boolean }) {
 }
 
 export async function updateTodo(meetingId: string, id: string, patch: ItemPatch) {
-  const { supabase } = await requireMeetingsAccess()
-  const { error } = await supabase.from('mtg_todos').update(buildUpdate(patch, { due: true })).eq('id', id)
-  if (error) throw error
+  const { supabase, user } = await requireMeetingsAccess()
+  await updateWithHistory(supabase, user.id, 'todo', meetingId, id, buildUpdate(patch, { due: true }))
   refresh(meetingId)
 }
 
 export async function updateHeadline(meetingId: string, id: string, patch: ItemPatch) {
-  const { supabase } = await requireMeetingsAccess()
-  const { error } = await supabase.from('mtg_headlines').update(buildUpdate(patch, { due: false })).eq('id', id)
-  if (error) throw error
+  const { supabase, user } = await requireMeetingsAccess()
+  await updateWithHistory(supabase, user.id, 'headline', meetingId, id, buildUpdate(patch, { due: false }))
   refresh(meetingId)
 }
 
 export async function updateIssue(meetingId: string, id: string, patch: ItemPatch) {
-  const { supabase } = await requireMeetingsAccess()
-  const { error } = await supabase.from('mtg_issues').update(buildUpdate(patch, { due: true })).eq('id', id)
-  if (error) throw error
+  const { supabase, user } = await requireMeetingsAccess()
+  await updateWithHistory(supabase, user.id, 'issue', meetingId, id, buildUpdate(patch, { due: true }))
   refresh(meetingId)
 }
 
 export async function updateGoal(meetingId: string, id: string, patch: ItemPatch) {
-  const { supabase } = await requireMeetingsAccess()
-  const { error } = await supabase.from('mtg_goals').update(buildUpdate(patch, { due: true })).eq('id', id)
-  if (error) throw error
+  const { supabase, user } = await requireMeetingsAccess()
+  await updateWithHistory(supabase, user.id, 'goal', meetingId, id, buildUpdate(patch, { due: true }))
   refresh(meetingId)
 }
 

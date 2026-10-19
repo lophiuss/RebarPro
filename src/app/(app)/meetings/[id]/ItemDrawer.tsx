@@ -1,9 +1,10 @@
 'use client'
 
 import Portal from '../ui/Portal'
+import HistoryDialog from '../ui/HistoryDialog'
 import { notify, confirmDialog } from '../ui/feedback'
 import { useEffect, useState } from 'react'
-import { X, Trash2, Archive, ArrowUpRight, Check, Copy, ListChecks, AlertCircle, Plus } from 'lucide-react'
+import { X, Trash2, Archive, ArrowUpRight, Check, Copy, ListChecks, AlertCircle, Plus, History } from 'lucide-react'
 import {
   updateTodo, updateHeadline, updateIssue, updateGoal,
   setTodoDone, setTodoStatus, setIssueStatus, setGoalStatus, setGoalMilestones,
@@ -47,6 +48,10 @@ export default function ItemDrawer({
   const run = useRun()
   const [title, setTitle] = useState(item.title)
   const [saved, setSaved] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
+  const [editorRev, setEditorRev] = useState(0)
+  // After a restore the editor restarts from the restored text (the refreshed item may not have arrived yet).
+  const [restored, setRestored] = useState<{ details: string | null } | null>(null)
   const [target, setTarget] = useState({ copy: '', escalate: '' })
   const [milestones, setMilestones] = useState(item.milestones ?? [])
   const [newMilestone, setNewMilestone] = useState('')
@@ -194,8 +199,24 @@ export default function ItemDrawer({
           </div>
 
           <div>
-            <div className={sectionTitle}>Details</div>
-            <RichEditor key={item.id} value={item.details} onCommit={html => save({ details: html })} />
+            <div className="flex items-center justify-between">
+              <div className={sectionTitle}>Details</div>
+              <button type="button" onClick={() => setShowHistory(true)} className="mb-1.5 inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:underline"><History className="w-3.5 h-3.5" /> History</button>
+            </div>
+            <RichEditor key={`${item.id}:${editorRev}`} value={restored ? restored.details : item.details} onCommit={html => save({ details: html })} />
+            {showHistory && (
+              <HistoryDialog
+                kind={kind} itemId={item.id} label={lower} people={people}
+                onClose={() => setShowHistory(false)}
+                onRestore={async v => {
+                  const t = (v.title ?? '').trim()
+                  if (t) setTitle(t)
+                  await save({ ...(t ? { title: t } : {}), details: v.details })
+                  setRestored({ details: v.details })
+                  setEditorRev(n => n + 1)
+                }}
+              />
+            )}
           </div>
 
           {kind === 'goal' && (

@@ -1,10 +1,11 @@
 'use client'
 
 import Portal from '../ui/Portal'
+import HistoryDialog from '../ui/HistoryDialog'
 import { notify, confirmDialog } from '../ui/feedback'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, Trash2, X, Check, ListChecks, AlertCircle, BarChart3, Table2, StickyNote, MoreVertical, GripVertical } from 'lucide-react'
+import { Plus, Trash2, X, Check, ListChecks, AlertCircle, BarChart3, Table2, StickyNote, MoreVertical, GripVertical, History } from 'lucide-react'
 import { addKpi, setKpiValue, setKpiNote, reorderKpis, deleteKpi, updateKpi, setKpiMeetings, setKpiCustomGoal, deleteKpiCustomGoal } from '../actions'
 import { useMeeting, useRun } from './context'
 import Avatar from '../Avatar'
@@ -189,6 +190,9 @@ function KpiDrawer({ kpi, custom, allMeetings, onClose }: {
   const [name, setName] = useState(kpi.name)
   const [goal, setGoal] = useState({ rule: kpi.goal_rule, value: kpi.goal_value === null ? '' : String(kpi.goal_value), max: kpi.goal_value_max === null ? '' : String(kpi.goal_value_max) })
   const [saved, setSaved] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
+  const [editorRev, setEditorRev] = useState(0)
+  const [restored, setRestored] = useState<{ details: string | null } | null>(null)
   const [cg, setCg] = useState({ period: '', rule: 'gte' as GoalRule, value: '', max: '' })
 
   useEffect(() => {
@@ -251,8 +255,24 @@ function KpiDrawer({ kpi, custom, allMeetings, onClose }: {
           </div>
 
           <div>
-            <div className={`${labelCls} mb-1.5`}>Details</div>
-            <RichEditor key={kpi.id} value={kpi.details} onCommit={html => save({ details: html })} minHeight={100} />
+            <div className="flex items-center justify-between">
+              <div className={`${labelCls} mb-1.5`}>Details</div>
+              <button type="button" onClick={() => setShowHistory(true)} className="mb-1.5 inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:underline"><History className="w-3.5 h-3.5" /> History</button>
+            </div>
+            <RichEditor key={`${kpi.id}:${editorRev}`} value={restored ? restored.details : kpi.details} onCommit={html => save({ details: html })} minHeight={100} />
+            {showHistory && (
+              <HistoryDialog
+                kind="kpi" itemId={kpi.id} label="KPI" people={people}
+                onClose={() => setShowHistory(false)}
+                onRestore={async v => {
+                  const n = (v.title ?? '').trim()
+                  if (n) setName(n)
+                  await save({ ...(n ? { name: n } : {}), details: v.details })
+                  setRestored({ details: v.details })
+                  setEditorRev(x => x + 1)
+                }}
+              />
+            )}
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
