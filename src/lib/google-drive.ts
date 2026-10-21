@@ -29,22 +29,42 @@ function getDriveClient() {
 // avoids a folder-lookup round trip on every upload.
 const folderCache = new Map<string, string>()
 
-async function getOrCreateSubfolder(name: string): Promise<string> {
+// The root folder GOOGLE_DRIVE_FOLDER_ID is the Security department's (alphaVison/security/uploads), so the
+// security subfolders live inside it. The other departments' folders sit next to "security" instead, i.e.
+// two levels up from the root. Falls back to the root if that location can't be resolved.
+const DEPARTMENT_FOLDERS: DriveSubfolder[] = ['maintenance', 'meetings', 'hr', 'backups']
+let departmentsParent: string | undefined
+
+async function getDepartmentsParent(rootId: string): Promise<string> {
+  if (departmentsParent) return departmentsParent
+  const drive = getDriveClient()
+  try {
+    const securityId = (await drive.files.get({ fileId: rootId, fields: 'parents' })).data.parents?.[0]
+    const topId = securityId ? (await drive.files.get({ fileId: securityId, fields: 'parents' })).data.parents?.[0] : undefined
+    departmentsParent = topId ?? rootId
+  } catch {
+    return rootId // don't cache a failure
+  }
+  return departmentsParent
+}
+
+async function getOrCreateSubfolder(name: DriveSubfolder): Promise<string> {
   const rootId = process.env.GOOGLE_DRIVE_FOLDER_ID
   if (!rootId) throw new Error('GOOGLE_DRIVE_FOLDER_ID is not set')
-  const cacheKey = `${rootId}/${name}`
+  const parentId = DEPARTMENT_FOLDERS.includes(name) ? await getDepartmentsParent(rootId) : rootId
+  const cacheKey = `${parentId}/${name}`
   if (folderCache.has(cacheKey)) return folderCache.get(cacheKey)!
 
   const drive = getDriveClient()
   const existing = await drive.files.list({
-    q: `'${rootId}' in parents and name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+    q: `'${parentId}' in parents and name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
     fields: 'files(id, name)',
     spaces: 'drive',
   })
   let folderId = existing.data.files?.[0]?.id
   if (!folderId) {
     const created = await drive.files.create({
-      requestBody: { name, mimeType: 'application/vnd.google-apps.folder', parents: [rootId] },
+      requestBody: { name, mimeType: 'application/vnd.google-apps.folder', parents: [parentId] },
       fields: 'id',
     })
     folderId = created.data.id!
