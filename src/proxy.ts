@@ -43,6 +43,7 @@ export async function proxy(request: NextRequest) {
     !path.startsWith('/auth') &&
     !path.startsWith('/visitor-checkin') &&
     !path.startsWith('/maintenance-request') &&
+    !path.startsWith('/api/cron') && // Vercel Cron has no session; the route checks CRON_SECRET itself
     !path.startsWith('/privacy') &&
     !path.startsWith('/terms')
   ) {

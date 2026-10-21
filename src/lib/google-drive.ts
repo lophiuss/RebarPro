@@ -53,7 +53,26 @@ async function getOrCreateSubfolder(name: string): Promise<string> {
   return folderId
 }
 
-export type DriveSubfolder = 'entries' | 'incidents' | 'layout' | 'avatars' | 'maintenance' | 'clocking' | 'hr' | 'meetings'
+export type DriveSubfolder = 'entries' | 'incidents' | 'layout' | 'avatars' | 'maintenance' | 'clocking' | 'hr' | 'meetings' | 'backups'
+
+// Lists the files directly inside a subfolder (used by the backup job to apply its retention rules).
+export async function listDriveSubfolder(subfolder: DriveSubfolder): Promise<{ id: string; name: string }[]> {
+  const drive = getDriveClient()
+  const parentId = await getOrCreateSubfolder(subfolder)
+  const out: { id: string; name: string }[] = []
+  let pageToken: string | undefined
+  do {
+    const res = await drive.files.list({
+      q: `'${parentId}' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'`,
+      fields: 'nextPageToken, files(id, name)',
+      pageSize: 1000,
+      pageToken,
+    })
+    for (const f of res.data.files ?? []) if (f.id && f.name) out.push({ id: f.id, name: f.name })
+    pageToken = res.data.nextPageToken ?? undefined
+  } while (pageToken)
+  return out
+}
 
 // Uploads a file into the given subfolder of the security photos root and
 // returns its Drive file id. The file is left at Drive's default sharing
