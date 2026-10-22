@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { uploadSecurityPhoto } from '../actions'
+import { uploadSecurityPhotoWithRetry } from '@/lib/uploadPhoto'
 import { Navigation, MapPin, CheckCircle2, Loader2 } from 'lucide-react'
 import PhotoPicker from '@/components/PhotoPicker'
 import PhotoLightbox from '@/components/PhotoLightbox'
@@ -172,7 +172,7 @@ export default function GpsClockingPage() {
           const fd = new FormData()
           fd.set('photo', blob, 'clocking.jpg')
           fd.set('subfolder', 'clocking')
-          const photo_drive_id = await uploadSecurityPhoto(fd)
+          const photo_drive_id = await uploadSecurityPhotoWithRetry(fd)
 
           const { error } = await supabase.from('security_clocking_records').insert([{
             checkpoint_id: checkpoint.id, checkpoint_name: checkpoint.name, guard_name: myIdentifier,

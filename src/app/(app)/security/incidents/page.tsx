@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { uploadSecurityPhoto } from '../actions'
+import { uploadSecurityPhotoWithRetry } from '@/lib/uploadPhoto'
 import { Siren } from 'lucide-react'
 import PhotoLightbox from '@/components/PhotoLightbox'
 import PhotoPicker from '@/components/PhotoPicker'
@@ -83,7 +83,7 @@ export default function IncidentsPage() {
         const fd = new FormData()
         fd.set('photo', blob, 'photo.jpg')
         fd.set('subfolder', 'incidents')
-        photo_drive_id = await uploadSecurityPhoto(fd)
+        photo_drive_id = await uploadSecurityPhotoWithRetry(fd)
       }
       const { error } = await supabase.from('security_incidents').insert([{
         type: form.type.trim(), description: form.description.trim(), location: form.location || null,

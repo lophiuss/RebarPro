@@ -8,7 +8,13 @@ import { Readable } from 'node:stream'
 // a Google OAuth2 refresh token obtained once via scripts/google-drive-auth.mjs
 // — never exposed to the browser, only used from Server Actions and the
 // /api/security/photo/[fileId] route handler.
+// One client per server instance: it keeps the short-lived access token and refreshes it only when it expires.
+// A fresh client per call meant a token request to Google for every single upload, which is slow and fails
+// under bursts (a guard clocking several checkpoints in a row).
+let oauthClient: InstanceType<typeof google.auth.OAuth2> | undefined
+
 function getOAuthClient() {
+  if (oauthClient) return oauthClient
   const clientId = process.env.GOOGLE_CLIENT_ID
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET
   const refreshToken = process.env.GOOGLE_REFRESH_TOKEN
@@ -17,7 +23,26 @@ function getOAuthClient() {
   }
   const client = new google.auth.OAuth2(clientId, clientSecret)
   client.setCredentials({ refresh_token: refreshToken })
+  oauthClient = client
   return client
+}
+
+// Google answers bursts and brief outages with 429/5xx/"rate limit" 403s or a dropped connection; all of those
+// succeed when tried again a moment later. Anything else (bad token, missing folder) fails straight away.
+function isTransient(err: any): boolean {
+  const status = Number(err?.code ?? err?.status ?? err?.response?.status)
+  if (status === 429 || (status >= 500 && status <= 504)) return true
+  if (status === 403) return /rate ?limit/i.test(String(err?.message ?? '') + JSON.stringify(err?.errors ?? ''))
+  return /ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|socket hang up|fetch failed|network/i.test(String(err?.code ?? '') + ' ' + String(err?.message ?? ''))
+}
+
+async function withRetry<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+  for (let i = 1; ; i++) {
+    try { return await fn() } catch (err) {
+      if (i >= attempts || !isTransient(err)) throw err
+      await new Promise(r => setTimeout(r, 400 * 2 ** (i - 1) + Math.random() * 200))
+    }
+  }
 }
 
 function getDriveClient() {
@@ -100,12 +125,12 @@ export async function listDriveSubfolder(subfolder: DriveSubfolder): Promise<{ i
 // our own has_dept_access('security') check, not a public Drive link.
 export async function uploadToDrive(buffer: Buffer, subfolder: DriveSubfolder, filename: string, mimeType = 'image/jpeg'): Promise<string> {
   const drive = getDriveClient()
-  const parentId = await getOrCreateSubfolder(subfolder)
-  const res = await drive.files.create({
+  const parentId = await withRetry(() => getOrCreateSubfolder(subfolder))
+  const res = await withRetry(() => drive.files.create({
     requestBody: { name: filename, parents: [parentId] },
-    media: { mimeType, body: Readable.from(buffer) },
+    media: { mimeType, body: Readable.from(buffer) }, // a stream can only be read once, so build it per attempt
     fields: 'id',
-  })
+  }))
   if (!res.data.id) throw new Error('Drive upload did not return a file id')
   return res.data.id
 }

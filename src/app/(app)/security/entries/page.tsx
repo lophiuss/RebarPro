@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { uploadSecurityPhoto } from '../actions'
+import { uploadSecurityPhotoWithRetry } from '@/lib/uploadPhoto'
 import { ClipboardEdit, LogOut, AlertTriangle, UserCheck, X } from 'lucide-react'
 import PhotoLightbox from '@/components/PhotoLightbox'
 import PhotoPicker from '@/components/PhotoPicker'
@@ -112,7 +112,7 @@ export default function EntriesPage() {
         const fd = new FormData()
         fd.set('photo', blob, 'photo.jpg')
         fd.set('subfolder', 'entries')
-        photo_drive_id = await uploadSecurityPhoto(fd)
+        photo_drive_id = await uploadSecurityPhotoWithRetry(fd)
       }
 
       const { data: { user } } = await supabase.auth.getUser()
@@ -171,7 +171,7 @@ export default function EntriesPage() {
         const fd = new FormData()
         fd.set('photo', blob, 'photo.jpg')
         fd.set('subfolder', 'entries')
-        photo_drive_id = await uploadSecurityPhoto(fd)
+        photo_drive_id = await uploadSecurityPhotoWithRetry(fd)
       }
       const { data: { user } } = await supabase.auth.getUser()
       const { error } = await supabase.from('security_entries').update({
