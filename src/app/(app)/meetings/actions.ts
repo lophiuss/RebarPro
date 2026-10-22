@@ -47,6 +47,15 @@ export async function setMeetingAttendees(meetingId: string, userIds: string[]) 
   refresh(meetingId)
 }
 
+// Adds one person to a meeting without touching anyone else (the settings dialog sends the whole list; this is for
+// the "+" on the Check-in page, where someone turns up who was not on the list).
+export async function addMeetingAttendee(meetingId: string, userId: string) {
+  const { supabase } = await requireMeetingsAccess()
+  const { error } = await supabase.from('mtg_attendees').upsert({ meeting_id: meetingId, user_id: userId }, { onConflict: 'meeting_id,user_id', ignoreDuplicates: true })
+  if (error) throw error
+  refresh(meetingId)
+}
+
 export async function toggleFavourite(meetingId: string) {
   const { supabase, user } = await requireMeetingsAccess()
   const { data: row } = await supabase

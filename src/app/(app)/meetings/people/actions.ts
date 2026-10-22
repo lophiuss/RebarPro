@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { requireMeetingsAdmin } from '../guard'
+import { requireMeetingsAdmin, requireMeetingsManager } from '../guard'
 
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 
@@ -43,7 +43,8 @@ export async function importEmails(text: string) {
 // Access Control: someone typed a name and e-mail to invite. Finds or creates the contact the
 // invitation is sent for (an existing contact with that e-mail or name is reused).
 export async function addInviteContact(fullName: string, email: string) {
-  const { supabase } = await requireMeetingsAdmin()
+  // admins and managers: the invitation only ever grants the Member role
+  const { supabase } = await requireMeetingsManager()
   const name = fullName.trim().replace(/\s+/g, ' ').slice(0, 120)
   const mail = email.trim().toLowerCase()
   if (!name) throw new Error('Type their name')

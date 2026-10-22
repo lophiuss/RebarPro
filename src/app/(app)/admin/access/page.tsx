@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { ShieldCheck, Trash2, UserPlus, Pencil, X, User as UserIcon, Eye, Settings as SettingsIcon, LogOut, RefreshCw, Mail } from 'lucide-react'
 import MeetingsInvite from './MeetingsInvite'
+import MeetingsManagerView from './MeetingsManagerView'
 import { listPeople, createPerson, updatePersonProfile, resetPersonPassword, setPersonActive, deletePerson, updatePersonEmail, type Person } from './actions'
 import { NAV_ITEMS, type Department } from '@/components/AppNavigation'
 
@@ -121,9 +122,15 @@ export default function AccessControlPage() {
       const { data: { user } } = await supabase.auth.getUser()
       setMyId(user?.id ?? null)
 
-      const [people, accessRes, navPermRes] = await Promise.all([
+      // Own rows first: a Meetings manager (not an admin anywhere) only gets the reduced view below, and
+      // listing every account is admin-only.
+      const accessRes = await supabase.from('user_department_access').select('user_id, department, role')
+      if (accessRes.error) throw accessRes.error
+      const rows = accessRes.data ?? []
+      if (!rows.some(a => a.user_id === user?.id && a.role === 'admin')) { setAccess(rows); return }
+
+      const [people, navPermRes] = await Promise.all([
         listPeople(),
-        supabase.from('user_department_access').select('user_id, department, role'),
         supabase.from('department_nav_permissions').select('department, role, nav_key'),
       ])
 
@@ -131,8 +138,7 @@ export default function AccessControlPage() {
       // Meetings people imported from the old system who do not have a login yet
       const { data: pending } = await supabase.from('mtg_contacts').select('id, full_name, email').is('user_id', null).order('full_name')
       setWaiting((pending ?? []) as { id: string; full_name: string; email: string | null }[])
-      if (accessRes.error) throw accessRes.error
-      if (accessRes.data) setAccess(accessRes.data)
+      setAccess(rows)
       if (navPermRes.error) throw navPermRes.error
       if (navPermRes.data) setNavPerms(navPermRes.data)
     } catch (err: any) {
@@ -372,6 +378,8 @@ Type DELETE to confirm.`)
       </div>
     )
   }
+
+  if (myAdminDepts.length === 0 && access.some(a => a.user_id === myId && a.department === 'meetings' && a.role === 'manager')) return <MeetingsManagerView />
 
   if (myAdminDepts.length === 0) {
     return (

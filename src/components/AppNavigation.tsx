@@ -205,6 +205,8 @@ export default function AppNavigation({ userEmail, fullName, departments, navPer
   const settingsHref = activeDept ? SETTINGS_HREF[activeDept] : ''
   const navItems = activeDept ? NAV_ITEMS[activeDept].filter(item => item.href !== settingsHref && isAllowed(item.href)) : []
   const isAdminAnywhere = departments.some(d => d.role === 'admin')
+  // Meetings managers get a reduced Access Control (add / invite people to Meetings only).
+  const canSeeAccessControl = isAdminAnywhere || departments.some(d => d.department === 'meetings' && d.role === 'manager')
   const canSeeSettings = !!activeDept && isAllowed(settingsHref)
 
   const closeSidebar = () => setIsOpen(false)
@@ -361,7 +363,7 @@ export default function AppNavigation({ userEmail, fullName, departments, navPer
             </Link>
           )}
 
-          {isAdminAnywhere && (
+          {canSeeAccessControl && (
             <Link
               href="/admin/access"
               onClick={closeSidebar}

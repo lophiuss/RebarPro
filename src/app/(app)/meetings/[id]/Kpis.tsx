@@ -5,7 +5,7 @@ import HistoryDialog from '../ui/HistoryDialog'
 import { notify, confirmDialog } from '../ui/feedback'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, Trash2, X, Check, ListChecks, AlertCircle, BarChart3, Table2, StickyNote, MoreVertical, GripVertical, History } from 'lucide-react'
+import { Plus, Trash2, X, Check, ListChecks, AlertCircle, BarChart3, Table2, StickyNote, MoreVertical, GripVertical, History, ChevronLeft, ChevronRight } from 'lucide-react'
 import { addKpi, setKpiValue, setKpiNote, reorderKpis, deleteKpi, updateKpi, setKpiMeetings, setKpiCustomGoal, deleteKpiCustomGoal } from '../actions'
 import { useMeeting, useRun } from './context'
 import Avatar from '../Avatar'
@@ -441,6 +441,23 @@ export function Metrics({ kpis, values, customGoals, otherMeetings, meetingName,
   const customRangeIncomplete = range.preset === 'custom' && (!range.from || !range.to)
 
   const chartKpi = shown.find(k => k.id === chartKpiId) ?? shown[0]
+  // Previous / next KPI for the chart (wraps around), so the host can step through them without the dropdown.
+  const chartIdx = chartKpi ? shown.findIndex(k => k.id === chartKpi.id) : -1
+  function stepChart(d: number) {
+    if (shown.length < 2 || chartIdx < 0) return
+    setChartKpiId(shown[(chartIdx + d + shown.length) % shown.length].id)
+  }
+  useEffect(() => {
+    if (view !== 'chart') return
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null
+      if (el && (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) || el.isContentEditable)) return
+      if (e.key === 'ArrowLeft') { e.preventDefault(); stepChart(-1) }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); stepChart(1) }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
   const buckets = (() => {
     if (!chartKpi) return []
     const span = resolveRange(range)
@@ -537,13 +554,25 @@ export function Metrics({ kpis, values, customGoals, otherMeetings, meetingName,
       {shown.length === 0 ? (
         <Empty title={`Your ${cadence} KPIs live here`} hint="Track the numbers that tell you how things are trending." />
       ) : view === 'chart' && chartKpi ? (
-        <KpiChart
-          buckets={buckets}
-          unit={chartKpi.unit_type}
-          goal={baseGoal(chartKpi)}
-          colourByGoal={group === 'period' || agg === 'avg'}
-          goalFor={group === 'period' ? key => goalFor(chartKpi, key, customGoals) : undefined}
-        />
+        <div>
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <button type="button" onClick={() => stepChart(-1)} disabled={shown.length < 2} aria-label="Previous KPI" title="Previous KPI (←)"
+              className="inline-flex items-center gap-1 px-3 py-2 rounded-lg border bg-white text-sm font-medium hover:bg-gray-50 active:scale-95 disabled:opacity-40"><ChevronLeft className="w-5 h-5" /> <span className="hidden sm:inline">Previous</span></button>
+            <div className="text-center min-w-0">
+              <div className="font-semibold text-slate-800 truncate">{chartKpi.name}</div>
+              <div className="text-xs text-gray-500">{chartIdx + 1} of {shown.length}</div>
+            </div>
+            <button type="button" onClick={() => stepChart(1)} disabled={shown.length < 2} aria-label="Next KPI" title="Next KPI (→)"
+              className="inline-flex items-center gap-1 px-3 py-2 rounded-lg border bg-white text-sm font-medium hover:bg-gray-50 active:scale-95 disabled:opacity-40"><span className="hidden sm:inline">Next</span> <ChevronRight className="w-5 h-5" /></button>
+          </div>
+          <KpiChart
+            buckets={buckets}
+            unit={chartKpi.unit_type}
+            goal={baseGoal(chartKpi)}
+            colourByGoal={group === 'period' || agg === 'avg'}
+            goalFor={group === 'period' ? key => goalFor(chartKpi, key, customGoals) : undefined}
+          />
+        </div>
       ) : (
         <div className={`${card} overflow-auto max-h-[calc(100vh-14rem)]`}>
           {/* Fixed layout: the period columns share whatever width is left, so the value boxes grow with the page. */}

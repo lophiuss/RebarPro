@@ -1,6 +1,6 @@
 // Deployed to jiltqrunlpewqkofzulz as `send-meeting-invite`, verify_jwt: true.
 //
-// A Meetings ADMIN invites people who so far only exist as contacts (imported from another
+// A Meetings ADMIN or MANAGER invites people who so far only exist as contacts (imported from another
 // system) to use the Meetings module. For each contact that has an e-mail address it:
 //   1. creates their login (or finds the one that already uses that e-mail),
 //   2. gives them access to the Meetings department (role "member"),
@@ -57,8 +57,14 @@ Deno.serve(async (req: Request) => {
     });
     const { data: { user }, error: userErr } = await caller.auth.getUser();
     if (userErr || !user) return json({ error: "Not signed in" }, 401);
+    // Meetings admins and managers may invite. A manager can only ever hand out the "member" role below.
     const { data: isAdmin } = await caller.rpc("is_dept_admin", { dept: "meetings" });
-    if (!isAdmin) return json({ error: "Only a Meetings admin can send invitations" }, 403);
+    let mayInvite = !!isAdmin;
+    if (!mayInvite) {
+      const { data: mine } = await caller.from("user_department_access").select("role").eq("user_id", user.id).eq("department", "meetings").maybeSingle();
+      mayInvite = mine?.role === "manager";
+    }
+    if (!mayInvite) return json({ error: "Only a Meetings admin or manager can send invitations" }, 403);
 
     const body = await req.json();
     const contactIds: string[] = Array.isArray(body.contact_ids) ? body.contact_ids.filter((x: unknown) => typeof x === "string").slice(0, 100) : [];

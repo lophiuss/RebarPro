@@ -1,8 +1,10 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { Lightbulb, MessageSquareQuote, Shuffle, ArrowLeft, NotebookPen, Check, UserCheck, Users, Crown } from 'lucide-react'
-import { setAttendanceBulk, saveIcebreakerNotes } from '../actions'
+import { Lightbulb, MessageSquareQuote, Shuffle, ArrowLeft, NotebookPen, Check, UserCheck, Users, Crown, Plus, Search, X } from 'lucide-react'
+import { setAttendanceBulk, saveIcebreakerNotes, addMeetingAttendee } from '../actions'
+import Portal from '../ui/Portal'
+import { isNameOwner } from '@/lib/owners'
 import { useMeeting, useRun } from './context'
 import Avatar from '../Avatar'
 import { card, input, labelCls, SectionTitle, type Rating } from './shared'
@@ -76,6 +78,23 @@ export function CheckIn({ lastFeedback, ice, onIce, notes }: { lastFeedback: Rat
   const markAll = (present: boolean) => setMany(Object.fromEntries(attendees.map(p => [p.id, present])))
   const hostId = liveRun?.leader_id ?? null
 
+  // "+" tile: bring in someone who is not on the meeting's list (and tick them present if the meeting is running).
+  const [adding, setAdding] = useState(false)
+  const [addQuery, setAddQuery] = useState('')
+  const [addBusy, setAddBusy] = useState(false)
+  const addQ = addQuery.trim().toLowerCase()
+  const addable = people.filter(p => !attendeeIds.includes(p.id) && !isNameOwner(p.id) && (!addQ || (p.full_name ?? '').toLowerCase().includes(addQ)))
+  async function addPerson(id: string) {
+    setAddBusy(true)
+    const ok = await run(async () => {
+      await addMeetingAttendee(meetingId, id)
+      if (runId) await setAttendanceBulk(runId, { [id]: true })
+      return true
+    })
+    setAddBusy(false)
+    if (ok) { setAdding(false); setAddQuery('') }
+  }
+
   // ----- icebreaker: a shuffled deck per set, so nothing repeats until it is used up
   const [kind, setKind] = useState<IcebreakerKind>('questions')
   const [draft, setDraft] = useState(notes)
@@ -137,7 +156,10 @@ export function CheckIn({ lastFeedback, ice, onIce, notes }: { lastFeedback: Rat
           )}
         </div>
         {attendees.length === 0 ? (
-          <p className="text-sm text-gray-500">Nobody has been added to this meeting yet. Add attendees in the meeting settings.</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-sm text-gray-500">Nobody has been added to this meeting yet. Add attendees with the + button or in the meeting settings.</p>
+            <button type="button" onClick={() => setAdding(true)} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border-2 border-dashed border-gray-300 text-sm font-semibold text-gray-600 hover:border-blue-400 hover:text-blue-600"><Plus className="w-4 h-4" /> Add person</button>
+          </div>
         ) : (
           <ul className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(8.5rem,1fr))]">
             {attendees.map(p => {
@@ -169,7 +191,42 @@ export function CheckIn({ lastFeedback, ice, onIce, notes }: { lastFeedback: Rat
                 </li>
               )
             })}
+            <li>
+              <button type="button" onClick={() => setAdding(true)} aria-label="Add a person to this meeting" title="Add a person"
+                className="w-full h-full min-h-[10rem] rounded-2xl border-2 border-dashed border-gray-300 bg-white px-2 py-4 flex flex-col items-center justify-center gap-2 text-gray-500 hover:border-blue-400 hover:bg-blue-50/40 hover:text-blue-600 active:scale-95 transition focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-300">
+                <span className="w-14 h-14 rounded-full border-2 border-current inline-flex items-center justify-center"><Plus className="w-7 h-7" /></span>
+                <span className="text-sm font-medium">Add person</span>
+              </button>
+            </li>
           </ul>
+        )}
+        {adding && (
+          <Portal>
+            <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={() => setAdding(false)}>
+              <div className="bg-white rounded-xl shadow-xl w-full max-w-sm max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()} onKeyDown={e => { if (e.key === 'Escape') setAdding(false) }}>
+                <div className="flex items-center justify-between px-4 py-3 border-b">
+                  <h2 className="font-bold">Add a person to this meeting</h2>
+                  <button type="button" onClick={() => setAdding(false)} aria-label="Close"><X className="w-5 h-5 text-gray-500" /></button>
+                </div>
+                <div className="relative p-3 border-b">
+                  <Search className="w-4 h-4 text-gray-500 absolute left-5 top-1/2 -translate-y-1/2" />
+                  <input autoFocus value={addQuery} onChange={e => setAddQuery(e.target.value)} placeholder="Search name" aria-label="Search name" className="w-full pl-8 pr-2 py-2 text-sm border rounded-md"
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); if (addable[0] && !addBusy) addPerson(addable[0].id) } }} />
+                </div>
+                <ul className="overflow-y-auto divide-y">
+                  {addable.map(p => (
+                    <li key={p.id}>
+                      <button type="button" disabled={addBusy} onClick={() => addPerson(p.id)} className="w-full text-left px-4 py-2.5 text-sm hover:bg-gray-50 flex items-center gap-3 disabled:opacity-50">
+                        <Avatar person={p} size="sm" /> <span className="flex-1 truncate">{p.full_name || p.id.slice(0, 8)}</span> <Plus className="w-4 h-4 text-blue-600" />
+                      </button>
+                    </li>
+                  ))}
+                  {addable.length === 0 && <li className="px-4 py-6 text-sm text-gray-500 text-center">{addQ ? <>No one matches &ldquo;{addQuery}&rdquo;</> : 'Everyone is already in this meeting.'}</li>}
+                </ul>
+                <p className="text-xs text-gray-500 px-4 py-2 border-t">{liveRun ? 'They are added to the meeting and checked in as present.' : 'They are added to the meeting.'}</p>
+              </div>
+            </div>
+          </Portal>
         )}
       </div>
 

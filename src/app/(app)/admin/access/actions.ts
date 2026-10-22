@@ -2,6 +2,7 @@
 
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
+import { requireMeetingsManager } from '../../meetings/guard'
 
 export type Person = { id: string; email: string; full_name: string | null; avatar_url: string | null; is_active: boolean }
 
@@ -121,6 +122,28 @@ export async function createPerson(email: string, password: string, fullName: st
   })
   if (error) throw error
   if (created?.user) await logAccountAction(admin, user.id, created.user.id, 'account.create', { email: email.trim() })
+}
+
+// Access Control for a Meetings MANAGER: creates a login and gives it the Meetings "member" role, nothing else.
+// A manager cannot touch other departments, other roles or existing accounts (those need requireDeptAdmin above).
+export async function createMeetingsPerson(email: string, password: string, fullName: string): Promise<void> {
+  const { user } = await requireMeetingsManager()
+  const mail = email.trim().toLowerCase()
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) throw new Error('That does not look like an e-mail address')
+  if (password.length < 10) throw new Error('Password must be at least 10 characters')
+
+  const admin = createAdminClient()
+  const { data: created, error } = await admin.auth.admin.createUser({
+    email: mail, password, email_confirm: true, user_metadata: { full_name: fullName.trim() || undefined },
+  })
+  if (error) throw error
+  const id = created.user.id
+  const { error: grantErr } = await admin.from('user_department_access').upsert({ user_id: id, department: 'meetings', role: 'member', granted_by: user.id }, { onConflict: 'user_id,department', ignoreDuplicates: true })
+  if (grantErr) {
+    await admin.auth.admin.deleteUser(id) // never leave a login without the access it was created for
+    throw grantErr
+  }
+  await logAccountAction(admin, user.id, id, 'account.create', { email: mail, via: 'meetings manager', department: 'meetings', role: 'member' })
 }
 
 // Updates someone else's name/picture. profiles' own RLS only lets people
