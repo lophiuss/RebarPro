@@ -10,7 +10,7 @@ import { addKpi, setKpiValue, setKpiNote, reorderKpis, deleteKpi, updateKpi, set
 import { useMeeting, useRun } from './context'
 import Avatar from '../Avatar'
 import { PersonSelect } from '../PersonPicker'
-import { RichEditor } from '../RichText'
+import { RichEditor, RichView } from '../RichText'
 import NewItemDrawer from './NewItemDrawer'
 import KpiChart from './KpiChart'
 import { periodsFor, resolveRange, bucketValues, parseYmd, RANGE_LABEL, GROUP_LABEL, type Range, type RangePreset, type Group } from './kpiRange'
@@ -564,6 +564,21 @@ export function Metrics({ kpis, values, customGoals, otherMeetings, meetingName,
             </div>
             <button type="button" onClick={() => stepChart(1)} disabled={shown.length < 2} aria-label="Next KPI" title="Next KPI (→)"
               className="inline-flex items-center gap-1 px-3 py-2 rounded-lg border bg-white text-sm font-medium hover:bg-gray-50 active:scale-95 disabled:opacity-40"><span className="hidden sm:inline">Next</span> <ChevronRight className="w-5 h-5" /></button>
+          </div>
+          <div className={`${card} px-4 py-3 mb-2`}>
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+              <div className="flex items-center gap-2">
+                <span className={`${labelCls}`}>Owner</span>
+                {chartKpi.owner_id && peopleById.get(chartKpi.owner_id)
+                  ? <><Avatar person={peopleById.get(chartKpi.owner_id)} size="sm" /><span className="font-medium text-slate-800">{peopleById.get(chartKpi.owner_id)?.full_name}</span></>
+                  : <span className="text-gray-500">No owner</span>}
+              </div>
+              <div className="flex items-center gap-2"><span className={labelCls}>Goal</span><span className="font-medium text-slate-800">{formatGoal(baseGoal(chartKpi), chartKpi.unit_type)}</span></div>
+              <div className="flex items-center gap-2"><span className={labelCls}>Cadence</span><span className="font-medium text-slate-800 capitalize">{chartKpi.cadence}</span></div>
+            </div>
+            {chartKpi.details?.replace(/<[^>]*>/g, '').trim()
+              ? <RichView value={chartKpi.details} className="mt-2 pt-2 border-t text-gray-700" />
+              : <p className="mt-2 pt-2 border-t text-xs text-gray-500">No description yet. Add one from the KPI&apos;s menu in the table.</p>}
           </div>
           <KpiChart
             buckets={buckets}
