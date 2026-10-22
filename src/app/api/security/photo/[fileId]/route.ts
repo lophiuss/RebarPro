@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { streamFromDrive } from '@/lib/google-drive'
+import { driveFileResponse } from '@/lib/driveResponse'
 import { NextResponse } from 'next/server'
 
 // Proxies a security-department photo out of Google Drive. Drive files are
@@ -17,13 +18,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ fileId:
 
   try {
     const { stream, mimeType } = await streamFromDrive(fileId)
-    return new NextResponse(stream as any, {
-      // A given file id's bytes never change once uploaded, so cache
-      // aggressively — cuts repeat Drive fetches (and the has_dept_access
-      // round trip above) every time the same photo appears again across
-      // Entries/Dashboard/Audit.
-      headers: { 'Content-Type': mimeType, 'Cache-Control': 'private, max-age=86400, immutable' },
-    })
+    return driveFileResponse(stream, mimeType)
   } catch (err: any) {
     return NextResponse.json({ error: 'Photo not found' }, { status: 404 })
   }

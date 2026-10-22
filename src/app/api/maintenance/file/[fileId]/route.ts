@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { streamFromDrive } from '@/lib/google-drive'
+import { driveFileResponse } from '@/lib/driveResponse'
 import { NextResponse } from 'next/server'
 
 // Proxies a maintenance-department file (photo evidence, equipment user
@@ -17,9 +18,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ fileId:
 
   try {
     const { stream, mimeType } = await streamFromDrive(fileId)
-    return new NextResponse(stream as any, {
-      headers: { 'Content-Type': mimeType, 'Cache-Control': 'private, max-age=86400, immutable' },
-    })
+    return driveFileResponse(stream, mimeType)
   } catch (err: any) {
     return NextResponse.json({ error: 'File not found' }, { status: 404 })
   }

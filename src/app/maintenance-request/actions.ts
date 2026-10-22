@@ -46,10 +46,14 @@ export async function submitWorkRequest(input: {
 
   let photo_drive_id: string | null = null
   if (input.photoDataUrl) {
-    const match = input.photoDataUrl.match(/^data:(.+);base64,(.*)$/)
-    if (match) {
+    // Anyone can post this form, so only accept real photo types and a sane size: never a web page or script
+    // that would later be served back from our own address.
+    const match = input.photoDataUrl.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/)
+    if (!match) throw new Error('The photo must be a JPEG, PNG or WebP image')
+    {
       const [, mimeType, base64] = match
       const buffer = Buffer.from(base64, 'base64')
+      if (buffer.length > 8 * 1024 * 1024) throw new Error('The photo is too large (8 MB max)')
       const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}.jpg`
       photo_drive_id = await uploadToDrive(buffer, 'maintenance', filename, mimeType || 'image/jpeg')
     }

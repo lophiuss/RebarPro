@@ -40,7 +40,8 @@ export async function GET(req: Request) {
 
   const admin = createAdminClient()
   const now = new Date()
-  const fileName = `backup-${now.toISOString().slice(0, 10)}.json.gz`
+  // Named by the Malaysia calendar day (the run at 03:00 MYT on the 22nd is the 22nd's backup, not the 21st's).
+  const fileName = `backup-${new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kuala_Lumpur' }).format(now)}.json.gz`
 
   try {
     const { data: tableNames, error: listErr } = await admin.rpc('backup_list_tables')
