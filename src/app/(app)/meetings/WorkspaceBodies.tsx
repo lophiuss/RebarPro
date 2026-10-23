@@ -344,7 +344,7 @@ export function IssuesBody({ issues, peopleById, onOpen }: { issues: WIssue[]; p
           <button onClick={() => onOpen(i)} className="flex items-center gap-2 w-full text-left text-sm hover:text-blue-700">
             <Avatar person={peopleById.get(i.owner_id ?? '')} size="sm" />
             <span className="truncate">{i.title}</span>
-            {i.status === 'parking_lot' && <span className="text-xs text-gray-500">parked</span>}
+            {i.status === 'parking_lot' && <span className="text-xs text-gray-500">KIV</span>}
             <NewBadge createdAt={i.created_at} />
             {i.due_date && <span className="ml-auto text-xs text-gray-500 whitespace-nowrap">{i.due_date}</span>}
           </button>

@@ -228,6 +228,15 @@ export async function revealRatings(runId: string) {
   refresh(run.meeting_id)
 }
 
+// The leader started the meeting by mistake (or just to try it): throw the run away. Check-ins, ratings and the
+// timer go with it and no summary is saved. To-dos and issues added meanwhile stay (they just lose the link).
+export async function cancelMeeting(runId: string) {
+  const { supabase, run } = await requireRunLeader(runId)
+  const { error } = await supabase.from('mtg_runs').delete().eq('id', runId).is('ended_at', null)
+  if (error) throw error
+  refresh(run.meeting_id as string)
+}
+
 export async function concludeMeeting(runId: string, opts: { archiveTodos: boolean; archiveHeadlines: boolean; pageSeconds: Record<string, number> }) {
   const { supabase, run } = await requireRunLeader(runId)
   const meetingId = run.meeting_id as string

@@ -29,7 +29,7 @@ export const MEETING_TABS: { key: MeetingTab; label: string }[] = [
 export type IssueStatus = 'short_term' | 'parking_lot' | 'solved' | 'sent'
 export const ISSUE_STATUS_LABEL: Record<IssueStatus, string> = {
   short_term: 'Short term',
-  parking_lot: 'Parking lot',
+  parking_lot: 'KIV',
   solved: 'Recently solved',
   sent: 'Sent',
 }

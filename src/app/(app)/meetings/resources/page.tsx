@@ -61,7 +61,7 @@ const TOPICS: { title: string; body: string[] }[] = [
     title: 'Growth Plan',
     body: [
       'Future Focus holds the long view: core values, what/how/why, a 5-year vision, your marketing strategy and a 3-year picture.',
-      'Short-Term Focus holds the 1-year plan, the 90-day plan, the current quarterly priorities and the parking lot of issues you will get to later.',
+      'Short-Term Focus holds the 1-year plan, the 90-day plan, the current quarterly priorities and the KIV list of issues you will get to later.',
       'Use Presentation mode in meetings and Edit mode to change it. Only managers can edit.',
     ],
   },

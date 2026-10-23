@@ -193,7 +193,7 @@ export default function GrowthPlanView({
                 <DateField label="Future date" value={draft.ninety_day?.date} onChange={v => patch({ ninety_day: { ...draft.ninety_day, date: v } })} />
                 <ListField label="Growth goals" values={draft.ninety_day?.goals} onChange={v => patch({ ninety_day: { ...draft.ninety_day, goals: v } })} />
               </Section>
-              <p className="text-sm text-gray-500">Quarterly priorities and the parking lot come from your meetings and update automatically. Core values are edited in Settings.</p>
+              <p className="text-sm text-gray-500">Quarterly priorities and the KIV list come from your meetings and update automatically. Core values are edited in Settings.</p>
             </>
           )}
         </div>
@@ -272,8 +272,8 @@ export default function GrowthPlanView({
               </ul>
             )}
           </Section>
-          <Section title={`Parking Lot (${parked.length})`}>
-            {parked.length === 0 ? <p className="text-sm text-gray-500">Nothing in the parking lot.</p> : (
+          <Section title={`KIV (${parked.length})`}>
+            {parked.length === 0 ? <p className="text-sm text-gray-500">Nothing kept in view (KIV).</p> : (
               <ol className="space-y-2">
                 {parked.map((p, i) => (
                   <li key={p.id} className="flex items-start gap-3 text-slate-800">

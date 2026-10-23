@@ -1,15 +1,16 @@
 'use client'
 
-import { notifyError } from '../ui/feedback'
+import { notifyError, confirmDialog } from '../ui/feedback'
+import { startFurin } from '@/lib/furin'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
-  Play, AlertTriangle, Crown, Radio, NotebookPen, Users, X, Settings as SettingsIcon,
+  Play, AlertTriangle, Ban, Crown, Radio, NotebookPen, Users, X, Settings as SettingsIcon,
   PanelLeftClose, PanelLeftOpen, Minus, Plus, Presentation, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { startMeeting, setRunPage, saveRunNotes } from '../actions'
+import { startMeeting, setRunPage, saveRunNotes, cancelMeeting } from '../actions'
 import { MeetingProvider, type Run } from './context'
 import Avatar from '../Avatar'
 import { CheckIn } from './CheckIn'
@@ -202,6 +203,24 @@ export default function MeetingShell(props: ShellProps) {
     }
   }
 
+  // The wind chime rings while the tangent banner is up (it closes itself after 10 s, or with its X).
+  useEffect(() => {
+    if (!tangent) return
+    return startFurin()
+  }, [tangent])
+
+  async function cancel() {
+    if (!run) return
+    if (!(await confirmDialog('Cancel this meeting? The timer, check-ins and ratings are thrown away and no summary is saved. To-dos and issues added meanwhile are kept.'))) return
+    try {
+      await cancelMeeting(run.id)
+      showPage('CHECK_IN')
+      changed()
+    } catch (err: any) {
+      notifyError(err)
+    }
+  }
+
   function sendTangent() {
     const name = peopleById.get(myId)?.full_name ?? 'Someone'
     channelRef.current?.send({ type: 'broadcast', event: 'tangent', payload: { by: name } })
@@ -350,6 +369,9 @@ export default function MeetingShell(props: ShellProps) {
                       <span className="text-xs text-slate-400">of {totalPlanned}m planned</span>
                     </div>
                   )}
+                  {run && isLeader && (
+                    <button onClick={cancel} className="w-full -mt-2 inline-flex items-center justify-center gap-1.5 text-xs font-medium text-gray-500 hover:text-red-600"><Ban className="w-3.5 h-3.5" /> Cancel meeting (started by mistake)</button>
+                  )}
 
                   <ol className="space-y-1">
                     {agenda.map(a => {
@@ -441,6 +463,7 @@ export default function MeetingShell(props: ShellProps) {
                       <button onClick={() => stepTo(1)} disabled={pageIndex < 0 || pageIndex >= agenda.length - 1} aria-label="Next section" className="p-1.5 rounded-lg border hover:bg-gray-50 disabled:opacity-40"><ChevronRight className="w-4 h-4" /></button>
                     </div>
                     {run && <button onClick={sendTangent} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-amber-800 text-sm font-semibold hover:bg-amber-100"><AlertTriangle className="w-4 h-4" /> Tangent</button>}
+                    {run && isLeader && <button onClick={cancel} title="Cancel meeting (started by mistake)" aria-label="Cancel meeting" className="p-1.5 rounded-lg border text-gray-500 hover:text-red-600 hover:bg-red-50"><Ban className="w-4 h-4" /></button>}
                   </div>
                 )}
 
