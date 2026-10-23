@@ -1077,6 +1077,15 @@ export async function updatePrivateNote(id: string, body: string) {
   refresh()
 }
 
+const NOTE_COLORS = ['yellow', 'blue', 'green', 'pink', 'purple', 'gray']
+export async function setPrivateNoteColor(id: string, color: string) {
+  const { supabase } = await requireMeetingsAccess()
+  if (!NOTE_COLORS.includes(color)) throw new Error('Unknown colour')
+  const { error } = await supabase.from('mtg_private_notes').update({ color }).eq('id', id)
+  if (error) throw error
+  refresh()
+}
+
 export async function deletePrivateNote(id: string) {
   const { supabase } = await requireMeetingsAccess()
   const { error } = await supabase.from('mtg_private_notes').delete().eq('id', id)

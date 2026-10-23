@@ -4,7 +4,7 @@ import { confirmDialog } from './ui/feedback'
 import { useMemo, useOptimistic, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { Check, Plus, Trash2, StickyNote, FileText, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react'
-import { addTodo, setTodoDone, setKpiValue, addPrivateNote, updatePrivateNote, deletePrivateNote, addPersonalTodo, setPersonalTodoDone, deletePersonalTodo } from './actions'
+import { addTodo, setTodoDone, setKpiValue, addPrivateNote, updatePrivateNote, deletePrivateNote, setPrivateNoteColor, addPersonalTodo, setPersonalTodoDone, deletePersonalTodo } from './actions'
 import { act } from './act'
 import Avatar from './Avatar'
 import { NewBadge, goalWord, NO_SPIN, effectiveGoal, type Kpi, type KpiCustomGoal, type KpiValue } from './[id]/shared'
@@ -17,28 +17,40 @@ export type WTodo = { id: string; title: string; details: string | null; due_dat
 export type WGoal = { id: string; title: string; details: string | null; status: 'on' | 'off' | 'done'; due_date: string | null; milestones: { title: string; done: boolean }[]; meeting_id: string; owner_id: string | null; created_at: string; meeting: { name: string } | null }
 export type WKpi = Omit<Kpi, 'meeting_ids'> & { meeting_id: string; meeting: { name: string } | null }
 export type WPersonalTodo = { id: string; title: string; due_date: string | null; done_at: string | null; status: TodoStatus; created_at?: string }
-export type WNote = { id: string; body: string; updated_at: string }
+export type WNote = { id: string; body: string; updated_at: string; color?: string }
 export type WMeeting = { id: string; name: string }
 export type WHeadline = { id: string; title: string; details: string | null; owner_id: string | null; created_at: string }
 export type WIssue = { id: string; title: string; details: string | null; owner_id: string | null; status: IssueStatus; created_at: string; due_date?: string | null; meeting_id: string }
 
 const input = 'border rounded-lg px-3 py-2 text-sm bg-white'
 const primary = 'inline-flex items-center justify-center rounded-lg bg-blue-600 text-white hover:bg-blue-700'
+// Stands in for a meeting id when a to-do is personal (same value the board uses).
+const PERSONAL = 'personal'
+
 export const Empty = ({ children }: { children: React.ReactNode }) => <p className="text-sm text-gray-500 text-center py-4">{children}</p>
 
 // ------------------------------------------------------------------ to-dos
 
-export function TodosBody({ todos, meetings, onOpen }: { todos: WTodo[]; meetings: WMeeting[]; onOpen: (t: WTodo) => void }) {
+export function TodosBody({ todos, meetings, onOpen, personal }: {
+  todos: WTodo[]; meetings: WMeeting[]; onOpen: (t: WTodo) => void
+  // My Workspace passes your personal to-dos: they are listed here too, and "Personal" can be picked when adding.
+  personal?: WPersonalTodo[]
+}) {
+  const withPersonal = personal !== undefined
   const [showDone, setShowDone] = useState(false)
-  const [form, setForm] = useState({ title: '', meeting_id: meetings[0]?.id ?? '', due_date: '' })
+  const [form, setForm] = useState({ title: '', meeting_id: withPersonal ? PERSONAL : (meetings[0]?.id ?? ''), due_date: '' })
   const meetingName = useMemo(() => new Map(meetings.map(m => [m.id, m.name])), [meetings])
   const today = ymd(new Date())
+  const merged: WTodo[] = useMemo(() => [
+    ...todos,
+    ...(personal ?? []).map(p => ({ id: p.id, title: p.title, details: null, due_date: p.due_date, done_at: p.done_at, status: p.status, meeting_id: PERSONAL, owner_id: null, created_at: p.created_at ?? '' })),
+  ], [todos, personal])
   // Ticks and new to-dos show at once; the saved version takes over when the page refreshes.
   const [, startTransition] = useTransition()
-  const [list, change] = useOptimistic(todos, (cur: WTodo[], c: { add?: WTodo; toggle?: string }) =>
+  const [list, change] = useOptimistic(merged, (cur: WTodo[], c: { add?: WTodo; toggle?: string }) =>
     c.add ? [c.add, ...cur] : cur.map(t => (t.id === c.toggle ? { ...t, done_at: t.done_at ? null : new Date().toISOString() } : t)))
   const active = list.filter(t => !t.done_at)
-  const shown = showDone ? list : active
+  const shown = (showDone ? list : active).slice().sort((a, b) => Number(b.id.startsWith('pending-')) - Number(a.id.startsWith('pending-')) || (b.created_at ?? '').localeCompare(a.created_at ?? ''))
 
   function add(e: React.FormEvent) {
     e.preventDefault()
@@ -48,29 +60,33 @@ export function TodosBody({ todos, meetings, onOpen }: { todos: WTodo[]; meeting
     const now = new Date().toISOString()
     startTransition(async () => {
       change({ add: { id: `pending-${now}`, title: draft.title.trim(), details: null, due_date: draft.due_date || null, done_at: null, status: 'todo', meeting_id: draft.meeting_id, owner_id: null, created_at: now } })
-      await act(() => addTodo(draft.meeting_id, { title: draft.title, owner_id: null, due_date: draft.due_date || null }))
+      if (draft.meeting_id === PERSONAL) await act(() => addPersonalTodo(draft.title, draft.due_date || null))
+      else await act(() => addTodo(draft.meeting_id, { title: draft.title, owner_id: null, due_date: draft.due_date || null }))
     })
   }
   function toggle(t: WTodo) {
     if (t.id.startsWith('pending-')) return
     startTransition(async () => {
       change({ toggle: t.id })
-      await act(() => setTodoDone(t.meeting_id, t.id, !t.done_at))
+      if (t.meeting_id === PERSONAL) await act(() => setPersonalTodoDone(t.id, !t.done_at))
+      else await act(() => setTodoDone(t.meeting_id, t.id, !t.done_at))
     })
   }
 
+  const targets = [...(withPersonal ? [{ id: PERSONAL, name: 'Personal (only me)' }] : []), ...meetings]
+
   return (
     <>
-      {meetings.length > 0 && (
+      {targets.length > 0 && (
         <form onSubmit={add} className="mb-2 grid gap-1.5 grid-cols-[minmax(0,1fr)_auto]">
-          <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="New to-do" className={`${input} !py-1.5`} aria-label="New to-do" />
+          <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder={form.meeting_id === PERSONAL ? 'New personal to-do' : 'New to-do'} className={`${input} !py-1.5`} aria-label="New to-do" />
           <button className={`${primary} px-2.5`} aria-label="Add to-do"><Plus className="w-4 h-4" /></button>
-          {meetings.length > 1 && (
-            <select value={form.meeting_id} onChange={e => setForm({ ...form, meeting_id: e.target.value })} className={`${input} !py-1.5`} aria-label="Meeting">
-              {meetings.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+          {targets.length > 1 && (
+            <select value={form.meeting_id} onChange={e => setForm({ ...form, meeting_id: e.target.value })} className={`${input} !py-1.5 min-w-0`} aria-label="Meeting or personal">
+              {targets.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
           )}
-          <input type="date" value={form.due_date} onChange={e => setForm({ ...form, due_date: e.target.value })} className={`${input} !py-1.5`} aria-label="Due date" title="Defaults to 7 days from today" />
+          <input type="date" value={form.due_date} onChange={e => setForm({ ...form, due_date: e.target.value })} className={`${input} !py-1.5`} aria-label="Due date" title={form.meeting_id === PERSONAL ? 'Optional' : 'Defaults to 7 days from today'} />
         </form>
       )}
       <label className="flex items-center gap-1.5 text-xs text-gray-600 mb-2 cursor-pointer w-fit">
@@ -80,18 +96,19 @@ export function TodosBody({ todos, meetings, onOpen }: { todos: WTodo[]; meeting
         <ul className="divide-y -mx-1">
           {shown.map(t => {
             const overdue = !t.done_at && t.due_date && t.due_date < today
+            const isPersonal = t.meeting_id === PERSONAL
             return (
               <li key={t.id} className="flex items-center gap-2.5 px-1 py-1.5">
                 <button
                   onClick={() => toggle(t)}
                   aria-label={t.done_at ? 'Mark not done' : 'Mark done'}
-                  className={`w-7 h-7 rounded-full border-2 shrink-0 inline-flex items-center justify-center ${t.done_at ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300 hover:border-blue-500'}`}
+                  className={`w-7 h-7 rounded-full border-2 shrink-0 inline-flex items-center justify-center transition active:scale-90 ${t.done_at ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300 hover:border-blue-500'}`}
                 >{t.done_at && <Check className="w-4 h-4" />}</button>
-                <button onClick={() => { if (!t.id.startsWith('pending-')) onOpen(t) }} className={`flex-1 min-w-0 text-left ${t.id.startsWith('pending-') ? 'opacity-60' : ''}`} title="Open details">
+                <button onClick={() => { if (!t.id.startsWith('pending-') && !isPersonal) onOpen(t) }} className={`flex-1 min-w-0 text-left ${t.id.startsWith('pending-') ? 'opacity-60' : ''} ${isPersonal ? 'cursor-default' : ''}`} title={isPersonal ? undefined : 'Open details'}>
                   <div className={`text-sm truncate ${t.done_at ? 'line-through text-gray-500' : ''}`}>{t.title}{t.details && <FileText className="inline-block w-3.5 h-3.5 ml-1.5 text-gray-500 align-[-2px]" />}</div>
-                  <div className="text-xs text-gray-500 uppercase tracking-wide truncate">{meetingName.get(t.meeting_id)}</div>
+                  <div className="text-xs text-gray-500 uppercase tracking-wide truncate">{isPersonal ? 'Personal' : meetingName.get(t.meeting_id)}</div>
                 </button>
-                <NewBadge createdAt={t.created_at} />
+                {t.created_at && <NewBadge createdAt={t.created_at} />}
                 <span className={`text-xs whitespace-nowrap ${overdue ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>{t.due_date ?? ''}</span>
               </li>
             )
@@ -279,6 +296,49 @@ export function PersonalTodosBody({ todos }: { todos: WPersonalTodo[] }) {
   )
 }
 
+const NOTE_COLORS: Record<string, { card: string; dot: string }> = {
+  yellow: { card: 'bg-amber-50 border-amber-200', dot: 'bg-amber-300' },
+  blue: { card: 'bg-sky-50 border-sky-200', dot: 'bg-sky-300' },
+  green: { card: 'bg-emerald-50 border-emerald-200', dot: 'bg-emerald-300' },
+  pink: { card: 'bg-pink-50 border-pink-200', dot: 'bg-pink-300' },
+  purple: { card: 'bg-violet-50 border-violet-200', dot: 'bg-violet-300' },
+  gray: { card: 'bg-gray-50 border-gray-200', dot: 'bg-gray-300' },
+}
+
+// Grows with its text instead of scrolling inside a two-line box.
+function autoGrow(el: HTMLTextAreaElement | null) {
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${el.scrollHeight}px`
+}
+
+function NoteCard({ note }: { note: WNote }) {
+  const [color, setColor] = useState(note.color ?? 'yellow')
+  const c = NOTE_COLORS[color] ?? NOTE_COLORS.yellow
+  return (
+    <li className={`group rounded-lg border ${c.card} transition-colors`}>
+      <textarea
+        ref={autoGrow}
+        defaultValue={note.body}
+        rows={1}
+        onInput={e => autoGrow(e.currentTarget)}
+        onBlur={e => { if (e.target.value !== note.body) act(() => updatePrivateNote(note.id, e.target.value)) }}
+        className="block w-full resize-none overflow-hidden bg-transparent px-3 pt-2 pb-1 text-sm leading-relaxed whitespace-pre-wrap break-words focus:outline-none"
+        aria-label="Note"
+      />
+      {/* Colour and delete stay out of the way: they show on hover, or while you are in the note. */}
+      <div className="flex items-center gap-1 px-2 pb-1.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+        {Object.entries(NOTE_COLORS).map(([k, v]) => (
+          <button key={k} type="button" onClick={() => { setColor(k); act(() => setPrivateNoteColor(note.id, k)) }} aria-label={`Colour: ${k}`} aria-pressed={color === k}
+            className={`w-3.5 h-3.5 rounded-full border ${v.dot} ${color === k ? 'ring-2 ring-offset-1 ring-gray-400' : 'border-white'}`} />
+        ))}
+        <button type="button" onClick={async () => { if (await confirmDialog('Delete this note? This cannot be undone.')) { await act(() => deletePrivateNote(note.id)) } }}
+          className="ml-auto text-[11px] text-gray-400 hover:text-red-600 px-1">Delete</button>
+      </div>
+    </li>
+  )
+}
+
 export function NotesBody({ notes }: { notes: WNote[] }) {
   const [draft, setDraft] = useState('')
 
@@ -292,24 +352,13 @@ export function NotesBody({ notes }: { notes: WNote[] }) {
   return (
     <>
       <p className="text-xs text-gray-500 mb-2 flex items-center gap-1"><StickyNote className="w-3 h-3" /> Only you can see these.</p>
-      <form onSubmit={add} className="grid gap-2 grid-cols-[1fr_auto] mb-3">
+      <form onSubmit={add} className="grid gap-2 grid-cols-[minmax(0,1fr)_auto] mb-3">
         <input value={draft} onChange={e => setDraft(e.target.value)} placeholder="New note" className={input} aria-label="New note" />
         <button className={`${primary} px-3`} aria-label="Add note"><Plus className="w-4 h-4" /></button>
       </form>
       {notes.length === 0 ? <Empty>No notes yet.</Empty> : (
         <ul className="space-y-2">
-          {notes.map(n => (
-            <li key={`${n.id}-${n.updated_at}`} className="relative">
-              <textarea
-                defaultValue={n.body}
-                rows={2}
-                onBlur={e => { if (e.target.value !== n.body) act(() => updatePrivateNote(n.id, e.target.value)) }}
-                className={`${input} w-full pr-8`}
-                aria-label="Note"
-              />
-              <button onClick={async () => { if (await confirmDialog('Delete this note?')) { await (act(() => deletePrivateNote(n.id))) } }} aria-label="Delete note" className="absolute top-2 right-2 p-2 -m-2 text-gray-500 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
-            </li>
-          ))}
+          {notes.map(n => <NoteCard key={`${n.id}-${n.updated_at}`} note={n} />)}
         </ul>
       )}
     </>

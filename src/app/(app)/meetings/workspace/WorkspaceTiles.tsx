@@ -50,7 +50,7 @@ export default function WorkspaceTiles({
 
   const tiles: TileDef[] = [
     { id: 'calendar', title: 'Calendar', node: <CalendarBody meetings={calMeetings} held={calHeld} items={calItems} onOpenItem={i => setOpen({ kind: i.kind, id: i.id })} /> },
-    { id: 'todos', title: 'To-dos', count: todos.filter(t => !t.done_at).length, node: <TodosBody todos={todos} meetings={meetings} onOpen={t => setOpen({ kind: 'todo', id: t.id })} /> },
+    { id: 'todos', title: 'To-dos', count: todos.filter(t => !t.done_at).length + personalTodos.filter(t => !t.done_at).length, node: <TodosBody todos={todos} meetings={meetings} personal={personalTodos} onOpen={t => setOpen({ kind: 'todo', id: t.id })} /> },
     { id: 'personal', title: 'Personal to-dos', count: personalTodos.filter(t => !t.done_at).length, node: <PersonalTodosBody todos={personalTodos} /> },
     { id: 'goals', title: 'Quarterly Priorities', count: goals.filter(g => g.status !== 'done').length, node: <GoalsBody goals={goals} onOpen={g => setOpen({ kind: 'goal', id: g.id })} /> },
     { id: 'kpis', title: 'My KPIs', count: kpis.length, node: <KpisBody kpis={kpis} values={kpiValues} custom={kpiGoals} emptyText="No KPIs are assigned to you. A KPI shows here when you are its owner." /> },
