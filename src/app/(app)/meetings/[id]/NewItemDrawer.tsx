@@ -87,10 +87,6 @@ export default function NewItemDrawer({
               </select>
             </div>
           )}
-          <div>
-            <div className={sectionTitle}>{kind === 'todo' ? 'To-do' : 'Issue'}</div>
-            <input value={title} onChange={e => setTitle(e.target.value)} className={field} aria-label="Title" autoFocus />
-          </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <div className={sectionTitle}>Assign to</div>
@@ -100,6 +96,10 @@ export default function NewItemDrawer({
               <div className={sectionTitle}>Due date</div>
               <input type="date" value={due} onChange={e => setDue(e.target.value)} className={field} aria-label="Due date" />
             </div>
+          </div>
+          <div>
+            <div className={sectionTitle}>{kind === 'todo' ? 'To-do' : 'Issue'}</div>
+            <input value={title} onChange={e => setTitle(e.target.value)} className={field} aria-label="Title" autoFocus />
           </div>
           <div>
             <div className={sectionTitle}>Details</div>

@@ -53,7 +53,7 @@ export default function TodoBoard({
   const [draftMeeting, setDraftMeeting] = useState('')
   // A new card shows at once; the saved one replaces it when the page refreshes.
   const [, startTransition] = useTransition()
-  const [shownTodos, addShown] = useOptimistic(todos, (cur: BoardTodo[], add: BoardTodo) => [...cur, add])
+  const [shownTodos, addShown] = useOptimistic(todos, (cur: BoardTodo[], add: BoardTodo) => [add, ...cur])
   const today = ymd(new Date())
   // Which columns to show (To do is always shown). Remembered per person, for every board.
   const [colsPref, setColsPref] = useLocalPref('av-todo-cols', 'in_progress,blocked,done')
@@ -91,10 +91,11 @@ export default function TodoBoard({
     })
   }
 
-  const gridCols = ['', 'sm:grid-cols-1', 'sm:grid-cols-2', 'sm:grid-cols-3', 'sm:grid-cols-2 xl:grid-cols-4'][visibleCols.length]
+  // Columns follow the board's own width (a narrow panel stacks them), not the screen width.
+  const gridCols = ['', '', '@lg:grid-cols-2', '@lg:grid-cols-2 @3xl:grid-cols-3', '@lg:grid-cols-2 @4xl:grid-cols-4'][visibleCols.length]
 
   return (
-    <div className="flex flex-col h-full min-h-0 gap-2">
+    <div className="@container flex flex-col h-full min-h-0 gap-2">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600 shrink-0" role="group" aria-label="Columns to show">
         <span className="font-semibold uppercase tracking-wide text-gray-500">Show</span>
         {TODO_COLUMNS.filter(c => c.key !== 'todo').map(c => (
@@ -107,7 +108,8 @@ export default function TodoBoard({
       {visibleCols.map(col => {
         let cards = shownTodos.filter(t => statusOf(t) === col.key)
         if (col.key === 'done') cards = cards.sort((a, b) => (b.done_at ?? '').localeCompare(a.done_at ?? ''))
-        else cards = cards.sort((a, b) => (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999'))
+        // newest on top (a card being saved first), so what you just added is right under the "+"
+        else cards = cards.sort((a, b) => Number(!!b.pending) - Number(!!a.pending) || (b.created_at ?? '').localeCompare(a.created_at ?? ''))
         const total = cards.length
         const hidden = col.key === 'done' && !showAllDone ? Math.max(0, total - DONE_LIMIT) : 0
         if (hidden) cards = cards.slice(0, DONE_LIMIT)
@@ -151,7 +153,7 @@ export default function TodoBoard({
                 </div>
               </form>
             )}
-            <ul className="flex-1 min-h-0 overflow-y-auto p-2 space-y-2">
+            <ul className="flex-1 min-h-0 overflow-y-auto p-1.5 space-y-1">
               {cards.length === 0 && <li className="text-xs text-gray-500 text-center py-6">Drop a card here</li>}
               {cards.map(t => {
                 const overdue = !t.done_at && statusOf(t) !== 'done' && t.due_date && t.due_date < today
@@ -161,18 +163,18 @@ export default function TodoBoard({
                     draggable={!t.pending}
                     onDragStart={e => { setDragId(t.id); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', t.id) }}
                     onDragEnd={() => { setDragId(null); setOverCol(null) }}
-                    className={`rounded-lg border bg-white shadow-sm p-2.5 ${t.pending ? 'opacity-60' : 'cursor-grab active:cursor-grabbing'} ${dragId === t.id ? 'opacity-40' : ''}`}
+                    className={`rounded-md border bg-white shadow-sm px-2 py-1.5 ${t.pending ? 'opacity-60' : 'cursor-grab active:cursor-grabbing'} ${dragId === t.id ? 'opacity-40' : ''}`}
                   >
-                    <button onClick={() => { if (!t.pending) onOpen(t) }} className={`block w-full text-left text-sm font-medium hover:text-blue-700 ${statusOf(t) === 'done' ? 'line-through text-gray-500' : ''}`}>
+                    <button onClick={() => { if (!t.pending) onOpen(t) }} className={`block w-full text-left text-[13px] leading-snug font-medium hover:text-blue-700 ${statusOf(t) === 'done' ? 'line-through text-gray-500' : ''}`}>
                       {t.title}
                       {t.details && <FileText className="inline-block w-3.5 h-3.5 ml-1.5 text-gray-500 align-[-2px]" aria-label="Has details" />}
                     </button>
-                    <div className="mt-2 flex items-center gap-2 text-xs text-gray-500">
+                    <div className="mt-0.5 flex items-center gap-1.5 text-[11px] leading-4 text-gray-500">
                       <span className="truncate flex-1 uppercase tracking-wide">{t.pending ? 'Saving…' : t.personal ? 'Personal' : (meetingNames.get(t.meeting_id) ?? '')}</span>
                       {t.due_date && (
                         <span className={`inline-flex items-center gap-1 whitespace-nowrap ${overdue ? 'text-red-600 font-semibold' : ''}`}><CalendarDays className="w-3 h-3" />{t.due_date}</span>
                       )}
-                      <Avatar person={peopleById.get(t.owner_id ?? '')} size="sm" />
+                      <span className="scale-75 -m-1 inline-flex"><Avatar person={peopleById.get(t.owner_id ?? '')} size="sm" /></span>
                     </div>
                   </li>
                 )

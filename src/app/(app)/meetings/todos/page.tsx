@@ -11,7 +11,7 @@ export default async function MeetingsTodosPage() {
   const supabase = await createClient()
   const user = await getSignedInUser(supabase)
 
-  const [{ data: todos }, { data: meetings }, { data: people }] = await Promise.all([
+  const [{ data: todos }, { data: meetings }, { data: people }, { data: personal }] = await Promise.all([
     supabase
       .from('mtg_todos')
       .select('id, title, details, owner_id, owner_name, due_date, done_at, meeting_id, created_at, status')
@@ -20,6 +20,7 @@ export default async function MeetingsTodosPage() {
       .limit(1000),
     supabase.from('mtg_meetings').select('id, name').eq('is_archived', false).order('name'),
     supabase.from('profiles').select('id, full_name, avatar_url').neq('is_active', false).order('full_name'),
+    supabase.from('mtg_personal_todos').select('id, title, due_date, done_at, status, created_at').order('created_at', { ascending: false }),
   ])
 
   const found = new Set<string>()
@@ -27,10 +28,10 @@ export default async function MeetingsTodosPage() {
 
   return (
     <div className="p-4 md:p-6 xl:p-8 max-w-7xl mx-auto">
-      <h1 className="text-3xl font-bold mb-6 flex items-center gap-2">
+      <h1 className="text-3xl font-bold mb-4 flex items-center gap-2">
         <ListChecks className="w-7 h-7 text-blue-600" /> To-dos
       </h1>
-      <TodosBoard todos={rows as any} meetings={meetings ?? []} people={withNameOwners(people ?? [], found)} myId={user?.id ?? ''} />
+      <TodosBoard todos={rows as any} personal={(personal ?? []) as any} meetings={meetings ?? []} people={withNameOwners(people ?? [], found)} myId={user?.id ?? ''} />
     </div>
   )
 }

@@ -45,7 +45,7 @@ export default function WorkspaceTiles({
   // Personal to-dos sit on the board beside the meeting ones
   const boardTodos: BoardTodo[] = [
     ...todos,
-    ...personalTodos.map(p => ({ id: p.id, title: p.title, details: null, owner_id: myId, due_date: p.due_date, done_at: p.done_at, status: p.status, meeting_id: PERSONAL_ID, created_at: '', personal: true })),
+    ...personalTodos.map(p => ({ id: p.id, title: p.title, details: null, owner_id: myId, due_date: p.due_date, done_at: p.done_at, status: p.status, meeting_id: PERSONAL_ID, created_at: p.created_at ?? '', personal: true })),
   ]
 
   const tiles: TileDef[] = [

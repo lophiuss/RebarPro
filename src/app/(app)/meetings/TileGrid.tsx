@@ -95,7 +95,7 @@ function Tile({ tile, layout, onLayout, gridRef, dragging, setDragging }: {
           ><X className="w-4 h-4" /></button>
         )}
       </header>
-      <div className="flex-1 min-h-0 overflow-y-auto p-4 max-h-[34rem] lg:max-h-none">{tile.node}</div>
+      <div className="@container flex-1 min-h-0 min-w-0 overflow-y-auto p-3 @lg:p-4 max-h-[34rem] lg:max-h-none">{tile.node}</div>
 
       {!locked && (
         <div

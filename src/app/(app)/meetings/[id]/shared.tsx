@@ -110,11 +110,12 @@ export function ItemTitle({ title, hasDetails, struck, onOpen }: { title: string
   )
 }
 
-export type SortKey = 'default' | 'owner'
+export type SortKey = 'newest' | 'default' | 'owner'
 
 export function SortSelect({ value, onChange, defaultLabel = 'Oldest' }: { value: SortKey; onChange: (v: SortKey) => void; defaultLabel?: string }) {
   return (
     <select value={value} onChange={e => onChange(e.target.value as SortKey)} className="border rounded-lg px-2 py-1 text-xs bg-white text-gray-600" aria-label="Sort">
+      <option value="newest">Newest first</option>
       <option value="default">{defaultLabel}</option>
       <option value="owner">Owner: A-Z</option>
     </select>
@@ -163,4 +164,9 @@ export function Segmented<T extends string>({ value, onChange, options }: {
 // Pill used for statuses (matches the small uppercase status pills elsewhere).
 export function Pill({ children, tone = 'bg-gray-100 text-gray-700' }: { children: React.ReactNode; tone?: string }) {
   return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide ${tone}`}>{children}</span>
+}
+
+// Newest first: what was just added is at the top, right under the add box.
+export function sortNewest<T extends { created_at?: string | null }>(items: T[]): T[] {
+  return [...items].sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
 }

@@ -14,7 +14,7 @@ import ItemDrawer from './ItemDrawer'
 import NewItemDrawer from './NewItemDrawer'
 import Avatar from '../Avatar'
 import {
-  card, input, todayStr, Empty, NewBadge, OwnerSelect, ItemTitle, SortSelect, sortByOwner, SectionTitle, Segmented,
+  card, input, todayStr, Empty, NewBadge, OwnerSelect, ItemTitle, SortSelect, sortByOwner, sortNewest, SectionTitle, Segmented,
   type Headline, type Todo, type Issue, type Rating, type OtherMeetings, type SortKey,
 } from './shared'
 import { ISSUE_STATUS_LABEL, type IssueStatus } from '@/lib/meetings'
@@ -30,7 +30,7 @@ export function Headlines({ headlines, todos, issues, otherMeetings }: { headlin
   const run = useRun()
   const [title, setTitle] = useState('')
   const [owner, setOwner] = useState(myId)
-  const [sort, setSort] = useState<SortKey>('default')
+  const [sort, setSort] = useState<SortKey>('newest')
   const [openId, setOpenId] = useState<string | null>(null)
   const [draft, setDraft] = useState<{ kind: 'todo' | 'issue'; headline: Headline } | null>(null)
   const sortedHeadlines = sort === 'owner' ? sortByOwner(headlines, peopleById) : headlines
@@ -122,9 +122,9 @@ export function Todos({ todos, otherMeetings }: { todos: Todo[]; otherMeetings: 
   }
   const done = todos.filter(isDone).length
   const pct = todos.length ? Math.round((done / todos.length) * 100) : 0
-  const [sort, setSort] = useState<SortKey>('default')
+  const [sort, setSort] = useState<SortKey>('newest')
   const byDue = [...todos].sort((a, b) => (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999'))
-  const sorted = sort === 'owner' ? sortByOwner(byDue, peopleById) : byDue
+  const sorted = sort === 'owner' ? sortByOwner(byDue, peopleById) : sort === 'newest' ? sortNewest(todos) : byDue
   const shown = sorted.filter(t => showDone || !isDone(t))
 
   async function add(e: React.FormEvent) {
@@ -144,6 +144,13 @@ export function Todos({ todos, otherMeetings }: { todos: Todo[]; otherMeetings: 
         </div>
       }>To-dos <span className="text-gray-500 font-normal text-base">({todos.length})</span></SectionTitle>
       <div className="h-2 rounded-full bg-gray-200 mb-4 overflow-hidden"><div className="h-full bg-blue-600 transition-all" style={{ width: `${pct}%` }} /></div>
+      <form onSubmit={add} className={`${card} p-2 mb-3 grid gap-1.5 md:grid-cols-[auto_1fr_auto_auto]`}>
+        <OwnerSelect value={form.owner_id} onChange={v => setForm({ ...form, owner_id: v })} />
+        <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Add a to-do" className={input} />
+        <input type="date" value={form.due_date} onChange={e => setForm({ ...form, due_date: e.target.value })} className={input} aria-label="Due date" title="Defaults to 7 days from today" />
+        <button className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-md bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700"><Plus className="w-3.5 h-3.5" /> Add</button>
+      </form>
+
 
       {shown.length === 0 ? (
         <Empty title="No to-dos" hint="Commitments made in the meeting end up here. Aim for a 7-day deadline." />
@@ -174,12 +181,6 @@ export function Todos({ todos, otherMeetings }: { todos: Todo[]; otherMeetings: 
         </ul>
       )}
 
-      <form onSubmit={add} className={`${card} p-2 mt-3 grid gap-1.5 md:grid-cols-[1fr_auto_auto_auto]`}>
-        <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Add a to-do" className={input} />
-        <OwnerSelect value={form.owner_id} onChange={v => setForm({ ...form, owner_id: v })} />
-        <input type="date" value={form.due_date} onChange={e => setForm({ ...form, due_date: e.target.value })} className={input} aria-label="Due date" title="Defaults to 7 days from today" />
-        <button className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-md bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700"><Plus className="w-3.5 h-3.5" /> Add</button>
-      </form>
       {open && <ItemDrawer key={open.id} kind="todo" item={{ ...open, todo_status: open.status }} otherMeetings={otherMeetings} onClose={() => setOpenId(null)} />}
     </div>
   )
@@ -219,7 +220,7 @@ export function Issues({ issues, otherMeetings }: { issues: Issue[]; otherMeetin
   const inTab = tab === 'short_term'
     ? [...issues.filter(i => statusOf(i) === 'short_term'), ...issues.filter(i => statusOf(i) === 'solved')]
     : issues.filter(i => statusOf(i) === tab)
-  const shown = sort === 'owner' ? sortByOwner(inTab, peopleById) : inTab
+  const shown = sort === 'owner' ? sortByOwner(inTab, peopleById) : sort === 'newest' ? sortNewest(inTab) : inTab
 
   async function add(e: React.FormEvent) {
     e.preventDefault()
@@ -238,6 +239,12 @@ export function Issues({ issues, otherMeetings }: { issues: Issue[]; otherMeetin
           options={ISSUE_TABS.map(s => ({ key: s, label: `${ISSUE_STATUS_LABEL[s]} (${issues.filter(i => statusOf(i) === s).length})` }))}
         />
       </div>
+
+      <form onSubmit={add} className={`${card} p-2 mb-3 grid gap-1.5 md:grid-cols-[auto_1fr_auto]`}>
+        <OwnerSelect value={owner} onChange={setOwner} />
+        <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Add an issue" className={input} />
+        <button className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-md bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700"><Plus className="w-3.5 h-3.5" /> Add</button>
+      </form>
 
       {shown.length === 0 ? (
         <Empty title={`No ${ISSUE_STATUS_LABEL[tab].toLowerCase()} issues`} hint="Capture what is worth a real discussion this week." />
@@ -270,11 +277,6 @@ export function Issues({ issues, otherMeetings }: { issues: Issue[]; otherMeetin
         </ul>
       )}
 
-      <form onSubmit={add} className={`${card} p-2 mt-3 grid gap-1.5 md:grid-cols-[1fr_auto_auto]`}>
-        <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Add an issue" className={input} />
-        <OwnerSelect value={owner} onChange={setOwner} />
-        <button className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-md bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700"><Plus className="w-3.5 h-3.5" /> Add</button>
-      </form>
       {open && <ItemDrawer key={open.id} kind="issue" item={{ ...open, issue_status: open.status }} otherMeetings={otherMeetings} onClose={() => setOpenId(null)} />}
     </div>
   )

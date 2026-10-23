@@ -16,7 +16,7 @@ import { evaluateGoal, formatGoal, formatKpiValue, ymd, type Cadence, type Issue
 export type WTodo = { id: string; title: string; details: string | null; due_date: string | null; done_at: string | null; status: TodoStatus; meeting_id: string; owner_id: string | null; created_at: string }
 export type WGoal = { id: string; title: string; details: string | null; status: 'on' | 'off' | 'done'; due_date: string | null; milestones: { title: string; done: boolean }[]; meeting_id: string; owner_id: string | null; created_at: string; meeting: { name: string } | null }
 export type WKpi = Omit<Kpi, 'meeting_ids'> & { meeting_id: string; meeting: { name: string } | null }
-export type WPersonalTodo = { id: string; title: string; due_date: string | null; done_at: string | null; status: TodoStatus }
+export type WPersonalTodo = { id: string; title: string; due_date: string | null; done_at: string | null; status: TodoStatus; created_at?: string }
 export type WNote = { id: string; body: string; updated_at: string }
 export type WMeeting = { id: string; name: string }
 export type WHeadline = { id: string; title: string; details: string | null; owner_id: string | null; created_at: string }
@@ -36,7 +36,7 @@ export function TodosBody({ todos, meetings, onOpen }: { todos: WTodo[]; meeting
   // Ticks and new to-dos show at once; the saved version takes over when the page refreshes.
   const [, startTransition] = useTransition()
   const [list, change] = useOptimistic(todos, (cur: WTodo[], c: { add?: WTodo; toggle?: string }) =>
-    c.add ? [...cur, c.add] : cur.map(t => (t.id === c.toggle ? { ...t, done_at: t.done_at ? null : new Date().toISOString() } : t)))
+    c.add ? [c.add, ...cur] : cur.map(t => (t.id === c.toggle ? { ...t, done_at: t.done_at ? null : new Date().toISOString() } : t)))
   const active = list.filter(t => !t.done_at)
   const shown = showDone ? list : active
 
@@ -61,6 +61,18 @@ export function TodosBody({ todos, meetings, onOpen }: { todos: WTodo[]; meeting
 
   return (
     <>
+      {meetings.length > 0 && (
+        <form onSubmit={add} className="mb-2 grid gap-1.5 grid-cols-[minmax(0,1fr)_auto]">
+          <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="New to-do" className={`${input} !py-1.5`} aria-label="New to-do" />
+          <button className={`${primary} px-2.5`} aria-label="Add to-do"><Plus className="w-4 h-4" /></button>
+          {meetings.length > 1 && (
+            <select value={form.meeting_id} onChange={e => setForm({ ...form, meeting_id: e.target.value })} className={`${input} !py-1.5`} aria-label="Meeting">
+              {meetings.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+          )}
+          <input type="date" value={form.due_date} onChange={e => setForm({ ...form, due_date: e.target.value })} className={`${input} !py-1.5`} aria-label="Due date" title="Defaults to 7 days from today" />
+        </form>
+      )}
       <label className="flex items-center gap-1.5 text-xs text-gray-600 mb-2 cursor-pointer w-fit">
         <input type="checkbox" checked={showDone} onChange={e => setShowDone(e.target.checked)} /> Show completed
       </label>
@@ -85,18 +97,6 @@ export function TodosBody({ todos, meetings, onOpen }: { todos: WTodo[]; meeting
             )
           })}
         </ul>
-      )}
-      {meetings.length > 0 && (
-        <form onSubmit={add} className="mt-3 grid gap-1.5 grid-cols-[1fr_auto]">
-          <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="New to-do" className={`${input} !py-1.5`} aria-label="New to-do" />
-          <button className={`${primary} px-2.5`} aria-label="Add to-do"><Plus className="w-4 h-4" /></button>
-          {meetings.length > 1 && (
-            <select value={form.meeting_id} onChange={e => setForm({ ...form, meeting_id: e.target.value })} className={`${input} !py-1.5`} aria-label="Meeting">
-              {meetings.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
-          )}
-          <input type="date" value={form.due_date} onChange={e => setForm({ ...form, due_date: e.target.value })} className={`${input} !py-1.5`} aria-label="Due date" title="Defaults to 7 days from today" />
-        </form>
       )}
     </>
   )
@@ -258,9 +258,9 @@ export function PersonalTodosBody({ todos }: { todos: WPersonalTodo[] }) {
   return (
     <>
       <p className="text-xs text-gray-500 mb-2">Only you can see these. They are not tied to any meeting.</p>
-      <form onSubmit={add} className="grid gap-2 grid-cols-[1fr_auto_auto] mb-3">
+      <form onSubmit={add} className="grid gap-2 grid-cols-[minmax(0,1fr)_auto_auto] mb-3">
         <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Add a personal to-do" className={input} aria-label="New personal to-do" />
-        <input type="date" value={due} onChange={e => setDue(e.target.value)} className={input} aria-label="Due date" />
+        <input type="date" value={due} onChange={e => setDue(e.target.value)} className={`${input} w-[8.5rem] min-w-0`} aria-label="Due date" />
         <button className={`${primary} px-3`} aria-label="Add personal to-do"><Plus className="w-4 h-4" /></button>
       </form>
       <label className="flex items-center gap-2 text-xs text-gray-500 mb-2"><input type="checkbox" checked={showDone} onChange={e => setShowDone(e.target.checked)} /> Show completed ({list.length - active.length})</label>
@@ -426,12 +426,12 @@ export function CalendarBody({ meetings, held, items, onOpenItem }: {
 
   return (
     <div>
-      <div className="flex items-center gap-2 mb-2">
+      <div className="flex items-center gap-1.5 @sm:gap-2 mb-2 min-w-0">
         <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))} aria-label="Previous month" className="p-2 rounded border hover:bg-gray-50"><ChevronLeft className="w-4 h-4" /></button>
-        <div className="font-semibold text-sm w-36 text-center">{month}</div>
+        <div className="font-semibold text-sm min-w-0 truncate text-center @sm:w-36">{month}</div>
         <button onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))} aria-label="Next month" className="p-2 rounded border hover:bg-gray-50"><ChevronRight className="w-4 h-4" /></button>
         <button onClick={() => { const n = new Date(); setCursor(new Date(n.getFullYear(), n.getMonth(), 1)); setSelected(ymd(n)) }} className="ml-1 px-3 py-2 text-xs rounded border hover:bg-gray-50">Today</button>
-        <div className="ml-auto hidden sm:flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-wide">
+        <div className="ml-auto hidden @xl:flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-wide">
           {(['meeting', 'todo', 'issue', 'held'] as const).map(k => <span key={k} className={`px-1.5 py-0.5 rounded border ${KIND_STYLE[k]}`}>{KIND_LABEL[k]}</span>)}
         </div>
       </div>
@@ -448,7 +448,7 @@ export function CalendarBody({ meetings, held, items, onOpenItem }: {
             <button
               key={date}
               onClick={() => setSelected(date)}
-              className={`min-h-[4.5rem] text-left p-1 flex flex-col gap-0.5 ${inMonth ? 'bg-white' : 'bg-gray-50'} ${selected === date ? 'ring-2 ring-inset ring-blue-500' : 'hover:bg-blue-50/40'}`}
+              className={`min-w-0 min-h-[3rem] @md:min-h-[4.5rem] text-left p-0.5 @md:p-1 flex flex-col gap-0.5 ${inMonth ? 'bg-white' : 'bg-gray-50'} ${selected === date ? 'ring-2 ring-inset ring-blue-500' : 'hover:bg-blue-50/40'}`}
               aria-label={`${date}, ${evs.length} item${evs.length === 1 ? '' : 's'}`}
             >
               <span className={`text-xs w-5 h-5 inline-flex items-center justify-center rounded-full ${date === today ? 'bg-blue-600 text-white font-bold' : inMonth ? 'text-gray-700' : 'text-gray-300'}`}>{d.getDate()}</span>

@@ -8,7 +8,7 @@ import { useMeeting, useRun } from './context'
 import ItemDrawer from './ItemDrawer'
 import Avatar from '../Avatar'
 import {
-  card, input, primaryBtn, Empty, OwnerSelect, ItemTitle, SortSelect, sortByOwner, SectionTitle,
+  card, input, primaryBtn, Empty, OwnerSelect, ItemTitle, SortSelect, sortByOwner, sortNewest, SectionTitle,
   type Goal, type OtherMeetings, type SortKey,
 } from './shared'
 
@@ -24,11 +24,11 @@ export function Goals({ goals, otherMeetings }: { goals: Goal[]; otherMeetings: 
   const [expand, setExpand] = useState(false)
   const [mine, setMine] = useState(false)
   const [form, setForm] = useState({ title: '', owner_id: myId, due_date: '', milestones: '' })
-  const [sort, setSort] = useState<SortKey>('default')
+  const [sort, setSort] = useState<SortKey>('newest')
   const [openId, setOpenId] = useState<string | null>(null)
   const open = goals.find(g => g.id === openId)
   const filtered = goals.filter(g => !mine || g.owner_id === myId)
-  const shown = sort === 'owner' ? sortByOwner(filtered, peopleById) : filtered
+  const shown = sort === 'owner' ? sortByOwner(filtered, peopleById) : sort === 'newest' ? sortNewest(filtered) : filtered
 
   async function add(e: React.FormEvent) {
     e.preventDefault()
@@ -49,6 +49,14 @@ export function Goals({ goals, otherMeetings }: { goals: Goal[]; otherMeetings: 
           <label className="flex items-center gap-1.5 cursor-pointer"><input type="checkbox" checked={expand} onChange={e => setExpand(e.target.checked)} /> Expand milestones</label>
         </div>
       }>Quarterly Priorities <span className="text-gray-500 font-normal text-base">({shown.length})</span></SectionTitle>
+
+      <form onSubmit={add} className={`${card} p-2 mb-3 grid gap-1.5 md:grid-cols-[auto_1fr_auto_auto]`}>
+        <OwnerSelect value={form.owner_id} onChange={v => setForm({ ...form, owner_id: v })} />
+        <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Add a quarterly priority" className={input} />
+        <input type="date" value={form.due_date} onChange={e => setForm({ ...form, due_date: e.target.value })} className={input} aria-label="Due date" />
+        <button className={primaryBtn}><Plus className="w-4 h-4" /> Add</button>
+        <textarea value={form.milestones} onChange={e => setForm({ ...form, milestones: e.target.value })} placeholder="Milestones, one per line (optional)" rows={2} className={`${input} md:col-span-4`} />
+      </form>
 
       {shown.length === 0 ? (
         <Empty title="Your quarterly priorities live here" hint="Set the few projects that matter most this quarter." />
@@ -103,13 +111,6 @@ export function Goals({ goals, otherMeetings }: { goals: Goal[]; otherMeetings: 
         </ul>
       )}
 
-      <form onSubmit={add} className={`${card} p-2 mt-3 grid gap-1.5 md:grid-cols-[1fr_auto_auto_auto]`}>
-        <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Add a quarterly priority" className={input} />
-        <OwnerSelect value={form.owner_id} onChange={v => setForm({ ...form, owner_id: v })} />
-        <input type="date" value={form.due_date} onChange={e => setForm({ ...form, due_date: e.target.value })} className={input} aria-label="Due date" />
-        <button className={primaryBtn}><Plus className="w-4 h-4" /> Add</button>
-        <textarea value={form.milestones} onChange={e => setForm({ ...form, milestones: e.target.value })} placeholder="Milestones, one per line (optional)" rows={2} className={`${input} md:col-span-4`} />
-      </form>
 
       {open && (
         <ItemDrawer

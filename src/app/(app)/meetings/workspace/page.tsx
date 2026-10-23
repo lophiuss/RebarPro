@@ -34,7 +34,7 @@ export default async function MeetingsWorkspacePage() {
     supabase.from('mtg_issues')
       .select('id, title, details, owner_id, status, created_at, due_date, meeting_id')
       .eq('owner_id', myId).in('status', ['short_term', 'parking_lot']).order('created_at'),
-    supabase.from('mtg_personal_todos').select('id, title, due_date, done_at, status').order('created_at', { ascending: false }),
+    supabase.from('mtg_personal_todos').select('id, title, due_date, done_at, status, created_at').order('created_at', { ascending: false }),
   ])
 
   const sinceDate = new Date()
