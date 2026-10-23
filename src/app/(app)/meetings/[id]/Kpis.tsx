@@ -15,7 +15,7 @@ import NewItemDrawer from './NewItemDrawer'
 import KpiChart from './KpiChart'
 import { periodsFor, resolveRange, bucketValues, parseYmd, RANGE_LABEL, GROUP_LABEL, type Range, type RangePreset, type Group } from './kpiRange'
 import {
-  card, input, primaryBtn, labelCls, Empty, OwnerSelect, SectionTitle, Segmented, GoalMark, goalWord, NO_SPIN,
+  card, input, primaryBtn, labelCls, Empty, OwnerSelect, SectionTitle, Segmented, goalWord, NO_SPIN,
   type Kpi, type KpiValue, type KpiCustomGoal, type OtherMeetings,
 } from './shared'
 import {
@@ -69,7 +69,7 @@ function KpiCell({ kpi, start, value, goal, onCreate, note, onNote }: {
           const next = (sibling as HTMLTableRowElement | null)?.cells?.[(td as HTMLTableCellElement).cellIndex]?.querySelector<HTMLInputElement | HTMLSelectElement>('input, select')
           if (next) { next.focus(); if (next instanceof HTMLInputElement) next.select() }
         }}
-        className={`w-full min-w-0 text-center border rounded pl-0.5 pr-5 py-1 text-sm ${tone}`}
+        className={`w-full min-w-0 text-center border rounded px-0.5 py-1 text-sm ${tone}`}
         aria-label={`${kpi.name} ${start}${goalWord(hit)}`}
       >
         <option value="">—</option><option value="1">Yes</option><option value="0">No</option>
@@ -96,7 +96,7 @@ function KpiCell({ kpi, start, value, goal, onCreate, note, onNote }: {
           const next = (sibling as HTMLTableRowElement | null)?.cells?.[(td as HTMLTableCellElement).cellIndex]?.querySelector<HTMLInputElement | HTMLSelectElement>('input, select')
           if (next) { next.focus(); if (next instanceof HTMLInputElement) next.select() } else e.currentTarget.blur()
         }}
-        className={`w-full min-w-0 text-center border rounded pl-1 pr-5 py-1 text-sm ${NO_SPIN} ${tone}`}
+        className={`w-full min-w-0 text-center border rounded px-1 py-1 text-sm ${NO_SPIN} ${tone}`}
         aria-label={`${kpi.name} ${start}${goalWord(hit)}`}
       />
     )
@@ -128,7 +128,6 @@ function KpiCell({ kpi, start, value, goal, onCreate, note, onNote }: {
   return (
     <div ref={cellBox} className="group relative block w-full" title={note ? `Note: ${note}` : undefined}>
       {control}
-      <GoalMark hit={hit} />
       {note && (
         <button type="button" onClick={onNote} aria-label={`Note: ${note}`} className="absolute top-0 right-0 w-0 h-0 border-t-[9px] border-l-[9px] border-t-amber-500 border-l-transparent rounded-tr" />
       )}

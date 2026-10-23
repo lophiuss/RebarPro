@@ -7,7 +7,7 @@ import { Check, Plus, Trash2, StickyNote, FileText, ChevronLeft, ChevronRight, C
 import { addTodo, setTodoDone, setKpiValue, addPrivateNote, updatePrivateNote, deletePrivateNote, addPersonalTodo, setPersonalTodoDone, deletePersonalTodo } from './actions'
 import { act } from './act'
 import Avatar from './Avatar'
-import { NewBadge, GoalMark, goalWord, NO_SPIN, effectiveGoal, type Kpi, type KpiCustomGoal, type KpiValue } from './[id]/shared'
+import { NewBadge, goalWord, NO_SPIN, effectiveGoal, type Kpi, type KpiCustomGoal, type KpiValue } from './[id]/shared'
 import { periodsFor } from './[id]/kpiRange'
 import { evaluateGoal, formatGoal, formatKpiValue, ymd, type Cadence, type IssueStatus, type Person, type TodoStatus } from '@/lib/meetings'
 
@@ -158,10 +158,9 @@ export function KpisBody({ kpis, values, custom, emptyText = 'No KPIs assigned t
                               <input
                                 type="number" step="any" defaultValue={value ?? ''} placeholder="—" aria-label={`${k.name} ${p.label}${goalWord(hit)}`}
                                 onBlur={e => { const raw = e.target.value.trim(); save(raw === '' ? null : Number(raw)) }}
-                                className={`w-full min-w-[3.5rem] text-center border rounded pl-1 pr-5 py-1 text-sm ${NO_SPIN} ${tone}`}
+                                className={`w-full min-w-[3.5rem] text-center border rounded px-1 py-1 text-sm ${NO_SPIN} ${tone}`}
                               />
                             )}
-                            <GoalMark hit={hit} />
                             </div>
                           </td>
                         )

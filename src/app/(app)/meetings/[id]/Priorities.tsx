@@ -24,7 +24,7 @@ export function Goals({ goals, otherMeetings }: { goals: Goal[]; otherMeetings: 
   const [expand, setExpand] = useState(false)
   const [mine, setMine] = useState(false)
   const [form, setForm] = useState({ title: '', owner_id: myId, due_date: '', milestones: '' })
-  const [sort, setSort] = useState<SortKey>('newest')
+  const [sort, setSort] = useState<SortKey>('owner')
   const [openId, setOpenId] = useState<string | null>(null)
   const open = goals.find(g => g.id === openId)
   const filtered = goals.filter(g => !mine || g.owner_id === myId)

@@ -115,17 +115,18 @@ export type SortKey = 'newest' | 'default' | 'owner'
 export function SortSelect({ value, onChange, defaultLabel = 'Oldest' }: { value: SortKey; onChange: (v: SortKey) => void; defaultLabel?: string }) {
   return (
     <select value={value} onChange={e => onChange(e.target.value as SortKey)} className="border rounded-lg px-2 py-1 text-xs bg-white text-gray-600" aria-label="Sort">
+      <option value="owner">Name: A-Z</option>
       <option value="newest">Newest first</option>
       <option value="default">{defaultLabel}</option>
-      <option value="owner">Owner: A-Z</option>
     </select>
   )
 }
 
 // Stable sort by owner name (items without an owner last).
-export function sortByOwner<T extends { owner_id: string | null }>(items: T[], peopleById: Map<string, { full_name: string | null }>): T[] {
+export function sortByOwner<T extends { owner_id: string | null; created_at?: string | null }>(items: T[], peopleById: Map<string, { full_name: string | null }>): T[] {
   const name = (id: string | null) => (id ? peopleById.get(id)?.full_name ?? '~' : '~~')
-  return [...items].sort((a, b) => name(a.owner_id).localeCompare(name(b.owner_id)))
+  // Grouped by name A-Z; inside one person, newest first (so a just-added item is at the top of their group).
+  return [...items].sort((a, b) => name(a.owner_id).localeCompare(name(b.owner_id)) || (b.created_at ?? '').localeCompare(a.created_at ?? ''))
 }
 
 export function SectionTitle({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
