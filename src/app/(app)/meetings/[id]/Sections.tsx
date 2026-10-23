@@ -3,6 +3,7 @@
 import { notify, confirmDialog } from '../ui/feedback'
 import { useState } from 'react'
 import { Plus, Trash2, Check, ListChecks, AlertCircle } from 'lucide-react'
+import { AddAttendeeDialog } from './AddAttendee'
 import {
   addHeadline, deleteHeadline, addTodo, setTodoDone, deleteTodo, addIssue, setIssueStatus, deleteIssue,
   saveRating, revealRatings, concludeMeeting,
@@ -244,7 +245,7 @@ export function Issues({ issues, otherMeetings }: { issues: Issue[]; otherMeetin
 // Wrap-up
 // ---------------------------------------------------------------------------
 
-// One attendee's rating. Clicking a number saves immediately; feedback saves
+// One attendee's rating, on one line: name, 1-10, feedback. Clicking a number saves immediately; feedback saves
 // when you click away. Shown read-only to people who can't enter it.
 function RatingRow({ person, existing, editable, onBehalf, revealed, runId }: {
   person: { id: string; full_name: string | null }
@@ -265,34 +266,40 @@ function RatingRow({ person, existing, editable, onBehalf, revealed, runId }: {
     if (ok) setSaved(true)
   }
 
+  const name = (
+    <div className="flex items-center gap-2 min-w-0 md:w-44 shrink-0">
+      <Avatar person={person} size="sm" />
+      <span className="text-sm font-medium truncate">{person.full_name}{editable && !onBehalf && <span className="text-gray-500 font-normal"> (you)</span>}</span>
+    </div>
+  )
+
   if (!editable) {
     const r = existing
     return (
-      <li className="flex items-start gap-3 py-2 text-sm">
-        <Avatar person={person} size="sm" />
-        <span className="w-40 truncate">{person.full_name}</span>
+      <li className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
+        {name}
         {r?.rating != null
-          ? (revealed ? <span className="font-semibold">{r.rating}{r.feedback ? <span className="font-normal text-gray-600"> — {r.feedback}</span> : null}</span> : <span className="text-gray-500">Rated</span>)
-          : <span className="text-gray-500">Waiting…</span>}
+          ? (revealed
+            ? <span className="text-sm"><span className={`inline-flex w-7 h-7 items-center justify-center rounded-md font-bold mr-2 ${r.rating < 8 ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'}`}>{r.rating}</span>{r.feedback && <span className="text-gray-600">{r.feedback}</span>}</span>
+            : <span className="text-xs font-semibold text-emerald-700 inline-flex items-center gap-1"><Check className="w-3.5 h-3.5" /> Rated</span>)
+          : <span className="text-xs text-gray-500">Waiting…</span>}
       </li>
     )
   }
 
   return (
-    <li className="py-3">
-      <div className="flex items-center gap-3 mb-2">
-        <Avatar person={person} size="sm" />
-        <span className="text-sm font-medium truncate">{person.full_name}{!onBehalf && <span className="text-gray-500 font-normal"> (you)</span>}</span>
-        {saved && <span className="text-xs text-green-700 inline-flex items-center gap-1"><Check className="w-3.5 h-3.5" /> Saved</span>}
-      </div>
-      <div className="flex flex-wrap gap-1.5 mb-2">
+    <li className="flex flex-wrap md:flex-nowrap items-center gap-x-3 gap-y-1.5 px-3 py-2">
+      {name}
+      <div className="flex gap-1" role="radiogroup" aria-label={`Rating for ${person.full_name}`}>
         {Array.from({ length: 10 }, (_, i) => i + 1).map(n => (
           <button
             key={n}
             type="button"
+            role="radio"
+            aria-checked={rating === n}
             onClick={() => { setRating(n); persist(n, feedback) }}
             aria-label={`Rate ${n}`}
-            className={`w-9 h-9 rounded-lg text-sm font-semibold border ${rating === n ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white hover:bg-gray-50'}`}
+            className={`w-7 h-7 rounded-md text-xs font-semibold border transition active:scale-90 ${rating === n ? (n < 8 ? 'bg-amber-500 border-amber-500 text-white' : 'bg-blue-600 border-blue-600 text-white') : 'bg-white text-gray-700 hover:bg-gray-50'}`}
           >{n}</button>
         ))}
       </div>
@@ -300,10 +307,11 @@ function RatingRow({ person, existing, editable, onBehalf, revealed, runId }: {
         value={feedback}
         onChange={e => { setFeedback(e.target.value); setSaved(false) }}
         onBlur={() => { if (rating !== null && feedback.trim() !== (existing?.feedback ?? '').trim()) persist(rating, feedback) }}
-        placeholder="How can we get even better next week? (optional)"
-        className={`${input} w-full`}
+        placeholder={rating !== null && rating < 8 ? 'What would make it an 8+? (optional)' : 'Feedback (optional)'}
+        className={`${input} flex-1 min-w-[10rem] py-1.5`}
         aria-label={`Feedback from ${person.full_name}`}
       />
+      <span className="w-4 shrink-0" aria-live="polite">{saved && <Check className="w-4 h-4 text-emerald-600" aria-label="Saved" />}</span>
     </li>
   )
 }
@@ -313,10 +321,11 @@ export function WrapUp({ todos, issues, ratings, pageSeconds }: { todos: Todo[];
   const run = useRun()
   const [archiveTodos, setArchiveTodos] = useState(true)
   const [archiveHeadlines, setArchiveHeadlines] = useState(true)
-  const [sendEmail, setSendEmail] = useState(false)
+  const [sendEmail, setSendEmail] = useState(true)
   const [includeDetails, setIncludeDetails] = useState(true)
   const [includeNotes, setIncludeNotes] = useState(false)
   const [concluding, setConcluding] = useState(false)
+  const [adding, setAdding] = useState(false)
 
   if (!liveRun) {
     return (
@@ -330,7 +339,11 @@ export function WrapUp({ todos, issues, ratings, pageSeconds }: { todos: Todo[];
   const newTodos = todos.filter(t => t.run_id === liveRun.id)
   const solved = issues.filter(i => i.solved_run_id === liveRun.id)
   const attendees = people.filter(p => attendeeIds.includes(p.id))
-  const rated = ratings.filter(r => r.rating != null)
+  // Only the people checked in on the Check-in page rate the meeting.
+  const attendance = (liveRun.attendance ?? {}) as Record<string, boolean>
+  const present = attendees.filter(p => attendance[p.id])
+  const absent = attendees.length - present.length
+  const rated = ratings.filter(r => r.rating != null && present.some(p => p.id === r.user_id))
   const avg = rated.length ? (rated.reduce((s, r) => s + (r.rating as number), 0) / rated.length).toFixed(1) : null
 
   async function conclude() {
@@ -339,6 +352,7 @@ export function WrapUp({ todos, issues, ratings, pageSeconds }: { todos: Todo[];
     const summaryId = await run(() => concludeMeeting(liveRun!.id, { archiveTodos, archiveHeadlines, pageSeconds: pageSeconds() }))
     if (summaryId && sendEmail) {
       try {
+        // No recipient list = every attendee of the meeting, absent ones included.
         const r = await emailSummary(summaryId, { includeDetails, includeNotes })
         notify(`Minutes e-mailed to ${r.sent} attendee${r.sent === 1 ? '' : 's'}.`, 'success')
       } catch (err: any) {
@@ -349,64 +363,79 @@ export function WrapUp({ todos, issues, ratings, pageSeconds }: { todos: Todo[];
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <SectionTitle>Wrap-up</SectionTitle>
-      <div className="grid md:grid-cols-2 gap-4">
-        <div className={`${card} p-4`}>
-          <div className="text-sm font-semibold mb-1">To-dos created in this meeting</div>
-          <div className="text-sm text-gray-600 mb-2">Your team committed to {newTodos.length} new to-do{newTodos.length === 1 ? '' : 's'}.</div>
-          <ul className="space-y-1">{newTodos.map(t => <li key={t.id} className="text-sm flex items-center gap-2"><Avatar person={peopleById.get(t.owner_id ?? '')} size="sm" />{t.title}<span className="ml-auto text-xs text-gray-500">{t.due_date}</span></li>)}</ul>
+
+      {/* What this meeting produced */}
+      <div className="grid md:grid-cols-2 gap-3">
+        <div className={`${card} p-3`}>
+          <div className="flex items-center gap-2 text-sm font-semibold mb-1.5"><ListChecks className="w-4 h-4 text-blue-600" /> New to-dos <span className="ml-auto text-xs font-bold bg-blue-50 text-blue-700 rounded-full px-2 py-0.5">{newTodos.length}</span></div>
+          {newTodos.length === 0 ? <p className="text-xs text-gray-500">None created in this meeting.</p> : (
+            <ul className="space-y-1 max-h-36 overflow-y-auto">{newTodos.map(t => <li key={t.id} className="text-sm flex items-center gap-2"><Avatar person={peopleById.get(t.owner_id ?? '')} size="sm" /><span className="truncate">{t.title}</span><span className="ml-auto text-xs text-gray-500 shrink-0">{t.due_date}</span></li>)}</ul>
+          )}
         </div>
-        <div className={`${card} p-4`}>
-          <div className="text-sm font-semibold mb-1">Issues solved</div>
-          <div className="text-sm text-gray-600 mb-2">You and your teammates solved {solved.length} issue{solved.length === 1 ? '' : 's'} today.</div>
-          <ul className="space-y-1">{solved.map(i => <li key={i.id} className="text-sm flex items-center gap-2"><Check className="w-4 h-4 text-green-600" />{i.title}</li>)}</ul>
+        <div className={`${card} p-3`}>
+          <div className="flex items-center gap-2 text-sm font-semibold mb-1.5"><AlertCircle className="w-4 h-4 text-emerald-600" /> Issues solved <span className="ml-auto text-xs font-bold bg-emerald-50 text-emerald-700 rounded-full px-2 py-0.5">{solved.length}</span></div>
+          {solved.length === 0 ? <p className="text-xs text-gray-500">None solved in this meeting.</p> : (
+            <ul className="space-y-1 max-h-36 overflow-y-auto">{solved.map(i => <li key={i.id} className="text-sm flex items-center gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0" /><span className="truncate">{i.title}</span></li>)}</ul>
+          )}
         </div>
       </div>
 
-      <div className={`${card} p-4`}>
-        <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
-          <div className="text-sm font-semibold">Meeting rating {liveRun.ratings_revealed && avg && <span className="text-blue-700 font-normal">· average {avg}</span>}</div>
-          {isLeader && !liveRun.ratings_revealed && <button onClick={() => run(() => revealRatings(liveRun.id))} className="text-sm px-3 py-1.5 rounded-lg border hover:bg-gray-50">Reveal ratings and feedback</button>}
+      {/* Ratings */}
+      <div className={`${card} overflow-hidden`}>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5 border-b bg-gray-50">
+          <div className="text-sm font-semibold">Rate this meeting</div>
+          <span className="text-xs text-gray-500">{rated.length} of {present.length} rated{absent > 0 ? ` · ${absent} not checked in` : ''}</span>
+          {liveRun.ratings_revealed && avg && <span className="text-xs font-bold bg-blue-600 text-white rounded-full px-2.5 py-0.5">Average {avg}</span>}
+          <div className="ml-auto flex items-center gap-2">
+            <button onClick={() => setAdding(true)} className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border bg-white text-xs font-semibold text-gray-700 hover:bg-gray-50" title="Someone joined during the meeting"><Plus className="w-3.5 h-3.5" /> Attendee</button>
+            {isLeader && !liveRun.ratings_revealed && <button onClick={() => run(() => revealRatings(liveRun.id))} disabled={rated.length === 0} className="px-2.5 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 disabled:opacity-40">Reveal</button>}
+          </div>
         </div>
-        <p className="text-sm text-gray-500 mb-3">
-          Rate the meeting 1-10. Rating below 8? Add it to the issues list.
-          {isLeader ? ' As host you can enter a rating for anyone.' : ' Only you can enter your rating (the host can also enter it for you).'}
-        </p>
-        <ul className="divide-y">
-          {attendees.map(p => (
-            <RatingRow
-              key={p.id}
-              person={p}
-              existing={ratings.find(x => x.user_id === p.id)}
-              editable={p.id === myId || isLeader}
-              onBehalf={p.id !== myId}
-              revealed={liveRun.ratings_revealed}
-              runId={liveRun.id}
-            />
-          ))}
-        </ul>
+        {present.length === 0 ? (
+          <p className="px-3 py-6 text-sm text-gray-500 text-center">Nobody is checked in. Tick people on the Check-in page, or add someone with <b>+ Attendee</b>.</p>
+        ) : (
+          <ul className="divide-y">
+            {present.map(p => (
+              <RatingRow
+                key={p.id}
+                person={p}
+                existing={ratings.find(x => x.user_id === p.id)}
+                editable={p.id === myId || isLeader}
+                onBehalf={p.id !== myId}
+                revealed={liveRun.ratings_revealed}
+                runId={liveRun.id}
+              />
+            ))}
+          </ul>
+        )}
+        <p className="px-3 py-2 border-t text-xs text-gray-500">1-10. Below 8? Add the reason to the issues list.{isLeader ? ' As host you can rate for anyone.' : ''}</p>
       </div>
 
+      {/* Conclude */}
       {isLeader ? (
-        <div className={`${card} p-4`}>
-          <div className="text-sm font-semibold">Concluding actions</div>
-          <p className="text-sm text-gray-500 mb-3">Save the summary and archive completed items for the next meeting.</p>
-          <label className="flex items-center gap-2 text-sm mb-1.5"><input type="checkbox" checked={archiveTodos} onChange={e => setArchiveTodos(e.target.checked)} /> Archive completed to-dos</label>
-          <label className="flex items-center gap-2 text-sm mb-1.5"><input type="checkbox" checked={archiveHeadlines} onChange={e => setArchiveHeadlines(e.target.checked)} /> Archive headlines</label>
-          <label className="flex items-center gap-2 text-sm mb-1.5"><input type="checkbox" checked={sendEmail} onChange={e => setSendEmail(e.target.checked)} /> Email the summary to all attendees</label>
+        <div className={`${card} p-3`}>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+            <label className="inline-flex items-center gap-2"><input type="checkbox" checked={archiveTodos} onChange={e => setArchiveTodos(e.target.checked)} /> Archive done to-dos</label>
+            <label className="inline-flex items-center gap-2"><input type="checkbox" checked={archiveHeadlines} onChange={e => setArchiveHeadlines(e.target.checked)} /> Archive headlines</label>
+            <label className="inline-flex items-center gap-2"><input type="checkbox" checked={sendEmail} onChange={e => setSendEmail(e.target.checked)} /> E-mail minutes to all {attendees.length} attendees{absent > 0 ? ` (incl. ${absent} absent)` : ''}</label>
+          </div>
           {sendEmail && (
-            <div className="ml-6 mb-4 space-y-1.5">
-              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={includeDetails} onChange={e => setIncludeDetails(e.target.checked)} /> Include headlines and to-do details</label>
-              <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={includeNotes} onChange={e => setIncludeNotes(e.target.checked)} /> Include meeting notes</label>
+            <div className="flex flex-wrap gap-x-5 gap-y-1 mt-2 pl-6 text-sm text-gray-600">
+              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={includeDetails} onChange={e => setIncludeDetails(e.target.checked)} /> Headline and to-do details</label>
+              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={includeNotes} onChange={e => setIncludeNotes(e.target.checked)} /> Meeting notes</label>
             </div>
           )}
-          {!sendEmail && <div className="mb-3" />}
-          <button onClick={conclude} disabled={concluding} className="px-5 py-2.5 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-50">{concluding ? 'Concluding…' : 'Conclude meeting'}</button>
+          <div className="flex items-center justify-end mt-3">
+            <button onClick={conclude} disabled={concluding} className="px-5 py-2.5 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-50">{concluding ? 'Concluding…' : 'Conclude meeting'}</button>
+          </div>
         </div>
       ) : (
-        <p className="text-sm text-gray-500">The meeting leader concludes the meeting.</p>
+        <p className="text-sm text-gray-500">The meeting leader concludes the meeting and sends the minutes.</p>
       )}
+
+      {adding && <AddAttendeeDialog onClose={() => setAdding(false)} />}
     </div>
   )
 }
