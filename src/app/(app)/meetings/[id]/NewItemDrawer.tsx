@@ -7,6 +7,7 @@ import { createLinkedItem } from '../actions'
 import { useMeeting, useRun } from './context'
 import { PersonSelect } from '../PersonPicker'
 import { RichEditor } from '../RichText'
+import { OwnersSelect } from './OwnersSelect'
 
 export type Draft = { title: string; details: string | null; owner_id: string | null; due_date: string | null }
 
@@ -38,6 +39,7 @@ export default function NewItemDrawer({
   const run = useRun()
   const [title, setTitle] = useState(draft.title)
   const [owner, setOwner] = useState(draft.owner_id ?? myId)
+  const [owners, setOwners] = useState<string[]>([draft.owner_id ?? myId])
   const [due, setDue] = useState(draft.due_date ?? (kind === 'todo' ? plusDays(7) : ''))
   const details = useRef<string | null>(draft.details)
   const [busy, setBusy] = useState(false)
@@ -55,7 +57,7 @@ export default function NewItemDrawer({
     if (!title.trim()) return
     setBusy(true)
     const ok = await run(async () => {
-      await createLinkedItem(meetingId, kind, { title, details: details.current, owner_id: owner || null, due_date: due || null }, { headlineId }, target || undefined)
+      await createLinkedItem(meetingId, kind, { title, details: details.current, owner_id: (kind === 'todo' ? owners[0] : owner) || null, owner_ids: kind === 'todo' ? owners : undefined, due_date: due || null }, { headlineId }, target || undefined)
       return true
     })
     setBusy(false)
@@ -90,7 +92,9 @@ export default function NewItemDrawer({
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <div className={sectionTitle}>Assign to</div>
-              <PersonSelect people={people} value={owner} onChange={setOwner} emptyLabel="No owner" className="w-full" ariaLabel="Owner" />
+              {kind === 'todo'
+                ? <OwnersSelect value={owners} onChange={setOwners} className="w-full" />
+                : <PersonSelect people={people} value={owner} onChange={setOwner} emptyLabel="No owner" className="w-full" ariaLabel="Owner" />}
             </div>
             <div>
               <div className={sectionTitle}>Due date</div>
@@ -109,7 +113,7 @@ export default function NewItemDrawer({
 
         <footer className="flex items-center justify-end gap-2 px-5 py-3 border-t bg-gray-50">
           <button onClick={onClose} className="px-4 py-2 text-sm rounded-lg border bg-white hover:bg-gray-50">Cancel</button>
-          <button onClick={create} disabled={busy || !title.trim()} className="px-5 py-2 text-sm rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50">
+          <button onClick={create} disabled={busy || !title.trim() || (kind === 'todo' && owners.length === 0)} className="px-5 py-2 text-sm rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50">
             {busy ? 'Creating…' : `Create ${label}`}
           </button>
         </footer>

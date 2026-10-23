@@ -346,23 +346,29 @@ export async function deleteHeadline(meetingId: string, id: string) {
 // To-dos
 // ---------------------------------------------------------------------------
 
-export async function addTodo(meetingId: string, input: { title: string; owner_id: string | null; due_date: string | null; run_id?: string | null; status?: TodoStatus }) {
+// Several owners = one to-do each (same title, due date and details), so everyone ticks off their own part.
+function ownerList(ownerIds: string[] | undefined, ownerId: string | null, fallback: string) {
+  const ids = [...new Set((ownerIds ?? []).filter(id => typeof id === 'string' && id))].slice(0, 50)
+  return ids.length ? ids : [ownerId || fallback]
+}
+
+export async function addTodo(meetingId: string, input: { title: string; owner_id: string | null; owner_ids?: string[]; due_date: string | null; run_id?: string | null; status?: TodoStatus }) {
   const { supabase, user } = await requireMeetingsAccess()
   if (!input.title.trim()) throw new Error('To-do cannot be empty')
   // Default deadline: 7 days out (the "tip of the week" convention).
   const due = input.due_date || new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
-  const { error } = await supabase.from('mtg_todos').insert({
+  const { error } = await supabase.from('mtg_todos').insert(ownerList(input.owner_ids, input.owner_id, user.id).map(owner_id => ({
     meeting_id: meetingId,
     run_id: input.run_id ?? null,
     title: input.title.trim(),
-    owner_id: input.owner_id || user.id,
+    owner_id,
     due_date: due,
     created_by: user.id,
     // Added straight into a board column (To do, In progress, Blocked or Done).
     ...(input.status && ['todo', 'in_progress', 'blocked', 'done'].includes(input.status)
       ? { status: input.status, done_at: input.status === 'done' ? new Date().toISOString() : null }
       : {}),
-  })
+  })))
   if (error) throw error
   refresh(meetingId)
 }
@@ -913,7 +919,7 @@ export async function convertHeadline(meetingId: string, headlineId: string, to:
 export async function createLinkedItem(
   meetingId: string,
   to: 'todo' | 'issue',
-  input: { title: string; details: string | null; owner_id: string | null; due_date: string | null },
+  input: { title: string; details: string | null; owner_id: string | null; owner_ids?: string[]; due_date: string | null },
   source?: { headlineId?: string },
   // Create it in a different meeting than the one the source is in (headline -> other meeting)
   targetMeetingId?: string,
@@ -935,10 +941,10 @@ export async function createLinkedItem(
   if (to === 'todo') {
     const due = input.due_date || new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10)
     const { data: run } = await supabase.from('mtg_runs').select('id').eq('meeting_id', meetingId).is('ended_at', null).maybeSingle()
-    const { error } = await supabase.from('mtg_todos').insert({
+    const { error } = await supabase.from('mtg_todos').insert(ownerList(input.owner_ids, input.owner_id, user.id).map(owner_id => ({
       meeting_id: meetingId, run_id: run?.id ?? null, title, details,
-      owner_id: input.owner_id || user.id, due_date: due, created_by: user.id, ...link,
-    })
+      owner_id, due_date: due, created_by: user.id, ...link,
+    })))
     if (error) throw error
   } else {
     const { error } = await supabase.from('mtg_issues').insert({

@@ -4,6 +4,7 @@ import { notify, confirmDialog } from '../ui/feedback'
 import { useState } from 'react'
 import { Plus, Trash2, Check, ListChecks, AlertCircle } from 'lucide-react'
 import { AddAttendeeDialog } from './AddAttendee'
+import { OwnersSelect } from './OwnersSelect'
 import {
   addHeadline, deleteHeadline, addTodo, setTodoDone, deleteTodo, addIssue, setIssueStatus, deleteIssue,
   saveRating, revealRatings, concludeMeeting,
@@ -101,7 +102,7 @@ export function Headlines({ headlines, todos, issues, otherMeetings }: { headlin
 export function Todos({ todos, otherMeetings }: { todos: Todo[]; otherMeetings: OtherMeetings }) {
   const { meetingId, myId, run: liveRun, peopleById } = useMeeting()
   const run = useRun()
-  const [form, setForm] = useState({ title: '', owner_id: myId, due_date: '' })
+  const [form, setForm] = useState({ title: '', owner_ids: [myId], due_date: '' })
   const [showDone, setShowDone] = useState(true)
   const [openId, setOpenId] = useState<string | null>(null)
   const open = todos.find(t => t.id === openId)
@@ -130,7 +131,8 @@ export function Todos({ todos, otherMeetings }: { todos: Todo[]; otherMeetings: 
   async function add(e: React.FormEvent) {
     e.preventDefault()
     if (!form.title.trim()) return
-    await run(() => addTodo(meetingId, { title: form.title, owner_id: form.owner_id, due_date: form.due_date || null, run_id: liveRun?.id ?? null }))
+    if (form.owner_ids.length === 0) return
+    await run(() => addTodo(meetingId, { title: form.title, owner_id: form.owner_ids[0], owner_ids: form.owner_ids, due_date: form.due_date || null, run_id: liveRun?.id ?? null }))
     setForm({ ...form, title: '', due_date: '' })
   }
 
@@ -145,8 +147,8 @@ export function Todos({ todos, otherMeetings }: { todos: Todo[]; otherMeetings: 
       }>To-dos <span className="text-gray-500 font-normal text-base">({todos.length})</span></SectionTitle>
       <div className="h-2 rounded-full bg-gray-200 mb-4 overflow-hidden"><div className="h-full bg-blue-600 transition-all" style={{ width: `${pct}%` }} /></div>
       <form onSubmit={add} className={`${card} p-2 mb-3 grid gap-1.5 md:grid-cols-[auto_1fr_auto_auto]`}>
-        <OwnerSelect value={form.owner_id} onChange={v => setForm({ ...form, owner_id: v })} />
-        <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Add a to-do" className={input} />
+        <OwnersSelect value={form.owner_ids} onChange={ids => setForm({ ...form, owner_ids: ids })} />
+        <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder={form.owner_ids.length > 1 ? `Add a to-do for ${form.owner_ids.length} people` : 'Add a to-do'} className={input} />
         <input type="date" value={form.due_date} onChange={e => setForm({ ...form, due_date: e.target.value })} className={input} aria-label="Due date" title="Defaults to 7 days from today" />
         <button className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-md bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700"><Plus className="w-3.5 h-3.5" /> Add</button>
       </form>
