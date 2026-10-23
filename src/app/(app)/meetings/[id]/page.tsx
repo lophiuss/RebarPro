@@ -116,6 +116,15 @@ export default async function MeetingPage({
   const isHost = !!activeRun && activeRun.leader_id === user?.id
   const visibleRatings = (ratings ?? []).filter((r: any) => activeRun?.ratings_revealed || isHost || r.user_id === user?.id)
 
+  // Session prep assigned to this meeting, shown on the Check-in page (latest 3).
+  const { data: prepRows } = tab === 'MEETING'
+    ? await supabase.from('mtg_prep_sessions').select('id, due_date, doc:mtg_prep_docs(name), responses:mtg_prep_responses(user_id, submitted_at)').eq('meeting_id', id).order('due_date', { ascending: false }).limit(3)
+    : { data: [] }
+  const prep = (prepRows ?? []).map((p: any) => ({
+    id: p.id as string, name: (p.doc?.name as string) ?? 'Session prep', due: p.due_date as string,
+    submittedIds: ((p.responses ?? []) as any[]).filter(r => r.submitted_at).map(r => r.user_id as string),
+  }))
+
   return (
     <MeetingShell
       meeting={meeting}
@@ -152,6 +161,7 @@ export default async function MeetingPage({
       myName={myName}
       docs={docs as any}
       boards={boards as any}
+      prep={prep}
     />
   )
 }

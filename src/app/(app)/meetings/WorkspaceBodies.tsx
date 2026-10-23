@@ -1,7 +1,7 @@
 'use client'
 
 import { confirmDialog } from './ui/feedback'
-import { useMemo, useOptimistic, useState, useTransition } from 'react'
+import { useEffect, useMemo, useOptimistic, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { Check, Plus, Trash2, StickyNote, FileText, ChevronLeft, ChevronRight, CalendarDays } from 'lucide-react'
 import { addTodo, setTodoDone, setKpiValue, addPrivateNote, updatePrivateNote, deletePrivateNote, setPrivateNoteColor, addPersonalTodo, setPersonalTodoDone, deletePersonalTodo } from './actions'
@@ -305,25 +305,35 @@ const NOTE_COLORS: Record<string, { card: string; dot: string }> = {
   gray: { card: 'bg-gray-50 border-gray-200', dot: 'bg-gray-300' },
 }
 
-// Grows with its text instead of scrolling inside a two-line box.
-function autoGrow(el: HTMLTextAreaElement | null) {
-  if (!el) return
-  el.style.height = 'auto'
-  el.style.height = `${el.scrollHeight}px`
+// Grows with its text instead of scrolling inside a short box: measured when shown, while typing, and whenever
+// the panel changes width (narrower = more lines).
+function useAutoGrow() {
+  const ref = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const fit = () => { el.style.height = 'auto'; el.style.height = `${el.scrollHeight + 2}px` }
+    fit()
+    el.addEventListener('input', fit)
+    const ro = new ResizeObserver(fit)
+    ro.observe(el)
+    return () => { el.removeEventListener('input', fit); ro.disconnect() }
+  }, [])
+  return ref
 }
 
 function NoteCard({ note }: { note: WNote }) {
   const [color, setColor] = useState(note.color ?? 'yellow')
   const c = NOTE_COLORS[color] ?? NOTE_COLORS.yellow
+  const area = useAutoGrow()
   return (
     <li className={`group rounded-lg border ${c.card} transition-colors`}>
       <textarea
-        ref={autoGrow}
+        ref={area}
         defaultValue={note.body}
-        rows={1}
-        onInput={e => autoGrow(e.currentTarget)}
+        rows={2}
         onBlur={e => { if (e.target.value !== note.body) act(() => updatePrivateNote(note.id, e.target.value)) }}
-        className="block w-full resize-none overflow-hidden bg-transparent px-3 pt-2 pb-1 text-sm leading-relaxed whitespace-pre-wrap break-words focus:outline-none"
+        className="block w-full min-h-[3rem] resize-none overflow-hidden [field-sizing:content] bg-transparent px-3 pt-2 pb-1 text-sm leading-relaxed whitespace-pre-wrap break-words focus:outline-none"
         aria-label="Note"
       />
       {/* Colour and delete stay out of the way: they show on hover, or while you are in the note. */}

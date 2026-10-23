@@ -1,7 +1,8 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { Lightbulb, MessageSquareQuote, Shuffle, ArrowLeft, NotebookPen, Check, UserCheck, Users, Crown, Plus } from 'lucide-react'
+import Link from 'next/link'
+import { Lightbulb, MessageSquareQuote, Shuffle, ArrowLeft, NotebookPen, Check, UserCheck, Users, Crown, Plus, ClipboardList, ChevronRight } from 'lucide-react'
 import { setAttendanceBulk, saveIcebreakerNotes } from '../actions'
 import { AddAttendeeDialog } from './AddAttendee'
 import { useMeeting, useRun } from './context'
@@ -11,6 +12,7 @@ import { TIPS } from '@/lib/meetings'
 import { QUESTIONS, ACTIONS, FUN, ICEBREAKER_LABEL, type IcebreakerKind } from '@/lib/icebreakers'
 
 type Shown = { text: string; label: string; n: number; total: number }
+export type PrepInfo = { id: string; name: string; due: string; submittedIds: string[] }
 
 const KINDS: IcebreakerKind[] = ['questions', 'actions', 'fun', 'notepad', 'mix']
 
@@ -23,7 +25,7 @@ function shuffle<T>(items: T[]): T[] {
   return a
 }
 
-export function CheckIn({ lastFeedback, ice, onIce, notes }: { lastFeedback: Rating[]; ice: Shown | null; onIce: (v: Shown) => void; notes: string }) {
+export function CheckIn({ lastFeedback, ice, onIce, notes, prep = [] }: { lastFeedback: Rating[]; ice: Shown | null; onIce: (v: Shown) => void; notes: string; prep?: PrepInfo[] }) {
   const { meetingId, run: liveRun, people, attendeeIds, peopleById, myId } = useMeeting()
   const run = useRun()
   // Shows a tick instantly; the saved value (from the live run) takes over after refresh.
@@ -186,6 +188,40 @@ export function CheckIn({ lastFeedback, ice, onIce, notes }: { lastFeedback: Rat
           </ul>
         )}
         {adding && <AddAttendeeDialog onClose={() => setAdding(false)} />}
+      </div>
+
+      {/* Session prep for this meeting: who has done it, and a way in to read the answers. */}
+      <div className={`${card} p-3 mb-4`}>
+        <div className="flex items-center gap-2 mb-1.5">
+          <ClipboardList className="w-4 h-4 text-indigo-600" />
+          <span className="text-sm font-semibold">Session prep</span>
+          <Link href="/meetings/session-prep" className="ml-auto text-xs text-gray-500 hover:text-blue-700">All prep sessions</Link>
+        </div>
+        {prep.length === 0 ? (
+          <p className="text-sm text-gray-500">No prep has been set for this meeting. <Link href="/meetings/session-prep" className="text-blue-600 hover:underline">Set one up</Link> so everyone answers a few questions before the meeting.</p>
+        ) : (
+          <ul className="divide-y">
+            {prep.map(p => {
+              const done = attendees.filter(a => p.submittedIds.includes(a.id)).length
+              const pctDone = attendees.length ? Math.round((done / attendees.length) * 100) : 0
+              const mine = p.submittedIds.includes(myId)
+              return (
+                <li key={p.id}>
+                  <Link href={`/meetings/session-prep/${p.id}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2 -mx-1 px-1 rounded hover:bg-gray-50">
+                    <span className="text-sm font-medium text-slate-800 min-w-0 truncate">{p.name}</span>
+                    <span className="text-xs text-gray-500">due {p.due}</span>
+                    <span className="flex items-center gap-2 ml-auto">
+                      <span className="w-24 h-1.5 rounded-full bg-gray-100 overflow-hidden" aria-hidden="true"><span className={`block h-full rounded-full ${done === attendees.length && done > 0 ? 'bg-emerald-500' : 'bg-indigo-500'}`} style={{ width: `${pctDone}%` }} /></span>
+                      <span className="text-xs font-semibold tabular-nums text-gray-700">{done}/{attendees.length} submitted</span>
+                      {attendeeIds.includes(myId) && <span className={`text-xs font-semibold rounded-full px-2 py-0.5 ${mine ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{mine ? 'You: done' : 'You: not yet'}</span>}
+                      <ChevronRight className="w-4 h-4 text-gray-400" />
+                    </span>
+                  </Link>
+                </li>
+              )
+            })}
+          </ul>
+        )}
       </div>
 
       <div>

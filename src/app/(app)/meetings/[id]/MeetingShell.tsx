@@ -13,7 +13,7 @@ import { createClient } from '@/lib/supabase/client'
 import { startMeeting, setRunPage, saveRunNotes, cancelMeeting } from '../actions'
 import { MeetingProvider, type Run } from './context'
 import Avatar from '../Avatar'
-import { CheckIn } from './CheckIn'
+import { CheckIn, type PrepInfo } from './CheckIn'
 import { Goals } from './Priorities'
 import { Metrics } from './Kpis'
 import {
@@ -61,6 +61,7 @@ export type ShellProps = {
   schedule: Schedule | null
   workspaceLayout: unknown
   icebreakerNotes: string
+  prep: PrepInfo[]
   // People in the meeting who have no login here (imported); shown by name.
   contactNames: string[]
   // Whiteboard tab
@@ -467,7 +468,7 @@ export default function MeetingShell(props: ShellProps) {
                   </div>
                 )}
 
-                {page === 'CHECK_IN' && <CheckIn lastFeedback={props.lastFeedback} ice={ice} onIce={shareIce} notes={props.icebreakerNotes} />}
+                {page === 'CHECK_IN' && <CheckIn lastFeedback={props.lastFeedback} ice={ice} onIce={shareIce} notes={props.icebreakerNotes} prep={props.prep} />}
                 {page === 'GOALS' && <Goals goals={props.goals} otherMeetings={props.otherMeetings} />}
                 {page === 'METRICS' && <Metrics kpis={props.kpis} values={props.kpiValues} customGoals={props.kpiGoals} notes={props.kpiNotes} otherMeetings={props.otherMeetings} meetingName={meeting.name} />}
                 {page === 'HEADLINES' && <Headlines headlines={props.headlines} todos={props.todos} issues={props.issues} otherMeetings={props.otherMeetings} />}
