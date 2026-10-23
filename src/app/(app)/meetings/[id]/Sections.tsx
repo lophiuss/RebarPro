@@ -105,12 +105,27 @@ export function Todos({ todos, otherMeetings }: { todos: Todo[]; otherMeetings: 
   const [showDone, setShowDone] = useState(true)
   const [openId, setOpenId] = useState<string | null>(null)
   const open = todos.find(t => t.id === openId)
-  const done = todos.filter(t => t.done_at).length
+  // Ticks show at once; the saved state takes over when the page refreshes (a failed save puts it back).
+  const [localDone, setLocalDone] = useState<Record<string, boolean>>({})
+  const doneSig = todos.map(t => `${t.id}:${t.done_at ? 1 : 0}`).join('|')
+  const [seenDone, setSeenDone] = useState(doneSig)
+  if (seenDone !== doneSig) {
+    setSeenDone(doneSig)
+    setLocalDone(prev => Object.fromEntries(Object.entries(prev).filter(([id, v]) => !!todos.find(t => t.id === id)?.done_at !== v)))
+  }
+  const isDone = (t: Todo) => localDone[t.id] ?? !!t.done_at
+  async function toggleDone(t: Todo) {
+    const next = !isDone(t)
+    setLocalDone(prev => ({ ...prev, [t.id]: next }))
+    const ok = await run(async () => { await setTodoDone(meetingId, t.id, next); return true })
+    if (!ok) setLocalDone(prev => { const n = { ...prev }; delete n[t.id]; return n })
+  }
+  const done = todos.filter(isDone).length
   const pct = todos.length ? Math.round((done / todos.length) * 100) : 0
   const [sort, setSort] = useState<SortKey>('default')
   const byDue = [...todos].sort((a, b) => (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999'))
   const sorted = sort === 'owner' ? sortByOwner(byDue, peopleById) : byDue
-  const shown = sorted.filter(t => showDone || !t.done_at)
+  const shown = sorted.filter(t => showDone || !isDone(t))
 
   async function add(e: React.FormEvent) {
     e.preventDefault()
@@ -135,18 +150,20 @@ export function Todos({ todos, otherMeetings }: { todos: Todo[]; otherMeetings: 
       ) : (
         <ul className={`${card} divide-y`}>
           {shown.map(t => {
-            const overdue = !t.done_at && t.due_date && t.due_date < todayStr()
+            const tDone = isDone(t)
+            const overdue = !tDone && t.due_date && t.due_date < todayStr()
             return (
-              <li key={t.id} className="flex items-center gap-3 px-3 py-2.5">
+              <li key={t.id} className={`flex items-center gap-3 px-3 py-2.5 transition-colors ${tDone ? 'bg-gray-50/60' : ''}`}>
                 <button
-                  onClick={() => run(() => setTodoDone(meetingId, t.id, !t.done_at))}
-                  aria-label={t.done_at ? 'Mark not done' : 'Mark done'}
-                  className={`w-7 h-7 rounded-full border-2 shrink-0 inline-flex items-center justify-center ${t.done_at ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300 hover:border-blue-500'}`}
+                  onClick={() => toggleDone(t)}
+                  aria-label={tDone ? 'Mark not done' : 'Mark done'}
+                  aria-pressed={tDone}
+                  className={`w-7 h-7 rounded-full border-2 shrink-0 inline-flex items-center justify-center transition duration-150 active:scale-90 ${tDone ? 'bg-blue-600 border-blue-600 text-white scale-100' : 'border-gray-300 hover:border-blue-500 hover:bg-blue-50'}`}
                 >
-                  {t.done_at && <Check className="w-4 h-4" />}
+                  {tDone && <Check className="w-4 h-4" strokeWidth={3} />}
                 </button>
                 <Avatar person={peopleById.get(t.owner_id ?? '')} size="sm" />
-                <ItemTitle title={t.title} hasDetails={!!t.details} struck={!!t.done_at} onOpen={() => setOpenId(t.id)} />
+                <ItemTitle title={t.title} hasDetails={!!t.details} struck={tDone} onOpen={() => setOpenId(t.id)} />
                 {t.source_headline_id && <span className="hidden sm:inline text-xs text-gray-500">from headline</span>}
                 <NewBadge createdAt={t.created_at} />
                 <span className={`text-xs whitespace-nowrap ${overdue ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>{t.due_date ?? ''}</span>
@@ -183,11 +200,25 @@ export function Issues({ issues, otherMeetings }: { issues: Issue[]; otherMeetin
   const [title, setTitle] = useState('')
   const [owner, setOwner] = useState(myId)
   const [sort, setSort] = useState<SortKey>('default')
+  // A status change shows at once; the saved state takes over when the page refreshes.
+  const [localStatus, setLocalStatus] = useState<Record<string, IssueStatus>>({})
+  const statusSig = issues.map(i => `${i.id}:${i.status}`).join('|')
+  const [seenStatus, setSeenStatus] = useState(statusSig)
+  if (seenStatus !== statusSig) {
+    setSeenStatus(statusSig)
+    setLocalStatus(prev => Object.fromEntries(Object.entries(prev).filter(([id, v]) => issues.find(i => i.id === id)?.status !== v)))
+  }
+  const statusOf = (i: Issue): IssueStatus => localStatus[i.id] ?? i.status
+  async function move(i: Issue, status: IssueStatus) {
+    setLocalStatus(prev => ({ ...prev, [i.id]: status }))
+    const ok = await run(async () => { await setIssueStatus(meetingId, i.id, status, status === 'solved' ? liveRun?.id : null); return true })
+    if (!ok) setLocalStatus(prev => { const n = { ...prev }; delete n[i.id]; return n })
+  }
   // Issues solved in this meeting stay in the short-term list, struck through,
   // so the room can see what was just dealt with.
   const inTab = tab === 'short_term'
-    ? [...issues.filter(i => i.status === 'short_term'), ...issues.filter(i => i.status === 'solved')]
-    : issues.filter(i => i.status === tab)
+    ? [...issues.filter(i => statusOf(i) === 'short_term'), ...issues.filter(i => statusOf(i) === 'solved')]
+    : issues.filter(i => statusOf(i) === tab)
   const shown = sort === 'owner' ? sortByOwner(inTab, peopleById) : inTab
 
   async function add(e: React.FormEvent) {
@@ -204,7 +235,7 @@ export function Issues({ issues, otherMeetings }: { issues: Issue[]; otherMeetin
         <Segmented
           value={tab}
           onChange={setTab}
-          options={ISSUE_TABS.map(s => ({ key: s, label: `${ISSUE_STATUS_LABEL[s]} (${issues.filter(i => i.status === s).length})` }))}
+          options={ISSUE_TABS.map(s => ({ key: s, label: `${ISSUE_STATUS_LABEL[s]} (${issues.filter(i => statusOf(i) === s).length})` }))}
         />
       </div>
 
@@ -212,22 +243,30 @@ export function Issues({ issues, otherMeetings }: { issues: Issue[]; otherMeetin
         <Empty title={`No ${ISSUE_STATUS_LABEL[tab].toLowerCase()} issues`} hint="Capture what is worth a real discussion this week." />
       ) : (
         <ul className={`${card} divide-y`}>
-          {shown.map(i => (
-            <li key={i.id} className="flex flex-wrap items-center gap-3 px-3 py-2.5">
+          {shown.map(i => {
+            const st = statusOf(i)
+            return (
+            <li key={i.id} className={`flex flex-wrap items-center gap-3 px-3 py-2.5 transition-colors ${st === 'solved' ? 'bg-green-50/50' : ''}`}>
               <Avatar person={peopleById.get(i.owner_id ?? '')} size="sm" />
-              <ItemTitle title={i.title} hasDetails={!!i.details} struck={i.status === 'solved'} onOpen={() => setOpenId(i.id)} />
+              <ItemTitle title={i.title} hasDetails={!!i.details} struck={st === 'solved'} onOpen={() => setOpenId(i.id)} />
               {i.source_headline_id && <span className="hidden sm:inline text-xs text-gray-500">from headline</span>}
               <NewBadge createdAt={i.created_at} />
-              {i.status !== 'solved' && (
+              {st === 'solved' ? (
                 <div className="flex items-center gap-1.5 text-xs">
-                  <button onClick={() => run(() => setIssueStatus(meetingId, i.id, 'solved', liveRun?.id))} className="px-2 py-1 rounded-md bg-green-50 text-green-700 font-semibold hover:bg-green-100">Solved</button>
-                  {i.status !== 'short_term' && <button onClick={() => run(() => setIssueStatus(meetingId, i.id, 'short_term'))} className="px-2 py-1 rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200">Short term</button>}
-                  {i.status !== 'parking_lot' && <button onClick={() => run(() => setIssueStatus(meetingId, i.id, 'parking_lot'))} className="px-2 py-1 rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200">Park</button>}
+                  <span className="inline-flex items-center gap-1 font-semibold text-green-700"><Check className="w-3.5 h-3.5" strokeWidth={3} /> Solved</span>
+                  <button onClick={() => move(i, 'short_term')} className="px-2 py-1 rounded-md bg-white border text-gray-600 hover:bg-gray-50">Reopen</button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 text-xs">
+                  <button onClick={() => move(i, 'solved')} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-green-50 text-green-700 font-semibold hover:bg-green-100 active:scale-95 transition"><Check className="w-3.5 h-3.5" /> Solved</button>
+                  {st !== 'short_term' && <button onClick={() => move(i, 'short_term')} className="px-2 py-1 rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 active:scale-95 transition">Short term</button>}
+                  {st !== 'parking_lot' && <button onClick={() => move(i, 'parking_lot')} className="px-2 py-1 rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 active:scale-95 transition">KIV</button>}
                   <button onClick={async () => { if (await confirmDialog('Delete this issue?')) { await (run(() => deleteIssue(meetingId, i.id))) } }} aria-label="Delete" className="p-2 -m-2 text-gray-500 hover:text-red-600 ml-1"><Trash2 className="w-4 h-4" /></button>
                 </div>
               )}
             </li>
-          ))}
+            )
+          })}
         </ul>
       )}
 
