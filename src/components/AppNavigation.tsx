@@ -12,7 +12,7 @@ import {
   Users, Lock, FileBarChart, Clock, BedDouble, FileText, Upload, Target, Receipt, DollarSign, LayoutDashboard, CalendarDays, ListChecks, Network, MessagesSquare, UserCheck, LifeBuoy, PanelLeftClose, PanelLeftOpen, PenTool, UserPlus
 } from 'lucide-react'
 
-export type Department = 'rebar' | 'cement' | 'security' | 'maintenance' | 'mould' | 'plantpro' | 'meetings'
+export type Department = 'rebar' | 'cement' | 'security' | 'maintenance' | 'mould' | 'plantpro' | 'meetings' | 'qaqc'
 export type DepartmentAccess = { department: Department; role: string }
 export type NavPermission = { department: Department; role: string; nav_key: string }
 
@@ -42,6 +42,7 @@ const DEPARTMENT_LABEL: Record<Department, string> = {
   mould: 'Mould',
   plantpro: 'HR',
   meetings: 'Meetings',
+  qaqc: 'QAQC',
 }
 
 const DEPARTMENT_HOME: Record<Department, string> = {
@@ -53,6 +54,7 @@ const DEPARTMENT_HOME: Record<Department, string> = {
   plantpro: '/plantpro/ot',
   // Meetings opens on My Workspace (your to-dos, KPIs and priorities), not the list.
   meetings: '/meetings/workspace',
+  qaqc: '/qaqc/records',
 }
 
 const SETTINGS_HREF: Record<Department, string> = {
@@ -63,6 +65,7 @@ const SETTINGS_HREF: Record<Department, string> = {
   mould: '/mould/settings',
   plantpro: '/plantpro/config',
   meetings: '/meetings/settings',
+  qaqc: '/qaqc/settings',
 }
 
 // Cement's real pages land here module-by-module (see the merge plan's build order).
@@ -151,6 +154,12 @@ export const NAV_ITEMS: Record<Department, NavItem[]> = {
     { href: '/meetings/resources', label: 'Resource Center', icon: LifeBuoy },
     { href: '/meetings/people', label: 'People & Invitations', icon: UserPlus },
     { href: '/meetings/settings', label: 'Settings', icon: Settings },
+  ],
+  qaqc: [
+    { href: '/qaqc/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { href: '/qaqc/records', label: 'Test Records', icon: ClipboardCheck },
+    { href: '/qaqc/targets', label: 'Targets', icon: Target },
+    { href: '/qaqc/settings', label: 'Settings', icon: Settings },
   ],
 }
 

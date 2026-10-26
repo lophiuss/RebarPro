@@ -55,7 +55,7 @@ export async function proxy(request: NextRequest) {
 
   // One query for both checks below: is the account still active, and which departments it has.
   const deptSegment = path.split('/')[1]
-  const isDeptPage = ['rebar', 'cement', 'security', 'maintenance', 'mould', 'plantpro', 'meetings'].includes(deptSegment)
+  const isDeptPage = ['rebar', 'cement', 'security', 'maintenance', 'mould', 'plantpro', 'meetings', 'qaqc'].includes(deptSegment)
   if (user && !path.startsWith('/login') && !path.startsWith('/auth')) {
     const { data: profile } = await supabase
       .from('profiles')
