@@ -108,42 +108,56 @@ export async function setPersonActive(userId: string, active: boolean): Promise<
 // Creates a brand-new account directly, as an alternative to self-signup —
 // e.g. for someone who won't use the login page themselves. Department
 // access is granted separately via the existing Grant Access form.
-export async function createPerson(email: string, password: string, fullName: string): Promise<void> {
-  const { user } = await requireDeptAdmin()
-  if (!email.trim() || !password) throw new Error('Email and password are required')
-  if (password.length < 10) throw new Error('Password must be at least 10 characters')
+export async function createPerson(email: string, password: string, fullName: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const { user } = await requireDeptAdmin()
+    const cleanEmail = email.trim().toLowerCase()
+    if (!cleanEmail || !password) return { ok: false, error: 'Email and password are required' }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(cleanEmail)) return { ok: false, error: 'Invalid email address format' }
+    if (password.length < 10) return { ok: false, error: 'Password must be at least 10 characters long' }
 
-  const admin = createAdminClient()
-  const { data: created, error } = await admin.auth.admin.createUser({
-    email: email.trim(),
-    password,
-    email_confirm: true,
-    user_metadata: { full_name: fullName.trim() || undefined },
-  })
-  if (error) throw error
-  if (created?.user) await logAccountAction(admin, user.id, created.user.id, 'account.create', { email: email.trim() })
+    const admin = createAdminClient()
+    const { data: created, error } = await admin.auth.admin.createUser({
+      email: cleanEmail,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: fullName.trim() || undefined },
+    })
+    if (error) return { ok: false, error: error.message }
+    if (created?.user) await logAccountAction(admin, user.id, created.user.id, 'account.create', { email: cleanEmail })
+    return { ok: true }
+  } catch (err: any) {
+    console.error('createPerson error:', err)
+    return { ok: false, error: err.message || 'Failed to create user' }
+  }
 }
 
 // Access Control for a Meetings MANAGER: creates a login and gives it the Meetings "member" role, nothing else.
 // A manager cannot touch other departments, other roles or existing accounts (those need requireDeptAdmin above).
-export async function createMeetingsPerson(email: string, password: string, fullName: string): Promise<void> {
-  const { user } = await requireMeetingsManager()
-  const mail = email.trim().toLowerCase()
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) throw new Error('That does not look like an e-mail address')
-  if (password.length < 10) throw new Error('Password must be at least 10 characters')
+export async function createMeetingsPerson(email: string, password: string, fullName: string): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const { user } = await requireMeetingsManager()
+    const mail = email.trim().toLowerCase()
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(mail)) return { ok: false, error: 'That does not look like an e-mail address' }
+    if (password.length < 10) return { ok: false, error: 'Password must be at least 10 characters' }
 
-  const admin = createAdminClient()
-  const { data: created, error } = await admin.auth.admin.createUser({
-    email: mail, password, email_confirm: true, user_metadata: { full_name: fullName.trim() || undefined },
-  })
-  if (error) throw error
-  const id = created.user.id
-  const { error: grantErr } = await admin.from('user_department_access').upsert({ user_id: id, department: 'meetings', role: 'member', granted_by: user.id }, { onConflict: 'user_id,department', ignoreDuplicates: true })
-  if (grantErr) {
-    await admin.auth.admin.deleteUser(id) // never leave a login without the access it was created for
-    throw grantErr
+    const admin = createAdminClient()
+    const { data: created, error } = await admin.auth.admin.createUser({
+      email: mail, password, email_confirm: true, user_metadata: { full_name: fullName.trim() || undefined },
+    })
+    if (error) return { ok: false, error: error.message }
+    const id = created.user.id
+    const { error: grantErr } = await admin.from('user_department_access').upsert({ user_id: id, department: 'meetings', role: 'member', granted_by: user.id }, { onConflict: 'user_id,department', ignoreDuplicates: true })
+    if (grantErr) {
+      await admin.auth.admin.deleteUser(id) // never leave a login without the access it was created for
+      return { ok: false, error: grantErr.message }
+    }
+    await logAccountAction(admin, user.id, id, 'account.create', { email: mail, via: 'meetings manager', department: 'meetings', role: 'member' })
+    return { ok: true }
+  } catch (err: any) {
+    console.error('createMeetingsPerson error:', err)
+    return { ok: false, error: err.message || 'Failed to create user' }
   }
-  await logAccountAction(admin, user.id, id, 'account.create', { email: mail, via: 'meetings manager', department: 'meetings', role: 'member' })
 }
 
 // Updates someone else's name/picture. profiles' own RLS only lets people

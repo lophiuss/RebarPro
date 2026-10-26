@@ -19,7 +19,11 @@ export default function MeetingsManagerView() {
     e.preventDefault()
     setBusy(true); setDone('')
     try {
-      await createMeetingsPerson(email, password, name)
+      const res = await createMeetingsPerson(email, password, name)
+      if (!res.ok) {
+        reportActionError(new Error(res.error || 'Could not add this person'), 'Could not add this person')
+        return
+      }
       setDone(`${name.trim() || email.trim()} was added to Meetings.`)
       setName(''); setEmail(''); setPassword('')
     } catch (err) {

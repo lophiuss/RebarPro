@@ -1,7 +1,10 @@
 'use client'
 
-import React, { useState } from 'react'
-import { X, ClipboardPaste, Check, AlertCircle, FileSpreadsheet, ArrowRight } from 'lucide-react'
+import React, { useState, useRef } from 'react'
+import {
+  X, ClipboardPaste, Check, AlertCircle, FileSpreadsheet,
+  ArrowRight, Download, Copy, UploadCloud, Sparkles
+} from 'lucide-react'
 import { bulkCreateQaqcTests, type QaqcTestInput } from '../actions'
 
 interface Props {
@@ -11,6 +14,80 @@ interface Props {
   knownProjects: string[]
   knownSuppliers: string[]
   knownTestTypes: string[]
+}
+
+export const TEMPLATE_COLUMNS = [
+  'Project',
+  'Supplier',
+  'Marking',
+  'Type of Test',
+  'Date Cast',
+  'Date Tested',
+  'Report Number',
+  'Email Date',
+  'QAQC Remarks',
+  'PO Number',
+  'PO Date',
+  'PO Amount',
+  'Invoice Number',
+  'Invoice Date',
+  'Invoice Amount',
+  'Payment Status'
+]
+
+export const TEMPLATE_SAMPLE_ROWS = [
+  [
+    'Project Alpha',
+    'Cast Laboratories',
+    'Beam B1-04',
+    'Concrete Cube (28D)',
+    '2026-10-01',
+    '2026-10-29',
+    'REP-2026-0881',
+    '2026-10-30',
+    'Passed cube strength',
+    'PO-26-0045',
+    '2026-10-31',
+    '450.00',
+    'INV-8834',
+    '2026-11-02',
+    '450.00',
+    'Pending'
+  ],
+  [
+    'SBG Depot',
+    'SETSCO Services',
+    'Column C2-10',
+    'Steel Tensile Test',
+    '',
+    '2026-10-15',
+    'REP-2026-0902',
+    '2026-10-16',
+    'Sample submitted to lab',
+    'PO-26-0052',
+    '2026-10-18',
+    '820.00',
+    '',
+    '',
+    '',
+    'Pending'
+  ]
+]
+
+export function downloadQaqcTemplate() {
+  const csvContent = '\uFEFF' + [
+    TEMPLATE_COLUMNS.join(','),
+    ...TEMPLATE_SAMPLE_ROWS.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+  ].join('\r\n')
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.setAttribute('href', url)
+  link.setAttribute('download', 'qaqc_test_import_template.csv')
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
 }
 
 const FIELD_OPTIONS = [
@@ -68,6 +145,32 @@ function normalizeDate(raw: string): string | null {
   return s
 }
 
+// Split a CSV line respecting quoted strings
+function parseCsvLine(text: string): string[] {
+  const result: string[] = []
+  let cur = ''
+  let inQuotes = false
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i]
+    if (char === '"') {
+      if (inQuotes && text[i + 1] === '"') {
+        cur += '"'
+        i++
+      } else {
+        inQuotes = !inQuotes
+      }
+    } else if (char === ',' && !inQuotes) {
+      result.push(cur.trim())
+      cur = ''
+    } else {
+      cur += char
+    }
+  }
+  result.push(cur.trim())
+  return result
+}
+
 export default function PasteExcelModal({ isOpen, onClose, onSuccess, knownProjects, knownSuppliers, knownTestTypes }: Props) {
   const [rawText, setRawText] = useState('')
   const [hasHeader, setHasHeader] = useState(true)
@@ -78,6 +181,10 @@ export default function PasteExcelModal({ isOpen, onClose, onSuccess, knownProje
   const [defaultTestType, setDefaultTestType] = useState('')
   const [saving, setSaving] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [copiedHeader, setCopiedHeader] = useState(false)
+  const [isDragging, setIsDragging] = useState(false)
+
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   if (!isOpen) return null
 
@@ -95,28 +202,37 @@ export default function PasteExcelModal({ isOpen, onClose, onSuccess, knownProje
       return
     }
 
-    const grid = lines.map(line => line.split('\t').map(c => c.trim()))
+    // Detect TSV or CSV
+    const isTsv = lines[0].includes('\t')
+    const grid: string[][] = lines.map(line => {
+      if (isTsv) {
+        return line.split('\t').map(c => c.trim())
+      }
+      return parseCsvLine(line)
+    })
+
     setParsedRows(grid)
 
     // Auto-detect header columns
     const firstRow = grid[0]
     const detected: string[] = firstRow.map(h => {
-      const lower = h.toLowerCase()
+      const lower = h.toLowerCase().replace(/[^a-z0-9]/g, '')
       if (lower.includes('proj')) return 'project'
       if (lower.includes('supp') || lower.includes('lab') || lower.includes('vendor')) return 'supplier'
       if (lower.includes('mark') || lower.includes('heat') || lower.includes('elem') || lower.includes('sample')) return 'marking'
-      if (lower.includes('test') && (lower.includes('type') || lower.includes('name'))) return 'test_type'
+      if (lower.includes('type') || lower.includes('testtype')) return 'test_type'
       if (lower.includes('cast')) return 'date_cast'
-      if (lower.includes('test') && lower.includes('date')) return 'date_test'
+      if (lower.includes('tested') || lower.includes('datetest') || lower.includes('testdate')) return 'date_test'
       if (lower.includes('report') || lower.includes('cert')) return 'report_no'
       if (lower.includes('email') || lower.includes('sent') || lower.includes('submit')) return 'email_date'
-      if (lower.includes('po') && lower.includes('no')) return 'po_no'
-      if (lower.includes('po') && lower.includes('date')) return 'po_date'
-      if (lower.includes('po') && (lower.includes('amt') || lower.includes('amount') || lower.includes('price'))) return 'po_amount'
-      if (lower.includes('inv') && lower.includes('no')) return 'invoice_no'
-      if (lower.includes('inv') && lower.includes('date')) return 'invoice_date'
-      if (lower.includes('inv') && (lower.includes('amt') || lower.includes('amount'))) return 'invoice_amount'
+      if (lower.includes('pono') || lower.includes('ponum')) return 'po_no'
+      if (lower.includes('podate')) return 'po_date'
+      if (lower.includes('poamt') || lower.includes('poamount') || lower.includes('poprice')) return 'po_amount'
+      if (lower.includes('invno') || lower.includes('invoiceno') || lower.includes('invoicenum')) return 'invoice_no'
+      if (lower.includes('invdate') || lower.includes('invoicedate')) return 'invoice_date'
+      if (lower.includes('invamt') || lower.includes('invamount') || lower.includes('invoiceamount')) return 'invoice_amount'
       if (lower.includes('pay') || lower.includes('status')) return 'payment_status'
+      if (lower.includes('remark') || lower.includes('comment') || lower.includes('note')) return 'qaqc_remarks'
       return 'ignore'
     })
 
@@ -128,9 +244,53 @@ export default function PasteExcelModal({ isOpen, onClose, onSuccess, knownProje
     if (likelyHasHeader) {
       setColumnMap(detected)
     } else {
-      // Default guess: Project, Supplier, Marking, Test Type, Date Cast, Date Test, Report No, Email Date
-      const defaultSequence = ['project', 'supplier', 'marking', 'test_type', 'date_cast', 'date_test', 'report_no', 'email_date']
+      // Default sequence
+      const defaultSequence = [
+        'project', 'supplier', 'marking', 'test_type',
+        'date_cast', 'date_test', 'report_no', 'email_date',
+        'qaqc_remarks', 'po_no', 'po_date', 'po_amount',
+        'invoice_no', 'invoice_date', 'invoice_amount', 'payment_status'
+      ]
       setColumnMap(firstRow.map((_, idx) => defaultSequence[idx] || 'ignore'))
+    }
+  }
+
+  const handleCopyHeaders = () => {
+    navigator.clipboard.writeText(TEMPLATE_COLUMNS.join('\t'))
+    setCopiedHeader(true)
+    setTimeout(() => setCopiedHeader(false), 2000)
+  }
+
+  const handleLoadSample = () => {
+    const tsvData = [
+      TEMPLATE_COLUMNS.join('\t'),
+      ...TEMPLATE_SAMPLE_ROWS.map(r => r.join('\t'))
+    ].join('\n')
+    parsePastedText(tsvData)
+  }
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = ev => {
+      const content = ev.target?.result as string
+      if (content) parsePastedText(content)
+    }
+    reader.readAsText(file)
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+    const file = e.dataTransfer.files?.[0]
+    if (file) {
+      const reader = new FileReader()
+      reader.onload = ev => {
+        const content = ev.target?.result as string
+        if (content) parsePastedText(content)
+      }
+      reader.readAsText(file)
     }
   }
 
@@ -175,7 +335,7 @@ export default function PasteExcelModal({ isOpen, onClose, onSuccess, knownProje
 
   const handleImport = async () => {
     if (!isValid) {
-      setErrorMsg('Please ensure Project, Supplier, and Test Type are provided for each row (or set defaults).')
+      setErrorMsg('Please ensure Project, Supplier, and Test Type are provided for each row (or set fallback defaults below).')
       return
     }
     setSaving(true)
@@ -201,8 +361,8 @@ export default function PasteExcelModal({ isOpen, onClose, onSuccess, knownProje
               <FileSpreadsheet className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-800">Paste from Excel or Google Sheets</h2>
-              <p className="text-xs text-slate-500">Copy table rows in Excel (Ctrl+C) and paste them here (Ctrl+V)</p>
+              <h2 className="text-base font-bold text-slate-800">Paste or Import from Excel / Google Sheets</h2>
+              <p className="text-xs text-slate-500">Copy table rows from Excel (Ctrl+C) and paste below, or download our ready-to-use template</p>
             </div>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-200/60">
@@ -210,24 +370,87 @@ export default function PasteExcelModal({ isOpen, onClose, onSuccess, knownProje
           </button>
         </div>
 
+        {/* Template Helper Toolbar */}
+        <div className="bg-emerald-50/60 border-b border-emerald-100 px-6 py-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-emerald-900">Need the template?</span>
+            <button
+              type="button"
+              onClick={downloadQaqcTemplate}
+              className="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold px-3 py-1.5 rounded-lg shadow-2xs transition"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Download Excel Template (.csv)
+            </button>
+            <button
+              type="button"
+              onClick={handleCopyHeaders}
+              className="inline-flex items-center gap-1.5 bg-white hover:bg-emerald-50 border border-emerald-300 text-emerald-800 font-medium px-3 py-1.5 rounded-lg transition"
+            >
+              {copiedHeader ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-slate-500" />}
+              {copiedHeader ? 'Headers Copied!' : 'Copy Headers for Excel'}
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept=".csv,.tsv,.txt"
+              onChange={handleFileUpload}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex items-center gap-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 font-medium px-3 py-1.5 rounded-lg transition"
+            >
+              <UploadCloud className="w-3.5 h-3.5 text-slate-500" />
+              Upload .CSV File
+            </button>
+            {parsedRows.length === 0 && (
+              <button
+                type="button"
+                onClick={handleLoadSample}
+                className="inline-flex items-center gap-1 text-slate-600 hover:text-emerald-700 underline font-medium"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                Try Sample Data
+              </button>
+            )}
+          </div>
+        </div>
+
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
           {parsedRows.length === 0 ? (
-            <div>
-              <label className="block text-xs font-semibold uppercase text-slate-500 mb-2">
-                Paste Excel Data Here
+            <div
+              onDragOver={e => { e.preventDefault(); setIsDragging(true) }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={handleDrop}
+              className={`rounded-2xl transition ${isDragging ? 'ring-2 ring-emerald-500 bg-emerald-50' : ''}`}
+            >
+              <label className="block text-xs font-semibold uppercase text-slate-600 mb-2">
+                Paste Excel Data Here (or drag and drop a .CSV file)
               </label>
               <textarea
                 autoFocus
                 rows={9}
                 value={rawText}
                 onChange={e => parsePastedText(e.target.value)}
-                placeholder={"Project\tSupplier\tMarking\tType of Test\tDate Cast\tDate Tested\tReport No\tEmail Date\nSBG\tCast Lab\tBeam 1\tConcrete Cube (28D)\t2026-09-01\t2026-09-29\tR-1029\t2026-10-02\nProject A\tSETSCO\tCol C2\tSteel Tensile\t\t2026-10-15\tR-2044\t2026-10-18"}
+                placeholder={"Project\tSupplier\tMarking\tType of Test\tDate Cast\tDate Tested\tReport Number\tEmail Date\tPO Number\tPO Date\tPO Amount\nProject Alpha\tCast Laboratories\tBeam B1-04\tConcrete Cube (28D)\t2026-10-01\t2026-10-29\tREP-2026-0881\t2026-10-30\tPO-26-0045\t2026-10-31\t450.00\nSBG Depot\tSETSCO Services\tColumn C2-10\tSteel Tensile Test\t\t2026-10-15\tREP-2026-0902\t2026-10-16\t\t\t"}
                 className="w-full font-mono text-xs border-2 border-dashed border-emerald-300 rounded-xl p-4 bg-emerald-50/20 focus:bg-white focus:border-emerald-500 focus:outline-hidden transition"
               />
-              <p className="text-xs text-slate-400 mt-2">
-                💡 Tip: Highlight your table in Excel or Google Sheets, press <strong>Ctrl+C</strong>, then click the box above and press <strong>Ctrl+V</strong>.
-              </p>
+              <div className="flex flex-wrap items-center justify-between text-xs text-slate-500 mt-2 gap-2">
+                <span>💡 <strong>Quick Steps:</strong> 1. Download template &gt; 2. Fill rows in Excel &gt; 3. Press <strong>Ctrl+C</strong> in Excel and <strong>Ctrl+V</strong> here.</span>
+                <button
+                  type="button"
+                  onClick={handleLoadSample}
+                  className="text-emerald-700 hover:text-emerald-800 font-semibold underline"
+                >
+                  Load 2 sample rows to see preview
+                </button>
+              </div>
             </div>
           ) : (
             <div className="space-y-4">
@@ -264,7 +487,7 @@ export default function PasteExcelModal({ isOpen, onClose, onSuccess, knownProje
                     type="text"
                     value={defaultProject}
                     onChange={e => setDefaultProject(e.target.value)}
-                    placeholder="e.g. SBG"
+                    placeholder="e.g. Project Alpha"
                     list="known-projects"
                     className="w-full border rounded px-2 py-1 bg-white"
                   />
@@ -292,7 +515,7 @@ export default function PasteExcelModal({ isOpen, onClose, onSuccess, knownProje
                     type="text"
                     value={defaultTestType}
                     onChange={e => setDefaultTestType(e.target.value)}
-                    placeholder="e.g. Concrete Cube 28 Days"
+                    placeholder="e.g. Concrete Cube (28D)"
                     list="known-test-types"
                     className="w-full border rounded px-2 py-1 bg-white"
                   />
@@ -328,7 +551,7 @@ export default function PasteExcelModal({ isOpen, onClose, onSuccess, knownProje
                             </select>
                             {hasHeader && parsedRows[0] && (
                               <div className="text-[10px] text-slate-500 mt-1 truncate" title={parsedRows[0][idx]}>
-                                Excel: &quot;{parsedRows[0][idx]}&quot;
+                                Header: &quot;{parsedRows[0][idx]}&quot;
                               </div>
                             )}
                           </th>

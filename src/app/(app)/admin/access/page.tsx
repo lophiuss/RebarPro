@@ -187,12 +187,20 @@ export default function AccessControlPage() {
   }
 
   async function addPerson() {
-    if (!newEmail.trim() || !newPassword) { alert('Email and password are required'); return }
+    const email = newEmail.trim().toLowerCase()
+    if (!email || !newPassword) { alert('Email and password are required'); return }
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { alert('Please enter a valid email address'); return }
+    if (newPassword.length < 10) { alert('Password must be at least 10 characters long'); return }
     setAddingPerson(true)
     try {
-      await createPerson(newEmail, newPassword, newFullName)
+      const res = await createPerson(email, newPassword, newFullName)
+      if (!res.ok) {
+        alert('Error creating person: ' + (res.error || 'Failed to create user'))
+        setAddingPerson(false)
+        return
+      }
     } catch (err: any) {
-      alert('Error creating person: ' + err.message)
+      alert('Error creating person: ' + (err.message || 'Something went wrong'))
       setAddingPerson(false)
       return
     }
@@ -709,8 +717,8 @@ Type DELETE to confirm.`)
                 <input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} className="w-full border rounded-md px-3 py-2 text-sm" />
               </div>
               <div>
-                <label className="block text-xs font-medium text-gray-500 mb-1">Password</label>
-                <input type="text" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="At least 6 characters" className="w-full border rounded-md px-3 py-2 text-sm" />
+                <label className="block text-xs font-medium text-gray-500 mb-1">Password <span className="text-gray-400 font-normal">(min. 10 characters)</span></label>
+                <input type="text" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="At least 10 characters" className="w-full border rounded-md px-3 py-2 text-sm" />
                 <p className="text-[11px] text-gray-400 mt-1">Share this with them directly — grant department access below afterwards.</p>
               </div>
             </div>

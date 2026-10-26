@@ -5,7 +5,7 @@ import {
   Search, Plus, FileSpreadsheet, Download, Filter, Trash2, Edit3,
   Calendar, CheckCircle2, Clock, AlertTriangle, ArrowUpDown, ChevronDown, Check, X
 } from 'lucide-react'
-import PasteExcelModal from './PasteExcelModal'
+import PasteExcelModal, { downloadQaqcTemplate } from './PasteExcelModal'
 import TestFormModal from './TestFormModal'
 import { deleteQaqcTest, updateQaqcTest } from '../actions'
 
@@ -251,6 +251,14 @@ export default function RecordsClient({
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={downloadQaqcTemplate}
+              className="flex items-center gap-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold px-3 py-2 rounded-xl transition shadow-2xs"
+              title="Download Excel / CSV template for bulk importing"
+            >
+              <Download className="w-3.5 h-3.5 text-emerald-600" />
+              Template
+            </button>
             <button
               onClick={() => setIsExcelModalOpen(true)}
               className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-semibold px-3.5 py-2 rounded-xl transition shadow-2xs"
