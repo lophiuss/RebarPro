@@ -410,6 +410,9 @@ export async function updateWorkerAllocationPct(workerId: number, projectId: num
 // plan §5's "preserved even where PMS's own design is a little unusual").
 export async function transferWorker(workerId: number, month: string, day: string, toSupervisorId: number) {
   const { supabase } = await requirePlantproAccess()
+  // Transfers are for managers/admins only; HR is e-mailed afterwards.
+  const { data: isApprover } = await supabase.rpc('plantpro_is_ot_approver')
+  if (!isApprover) throw new Error('Only a manager or admin can transfer a worker.')
   const { data: before } = await supabase.from('plantpro_workers').select('supervisor_id, line').eq('id', workerId).single()
   const { error: transferErr } = await supabase.from('plantpro_worker_transfers')
     .upsert({ worker_id: workerId, month, day, to_supervisor_id: toSupervisorId }, { onConflict: 'worker_id,month,day' })
@@ -419,6 +422,14 @@ export async function transferWorker(workerId: number, month: string, day: strin
   await logWorkerMovement(supabase, workerId, `${month}-${day}`, before, { supervisor_id: toSupervisorId, line: before?.line ?? null })
   revalidatePath('/plantpro/ot')
   revalidatePath('/plantpro/hr')
+  // Best-effort e-mail to HR — a mail failure must never undo the transfer.
+  if (before?.supervisor_id !== toSupervisorId) {
+    try {
+      await supabase.functions.invoke('send-plantpro-transfer-notice', {
+        body: { worker_id: workerId, from_supervisor_id: before?.supervisor_id ?? null, to_supervisor_id: toSupervisorId, effective_date: `${month}-${day}` },
+      })
+    } catch (e) { console.error('HR transfer notice failed:', e) }
+  }
 }
 
 // Appends to plantpro_worker_movements (the HR page's Supervisor Movement

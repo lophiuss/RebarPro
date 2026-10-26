@@ -203,8 +203,8 @@ export default function TimesheetClient({ month, workers, timesheetDays, monthHo
                     {daysArray.map(d => (
                       <td key={d.day} className={`px-0.5 py-0.5 ${dayBg(d)}`}>
                         <div className="flex flex-col w-full">
-                          <input type="number" defaultValue={getVal(w.id, d.day, 'basic')} title="Basic" onBlur={e => guard(() => updateTimesheetDay(w.id, month, d.day, 'basic', e.target.value))} className="border rounded px-0.5 py-0 h-5 text-[11px] w-full text-center" />
-                          <input type="number" defaultValue={getVal(w.id, d.day, 'ot') || ''} title="OT" placeholder="OT" onBlur={e => guard(() => updateTimesheetDay(w.id, month, d.day, 'ot', e.target.value))} className="border rounded px-0.5 py-0 h-5 text-[11px] w-full text-center bg-amber-50" />
+                          <input type="number" defaultValue={getVal(w.id, d.day, 'basic')} title="Basic" onBlur={e => guard(() => updateTimesheetDay(w.id, month, d.day, 'basic', e.target.value))} className="no-spin border rounded px-0.5 py-0 h-5 text-[11px] w-full text-center" />
+                          <input type="number" defaultValue={getVal(w.id, d.day, 'ot') || ''} title="OT" placeholder="OT" onBlur={e => guard(() => updateTimesheetDay(w.id, month, d.day, 'ot', e.target.value))} className="no-spin border rounded px-0.5 py-0 h-5 text-[11px] w-full text-center bg-amber-50" />
                         </div>
                       </td>
                     ))}
@@ -238,7 +238,7 @@ export default function TimesheetClient({ month, workers, timesheetDays, monthHo
                 <div><div className="font-semibold text-sm">{item.label}</div><div className="text-xs text-gray-500">{item.desc}</div></div>
                 <div className="flex items-center gap-1.5">
                   <span className="text-sm text-gray-500">×</span>
-                  <input type="number" step="0.1" min={1} max={10} defaultValue={item.value} onBlur={e => guard(() => updateTimesheetMultiplier({ [item.key]: Number(e.target.value) || 1 }))} className="w-16 text-center font-bold border rounded px-2 py-1" />
+                  <input type="number" step="0.1" min={1} max={10} defaultValue={item.value} onBlur={e => guard(() => updateTimesheetMultiplier({ [item.key]: Number(e.target.value) || 1 }))} className="no-spin w-16 text-center font-bold border rounded px-2 py-1" />
                 </div>
               </div>
             ))}

@@ -422,7 +422,7 @@ export default function OTClient({
                     <td className="px-1 py-0.5"><input defaultValue={om?.remark || ''} disabled={isLocked} onBlur={e => guard(() => updateOtMonthMeta(w.id, month, 'remark', e.target.value))} className="text-xs border rounded px-1 py-0 h-5 w-full disabled:opacity-50" /></td>
                     <td className="px-1 py-0.5">
                       <div className="flex gap-1">
-                        <input type="number" value={bulkValues[w.id] || ''} disabled={isLocked} onChange={e => setBulkValues(prev => ({ ...prev, [w.id]: e.target.value }))} className="flex-1 min-w-0 border rounded px-1 py-0 h-5 text-xs disabled:opacity-50" placeholder="hrs" />
+                        <input type="number" value={bulkValues[w.id] || ''} disabled={isLocked} onChange={e => setBulkValues(prev => ({ ...prev, [w.id]: e.target.value }))} className="no-spin flex-1 min-w-0 border rounded px-1 py-0 h-5 text-xs disabled:opacity-50" placeholder="hrs" />
                         <button disabled={isLocked || bulkBusy === w.id} title="Fill every weekday with this OT" onClick={async () => { setBulkBusy(w.id); await guard(() => bulkFillOt(w.id, month, bulkValues[w.id] || '0'), 'Filling OT…'); setBulkBusy(null); setFlashId(w.id); setTimeout(() => setFlashId(null), 1400) }} className="text-xs bg-gray-100 hover:bg-indigo-100 px-1.5 rounded disabled:opacity-50 transition-colors">{bulkBusy === w.id ? <Loader2 className="w-3 h-3 animate-spin text-indigo-600" /> : <Check className="w-3 h-3" />}</button>
                       </div>
                     </td>
@@ -431,8 +431,8 @@ export default function OTClient({
                       return (
                         <td key={day} className={`px-0.5 py-0.5 ${isSunday(month, day) ? 'bg-red-50/50' : ''}`}>
                           <div className="flex flex-col w-full">
-                            <input key={`b-${w.id}-${day}-${basic}`} type="number" defaultValue={basic} disabled={isLocked} title="Basic" onBlur={e => guard(() => updateOtDayHours(w.id, month, day, 'basic', e.target.value))} className="border rounded px-0.5 py-0 h-5 text-[11px] w-full disabled:opacity-50" />
-                            <input key={`o-${w.id}-${day}-${ot}`} type="number" defaultValue={ot || ''} disabled={isLocked} title="OT" placeholder="0" onBlur={e => guard(() => updateOtDayHours(w.id, month, day, 'ot', e.target.value))} className="border rounded px-0.5 py-0 h-5 text-[11px] w-full disabled:opacity-50" />
+                            <input key={`b-${w.id}-${day}-${basic}`} type="number" defaultValue={basic} disabled={isLocked} title="Basic" onBlur={e => guard(() => updateOtDayHours(w.id, month, day, 'basic', e.target.value))} className="no-spin border rounded px-0.5 py-0 h-5 text-[11px] w-full disabled:opacity-50" />
+                            <input key={`o-${w.id}-${day}-${ot}`} type="number" defaultValue={ot || ''} disabled={isLocked} title="OT" placeholder="0" onBlur={e => guard(() => updateOtDayHours(w.id, month, day, 'ot', e.target.value))} className="no-spin border rounded px-0.5 py-0 h-5 text-[11px] w-full disabled:opacity-50" />
                           </div>
                         </td>
                       )
@@ -440,11 +440,11 @@ export default function OTClient({
                     <td className={`px-2 py-0.5 text-center font-bold ${totalOT > 104 ? 'text-red-600' : 'text-green-600'}`}>{fmt(totalOT)}</td>
                     {!hideAllocations && sortedActiveProjects.map(p => (
                       <td key={p.id} className="px-1 py-0.5">
-                        <input type="number" defaultValue={getAllocation(w.id, p.id)} disabled={isLocked} min={0} max={100} placeholder="0" onBlur={e => guard(() => updateWorkerAllocationPct(w.id, p.id, Number(e.target.value) || 0))} className="w-full border rounded px-1 py-0 h-5 text-xs disabled:opacity-50" />
+                        <input type="number" defaultValue={getAllocation(w.id, p.id)} disabled={isLocked} min={0} max={100} placeholder="0" onBlur={e => guard(() => updateWorkerAllocationPct(w.id, p.id, Number(e.target.value) || 0))} className="no-spin w-full border rounded px-1 py-0 h-5 text-xs disabled:opacity-50" />
                       </td>
                     ))}
                     <td className="px-1 py-0.5 text-center">
-                      <button disabled={isLocked} onClick={() => { setTransferModal({ workerId: w.id, workerName: w.name }); setTransferToSup(''); setTransferFromDay(String(new Date().getDate()).padStart(2, '0')) }} className="text-xs bg-amber-50 text-amber-700 px-2 py-1 rounded disabled:opacity-50 whitespace-nowrap"><ArrowRightLeft className="w-3 h-3 inline mr-0.5" /> Transfer</button>
+                      <button disabled={isLocked || !canApprove} title={canApprove ? undefined : 'Only a manager or admin can transfer a worker'} onClick={() => { setTransferModal({ workerId: w.id, workerName: w.name }); setTransferToSup(''); setTransferFromDay(String(new Date().getDate()).padStart(2, '0')) }} className="text-xs bg-amber-50 text-amber-700 px-2 py-1 rounded disabled:opacity-50 whitespace-nowrap"><ArrowRightLeft className="w-3 h-3 inline mr-0.5" /> Transfer</button>
                     </td>
                   </tr>
                 )
@@ -543,7 +543,7 @@ export default function OTClient({
               </div>
               <div className="w-24">
                 <label className="block text-xs font-medium text-gray-500 mb-1">OT Hours</label>
-                <input type="number" min={0} max={24} step={0.5} value={extraForm.hours} onChange={e => setExtraForm(f => ({ ...f, hours: e.target.value }))} className="w-full border rounded-md px-3 py-2 text-sm" />
+                <input type="number" min={0} max={24} step={0.5} value={extraForm.hours} onChange={e => setExtraForm(f => ({ ...f, hours: e.target.value }))} className="no-spin w-full border rounded-md px-3 py-2 text-sm" />
               </div>
             </div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Reason</label>
@@ -553,7 +553,7 @@ export default function OTClient({
               {sortedActiveProjects.map(p => (
                 <div key={p.id} className="flex items-center gap-1.5 text-xs">
                   <span className="flex-1 truncate" title={p.name}>{p.name}</span>
-                  <input type="number" min={0} max={100} value={extraForm.allocs[p.id] || ''} onChange={e => setExtraForm(f => ({ ...f, allocs: { ...f.allocs, [p.id]: e.target.value } }))} className="w-14 border rounded px-1 py-0.5 text-xs" placeholder="0" />
+                  <input type="number" min={0} max={100} value={extraForm.allocs[p.id] || ''} onChange={e => setExtraForm(f => ({ ...f, allocs: { ...f.allocs, [p.id]: e.target.value } }))} className="no-spin w-14 border rounded px-1 py-0.5 text-xs" placeholder="0" />
                 </div>
               ))}
             </div>
@@ -584,7 +584,7 @@ export default function OTClient({
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setTransferModal(null)}>
           <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6" onClick={e => e.stopPropagation()}>
             <h2 className="text-lg font-bold mb-1">Transfer Worker</h2>
-            <p className="text-xs text-gray-400 mb-4">Transfer <strong>{transferModal.workerName}</strong> to a different supervisor from a specific day.</p>
+            <p className="text-xs text-gray-400 mb-4">Transfer <strong>{transferModal.workerName}</strong> to a different supervisor from a specific day. HR will be notified by e-mail.</p>
             <label className="block text-xs font-medium text-gray-500 mb-1">Transfer To</label>
             <select value={transferToSup} onChange={e => setTransferToSup(e.target.value)} className="w-full border rounded-md px-3 py-2 text-sm mb-3 bg-white">
               <option value="">-- Select --</option>
