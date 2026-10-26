@@ -200,6 +200,8 @@ export default function AppNavigation({ userEmail, fullName, departments, navPer
     ? 'plantpro'
     : pathname.startsWith('/meetings')
     ? 'meetings'
+    : pathname.startsWith('/qaqc')
+    ? 'qaqc'
     : departments[0]?.department ?? null
 
   const activeRole = departments.find(d => d.department === activeDept)?.role

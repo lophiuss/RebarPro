@@ -34,6 +34,14 @@ insert into public.department_nav_permissions (department, role, nav_key) values
   ('qaqc', 'account',   '/qaqc/records')
 on conflict do nothing;
 
+-- 2b. Bootstrap admin access: grant 'admin' role in 'qaqc' to all existing department admins
+-- so the QAQC button immediately appears in their department switcher and Access Control.
+insert into public.user_department_access (user_id, department, role)
+select distinct user_id, 'qaqc', 'admin'
+from public.user_department_access
+where role = 'admin'
+on conflict (user_id, department) do nothing;
+
 -- 3. Running number counter and generator function
 create table if not exists public.qaqc_counters (
   year int primary key,
