@@ -3,7 +3,7 @@
 import { guard } from '../feedback'
 import { useState, useMemo, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Loader2, ChevronLeft, ChevronRight, Settings, Calendar, Plus, Trash2, ArrowUpDown } from 'lucide-react'
+import { Loader2, ChevronLeft, ChevronRight, Settings, Calendar, Plus, Trash2, ArrowUpDown, Search } from 'lucide-react'
 import { updateTimesheetDay, updateTimesheetMultiplier, addHoliday, removeHoliday } from '../actions'
 import { calcNetPay, calcMonthPay, type DayType, type Multipliers } from '@/lib/plantpro-payroll'
 
@@ -40,6 +40,7 @@ export default function TimesheetClient({ month, workers, timesheetDays, monthHo
   const [sortConfig, setSortConfig] = useState<{ key: string | null; direction: 'asc' | 'desc' }>({ key: null, direction: 'asc' })
   const [filterSupervisor, setFilterSupervisor] = useState('')
   const [filterDepartment, setFilterDepartment] = useState('')
+  const [searchTerm, setSearchTerm] = useState('')
   // Column widths (px) — drag a header's right edge to resize. All day
   // columns share one width.
   const [colW, setColW] = useState<Record<string, number>>({ id: 64, name: 150, supervisor: 100, dept: 90, day: 40, applied: 70, actual: 70, diff: 60, basic: 64, pay: 96 })
@@ -99,9 +100,11 @@ export default function TimesheetClient({ month, workers, timesheetDays, monthHo
   const distinctSupervisors = [...new Set(workers.map(w => w.supervisors?.name).filter(Boolean))].sort() as string[]
   const distinctDepartments = [...new Set(workers.map(w => w.line).filter(Boolean))].sort() as string[]
 
+  const searchLower = searchTerm.trim().toLowerCase()
   const rows = workers
     .filter(w => !filterSupervisor || w.supervisors?.name === filterSupervisor)
     .filter(w => !filterDepartment || w.line === filterDepartment)
+    .filter(w => !searchLower || w.name.toLowerCase().includes(searchLower) || (w.worker_no || '').toLowerCase().includes(searchLower))
     .map(w => ({ worker: w, ...calcWorkerMonthPay(w) }))
 
   const sortedRows = (() => {
@@ -160,13 +163,25 @@ export default function TimesheetClient({ month, workers, timesheetDays, monthHo
             <span>🟣 Holiday (×{multiplier.holiday_basic} Basic / ×{multiplier.holiday_ot} OT)</span>
             <span>⚪ Normal (×1.0 Basic / ×{multiplier.normal_ot} OT)</span>
           </div>
-          <div className="flex gap-2 px-4 pb-3">
+          <div className="flex flex-wrap items-center gap-2 px-4 pb-3">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                placeholder="Search name or ID..."
+                className="border rounded-md pl-8 pr-3 py-1.5 text-sm w-52"
+              />
+            </div>
             <select value={filterSupervisor} onChange={e => setFilterSupervisor(e.target.value)} className="border rounded-md px-2 py-1.5 text-sm bg-white w-40">
               <option value="">All Supervisors</option>{distinctSupervisors.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
             <select value={filterDepartment} onChange={e => setFilterDepartment(e.target.value)} className="border rounded-md px-2 py-1.5 text-sm bg-white w-40">
               <option value="">All Departments</option>{distinctDepartments.map(d => <option key={d} value={d}>{d}</option>)}
             </select>
+            {searchTerm && (
+              <button onClick={() => setSearchTerm('')} className="text-xs text-gray-500 hover:text-gray-700 underline">Clear search</button>
+            )}
           </div>
           <div className={`overflow-auto max-h-[calc(100vh-15rem)] transition-opacity ${isPending ? 'opacity-50' : ''}`}>
             <table className="text-xs border-collapse" style={{ tableLayout: 'fixed', width: colW.id + colW.name + colW.supervisor + colW.dept + daysArray.length * colW.day + colW.applied + colW.actual + colW.diff + colW.basic + (canSeeWages ? colW.pay : 0) }}>

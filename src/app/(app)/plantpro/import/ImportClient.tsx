@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, Fragment } from 'react'
-import { ChevronDown, ChevronRight, CheckCircle2, AlertTriangle, Loader2, Upload, FileSearch } from 'lucide-react'
+import { ChevronDown, ChevronRight, CheckCircle2, AlertTriangle, Loader2, Upload, FileSearch, Search } from 'lucide-react'
 import { previewPlantproImport, commitPlantproImport, type ImportPreviewWorker, type ImportPreviewResult, type ImportCommitSummary } from '../actions'
 
 const SOURCE_LABEL: Record<ImportPreviewWorker['source'], string> = { both: 'Both', 'pdf-only': 'PDF only', 'excel-only': 'Excel only' }
@@ -17,6 +17,7 @@ export default function ImportClient() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [error, setError] = useState<string | null>(null)
   const [commitResult, setCommitResult] = useState<ImportCommitSummary | null>(null)
+  const [searchTerm, setSearchTerm] = useState('')
 
   const handlePreview = async () => {
     if (!pdfFile && !excelFile) { setError('Choose at least one file (timecard PDF and/or worker-details Excel).'); return }
@@ -83,9 +84,20 @@ export default function ImportClient() {
       {preview && (
         <div className="bg-white border rounded-xl shadow-sm p-5 mb-6">
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-            <h3 className="font-bold">
-              2. Review ({preview.workers.length} workers{preview.period ? `, period ${preview.period.days[0]} to ${preview.period.days[preview.period.days.length - 1]}` : ''})
-            </h3>
+            <div className="flex items-center gap-3 flex-wrap">
+              <h3 className="font-bold">
+                2. Review ({preview.workers.length} workers{preview.period ? `, period ${preview.period.days[0]} to ${preview.period.days[preview.period.days.length - 1]}` : ''})
+              </h3>
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
+                  placeholder="Search name or ID..."
+                  className="border rounded-md pl-8 pr-3 py-1 text-xs w-48"
+                />
+              </div>
+            </div>
             <button onClick={handleCommit} disabled={committing} className="flex items-center gap-2 bg-green-600 text-white text-sm font-semibold px-5 py-2.5 rounded-lg hover:bg-green-700 disabled:opacity-60 shadow-sm transition-colors">
               {committing ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Committing...</> : <><Upload className="w-3.5 h-3.5" /> Commit Import ({preview.workers.length - excluded.size} of {preview.workers.length})</>}
             </button>
@@ -101,7 +113,9 @@ export default function ImportClient() {
                 </tr>
               </thead>
               <tbody>
-                {preview.workers.map(w => {
+                {preview.workers
+                  .filter(w => !searchTerm.trim() || w.name.toLowerCase().includes(searchTerm.trim().toLowerCase()) || w.workerId.toLowerCase().includes(searchTerm.trim().toLowerCase()))
+                  .map(w => {
                   const isExpanded = expanded.has(w.workerId)
                   const isExcluded = excluded.has(w.workerId)
                   return (

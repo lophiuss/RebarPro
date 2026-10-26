@@ -12,7 +12,7 @@ export default async function PlantproHostelPage() {
     { data: hostels }, { data: workers }, { data: stays }, { data: itemTypes }, { data: bills },
   ] = await Promise.all([
     supabase.from('plantpro_hostels').select('*').order('name'),
-    supabase.from('plantpro_workers').select('id, name').neq('status', 'Inactive').order('name'),
+    supabase.from('plantpro_workers').select('id, name, worker_no').neq('status', 'Inactive').order('name'),
     supabase.from('plantpro_hostel_stays').select('id, worker_id, hostel_id, move_in_date, move_out_date').order('move_in_date', { ascending: false }),
     supabase.from('plantpro_hostel_bill_item_types').select('*').order('sort_order'),
     supabase.from('plantpro_hostel_utility_bills').select('id, hostel_id, month, applied_at, line_items:plantpro_hostel_bill_line_items(item_type_id, amount)'),

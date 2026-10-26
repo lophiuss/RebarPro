@@ -350,11 +350,15 @@ export async function otApprovalAction(month: string, supervisorId: number, acti
 // manager/admin approval before it counts toward the month's OT totals.
 // ---------------------------------------------------------------------------
 export async function requestExtraOt(input: {
-  workerId: number; date: string; hours: number; reason: string
+  workerId: number; date?: string; dates?: string[]; hours: number; reason: string
   allocations: { project_id: number; percentage: number }[]
 }) {
   const { supabase, user } = await requirePlantproAccess()
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) throw new Error('Invalid date')
+  const dates = (input.dates && input.dates.length > 0) ? input.dates : (input.date ? [input.date] : [])
+  if (dates.length === 0) throw new Error('At least one date is required')
+  for (const d of dates) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) throw new Error(`Invalid date: ${d}`)
+  }
   const hours = Number(input.hours)
   if (!hours || hours <= 0 || hours > 24) throw new Error('Hours must be between 0 and 24')
   const reason = input.reason.trim()
@@ -364,11 +368,45 @@ export async function requestExtraOt(input: {
     throw new Error('Project allocation must total 100%')
   }
   const { data: worker } = await supabase.from('plantpro_workers').select('supervisor_id').eq('id', input.workerId).maybeSingle()
-  const { error } = await supabase.from('plantpro_ot_extra_requests').insert({
-    month: input.date.slice(0, 7), work_date: input.date, worker_id: input.workerId,
-    supervisor_id: worker?.supervisor_id ?? null, hours, reason, allocations,
-    status: 'Pending', requested_by: user.id,
-  })
+  const uniqueDates = [...new Set(dates)].sort()
+  const rows = uniqueDates.map(d => ({
+    month: d.slice(0, 7),
+    work_date: d,
+    worker_id: input.workerId,
+    supervisor_id: worker?.supervisor_id ?? null,
+    hours,
+    reason,
+    allocations,
+    status: 'Pending',
+    requested_by: user.id,
+  }))
+  const { error } = await supabase.from('plantpro_ot_extra_requests').insert(rows)
+  if (error) throw error
+  revalidatePath('/plantpro/ot')
+}
+
+export async function decideMultipleExtraOt(ids: number[], decision: 'approve' | 'reject', note?: string) {
+  const { supabase, user } = await requirePlantproAccess()
+  const { data: isApprover } = await supabase.rpc('plantpro_is_ot_approver')
+  if (!isApprover) throw new Error('Only a manager or admin can approve additional OT.')
+  if (!ids.length) return
+  const { error } = await supabase.from('plantpro_ot_extra_requests').update({
+    status: decision === 'approve' ? 'Approved' : 'Rejected',
+    decided_by: user.id, decided_at: new Date().toISOString(), decision_note: note?.trim() || null,
+  }).in('id', ids)
+  if (error) throw error
+  revalidatePath('/plantpro/ot')
+}
+
+export async function withdrawMultipleExtraOt(ids: number[]) {
+  const { supabase, user } = await requirePlantproAccess()
+  if (!ids.length) return
+  const { data: isApprover } = await supabase.rpc('plantpro_is_ot_approver')
+  const query = supabase.from('plantpro_ot_extra_requests').delete().in('id', ids)
+  if (!isApprover) {
+    query.eq('requested_by', user.id).eq('status', 'Pending')
+  }
+  const { error } = await query
   if (error) throw error
   revalidatePath('/plantpro/ot')
 }

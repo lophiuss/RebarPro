@@ -7,7 +7,7 @@ import { Loader2, ChevronLeft, ChevronRight, Check, X, Copy, Eraser, Send, Check
 import {
   updateOtDayHours, updateOtMonthMeta, bulkFillOt, copyOtMonth, clearOtMonth,
   otApprovalAction, updateWorkerAllocationPct, transferWorker, updateWorkerField,
-  requestExtraOt, decideExtraOt, withdrawExtraOt,
+  requestExtraOt, decideExtraOt, withdrawExtraOt, decideMultipleExtraOt, withdrawMultipleExtraOt,
 } from '../actions'
 
 type Worker = {
@@ -99,7 +99,12 @@ export default function OTClient({
   const [flashId, setFlashId] = useState<number | null>(null)
   const [isPending, startTransition] = useTransition()
   const [extraModal, setExtraModal] = useState(false)
-  const [extraForm, setExtraForm] = useState<{ workerId: string; date: string; hours: string; reason: string; allocs: Record<number, string> }>({ workerId: '', date: '', hours: '', reason: '', allocs: {} })
+  const [extraDateMode, setExtraDateMode] = useState<'range' | 'single' | 'custom'>('range')
+  const [extraForm, setExtraForm] = useState<{
+    workerId: string; date: string; startDate: string; endDate: string; excludeSundays: boolean; customDays: number[]; hours: string; reason: string; allocs: Record<number, string>
+  }>({ workerId: '', date: '', startDate: '', endDate: '', excludeSundays: false, customDays: [], hours: '', reason: '', allocs: {} })
+  const [extraWorkerSearch, setExtraWorkerSearch] = useState('')
+  const [selectedExtraIds, setSelectedExtraIds] = useState<Set<number>>(new Set())
   const [extraBusy, setExtraBusy] = useState(false)
   // Column widths (px) — drag the right edge of any header to resize. All
   // day columns share one width, as do all project-allocation columns.
@@ -248,17 +253,83 @@ export default function OTClient({
   })
 
   const myWorkerIds = new Set(myWorkers.map(w => w.id))
-  const visibleExtras = extraRequests.filter(r => myWorkerIds.has(r.worker_id))
+  const workerById = useMemo(() => new Map(workers.map(w => [w.id, w])), [workers])
+  const visibleExtras = extraRequests.filter(r => {
+    if (!myWorkerIds.has(r.worker_id)) return false
+    if (!searchLower) return true
+    const w = workerById.get(r.worker_id)
+    return (w?.name.toLowerCase().includes(searchLower) ?? false) || ((w?.worker_no || '').toLowerCase().includes(searchLower))
+  })
+  const pendingVisibleExtras = visibleExtras.filter(r => r.status === 'Pending')
+  const selectedPendingIds = pendingVisibleExtras.filter(r => selectedExtraIds.has(r.id)).map(r => r.id)
   const extraAllocTotal = Math.round(Object.values(extraForm.allocs).reduce((s, v) => s + (Number(v) || 0), 0))
+
+  const daysInThisMonth = daysInMonth(month)
+  const computedDates = useMemo(() => {
+    if (extraDateMode === 'single') {
+      return extraForm.date ? [extraForm.date] : []
+    }
+    if (extraDateMode === 'custom') {
+      return [...extraForm.customDays]
+        .sort((a, b) => a - b)
+        .map(d => `${month}-${String(d).padStart(2, '0')}`)
+    }
+    if (extraDateMode === 'range') {
+      if (!extraForm.startDate || !extraForm.endDate) return []
+      const start = extraForm.startDate <= extraForm.endDate ? extraForm.startDate : extraForm.endDate
+      const end = extraForm.startDate <= extraForm.endDate ? extraForm.endDate : extraForm.startDate
+      const dates: string[] = []
+      const [sy, sm, sd] = start.split('-').map(Number)
+      const [ey, em, ed] = end.split('-').map(Number)
+      const cur = new Date(sy, sm - 1, sd)
+      const stop = new Date(ey, em - 1, ed)
+      while (cur <= stop) {
+        const y = cur.getFullYear()
+        const m = String(cur.getMonth() + 1).padStart(2, '0')
+        const d = String(cur.getDate()).padStart(2, '0')
+        const iso = `${y}-${m}-${d}`
+        if (iso.startsWith(month)) {
+          if (!extraForm.excludeSundays || cur.getDay() !== 0) {
+            dates.push(iso)
+          }
+        }
+        cur.setDate(cur.getDate() + 1)
+      }
+      return dates
+    }
+    return []
+  }, [extraDateMode, extraForm.date, extraForm.startDate, extraForm.endDate, extraForm.excludeSundays, extraForm.customDays, month])
+
   function openExtraModal() {
     const today = new Date().toISOString().slice(0, 10)
-    setExtraForm({ workerId: '', date: today.startsWith(month) ? today : `${month}-01`, hours: '', reason: '', allocs: {} })
+    const defaultDate = today.startsWith(month) ? today : `${month}-01`
+    const defaultDayNum = Number(defaultDate.slice(8, 10))
+    setExtraWorkerSearch('')
+    setExtraDateMode('range')
+    setExtraForm({
+      workerId: '',
+      date: defaultDate,
+      startDate: defaultDate,
+      endDate: defaultDate,
+      excludeSundays: false,
+      customDays: [defaultDayNum],
+      hours: '',
+      reason: '',
+      allocs: {},
+    })
     setExtraModal(true)
   }
   async function submitExtra() {
+    if (computedDates.length === 0) return
     setExtraBusy(true)
     const allocations = Object.entries(extraForm.allocs).map(([pid, v]) => ({ project_id: Number(pid), percentage: Number(v) || 0 })).filter(a => a.percentage > 0)
-    await guard(() => requestExtraOt({ workerId: Number(extraForm.workerId), date: extraForm.date, hours: Number(extraForm.hours), reason: extraForm.reason, allocations }), 'Submitting request…')
+    await guard(() => requestExtraOt({
+      workerId: Number(extraForm.workerId),
+      dates: computedDates,
+      hours: Number(extraForm.hours),
+      reason: extraForm.reason,
+      allocations,
+    }), `Submitting request for ${computedDates.length} day(s)…`)
     setExtraBusy(false); setExtraModal(false)
   }
 
@@ -462,22 +533,101 @@ export default function OTClient({
 
         <div className="p-4 border-t">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-            <h4 className="text-sm font-bold">Additional OT Requests — {monthLabel(month)}</h4>
+            <div>
+              <h4 className="text-sm font-bold">
+                Additional OT Requests — {monthLabel(month)}
+                {searchLower && <span className="ml-2 text-xs font-normal text-indigo-600">(filtered: {visibleExtras.length})</span>}
+              </h4>
+              <p className="text-xs text-gray-400">For OT worked after the monthly sheet is submitted/approved. Counts toward totals only once a manager approves it.</p>
+            </div>
             {canSubmit && (
-              <button onClick={openExtraModal} className="flex items-center gap-1 text-xs bg-indigo-600 text-white px-2.5 py-1.5 rounded-lg hover:bg-indigo-700"><Plus className="w-3.5 h-3.5" /> Request Additional OT</button>
+              <button onClick={openExtraModal} className="flex items-center gap-1 text-xs bg-indigo-600 text-white px-3 py-1.5 rounded-lg hover:bg-indigo-700 font-medium shadow-sm"><Plus className="w-3.5 h-3.5" /> Request Additional OT</button>
             )}
           </div>
-          <p className="text-xs text-gray-400 mb-2">For OT worked after the monthly sheet is submitted/approved. Counts toward totals only once a manager approves it.</p>
-          {visibleExtras.length === 0 ? <p className="text-xs text-gray-400">No additional OT requests.</p> : (
+
+          {selectedPendingIds.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between bg-indigo-50 border border-indigo-200 rounded-lg p-2.5 mb-3 text-xs gap-2">
+              <span className="font-semibold text-indigo-900">{selectedPendingIds.length} pending request(s) selected</span>
+              <div className="flex flex-wrap items-center gap-2">
+                {canApprove && (
+                  <>
+                    <button
+                      onClick={() => guard(() => decideMultipleExtraOt(selectedPendingIds, 'approve'), 'Approving…')}
+                      className="bg-green-600 text-white px-2.5 py-1 rounded font-medium hover:bg-green-700"
+                    >
+                      Approve Selected ({selectedPendingIds.length})
+                    </button>
+                    <button
+                      onClick={() => {
+                        const note = prompt('Reason for rejection (optional):')
+                        if (note !== null) guard(() => decideMultipleExtraOt(selectedPendingIds, 'reject', note), 'Rejecting…')
+                      }}
+                      className="bg-red-600 text-white px-2.5 py-1 rounded font-medium hover:bg-red-700"
+                    >
+                      Reject Selected ({selectedPendingIds.length})
+                    </button>
+                  </>
+                )}
+                {(canApprove || selectedPendingIds.every(id => extraRequests.find(r => r.id === id)?.requested_by === myUserId)) && (
+                  <button
+                    onClick={() => confirm(`Withdraw ${selectedPendingIds.length} selected request(s)?`) && guard(() => withdrawMultipleExtraOt(selectedPendingIds), 'Withdrawing…')}
+                    className="bg-gray-200 text-gray-700 px-2.5 py-1 rounded font-medium hover:bg-gray-300"
+                  >
+                    Withdraw Selected
+                  </button>
+                )}
+                <button onClick={() => setSelectedExtraIds(new Set())} className="text-gray-500 hover:text-gray-700 underline ml-1">Deselect all</button>
+              </div>
+            </div>
+          )}
+
+          {visibleExtras.length === 0 ? <p className="text-xs text-gray-400 py-2">No additional OT requests found.</p> : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead><tr className="text-left border-b text-xs text-gray-500 uppercase"><th className="pb-2">Date</th><th>Worker</th><th>Hours</th><th>Reason</th><th>Requested by</th><th>Status</th><th className="text-right">Actions</th></tr></thead>
+                <thead>
+                  <tr className="text-left border-b text-xs text-gray-500 uppercase">
+                    <th className="pb-2 w-8">
+                      {pendingVisibleExtras.length > 0 && (
+                        <input
+                          type="checkbox"
+                          checked={selectedPendingIds.length === pendingVisibleExtras.length && pendingVisibleExtras.length > 0}
+                          onChange={e => {
+                            if (e.target.checked) {
+                              setSelectedExtraIds(new Set(pendingVisibleExtras.map(r => r.id)))
+                            } else {
+                              setSelectedExtraIds(new Set())
+                            }
+                          }}
+                          title="Select all pending"
+                        />
+                      )}
+                    </th>
+                    <th className="pb-2">Date</th><th>Worker</th><th>Hours</th><th>Reason</th><th>Requested by</th><th>Status</th><th className="text-right">Actions</th>
+                  </tr>
+                </thead>
                 <tbody>
                   {visibleExtras.map(r => {
                     const w = workers.find(x => x.id === r.worker_id)
+                    const isSelected = selectedExtraIds.has(r.id)
                     return (
-                      <tr key={r.id} className="border-b border-gray-100 align-top">
-                        <td className="py-1.5 whitespace-nowrap">{r.work_date}</td>
+                      <tr key={r.id} className={`border-b border-gray-100 align-top ${isSelected ? 'bg-indigo-50/50' : ''}`}>
+                        <td className="py-1.5">
+                          {r.status === 'Pending' && (
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => {
+                                setSelectedExtraIds(prev => {
+                                  const next = new Set(prev)
+                                  if (next.has(r.id)) next.delete(r.id)
+                                  else next.add(r.id)
+                                  return next
+                                })
+                              }}
+                            />
+                          )}
+                        </td>
+                        <td className="py-1.5 whitespace-nowrap font-medium">{r.work_date}</td>
                         <td>{w ? `${w.name}${w.worker_no ? ` (${w.worker_no})` : ''}` : r.worker_id}</td>
                         <td>{fmt(Number(r.hours))}</td>
                         <td className="text-xs text-gray-600 max-w-xs">{r.reason}{r.decision_note && <div className="text-gray-400">Note: {r.decision_note}</div>}</td>
@@ -531,23 +681,196 @@ export default function OTClient({
           <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             <h2 className="text-lg font-bold mb-1">Request Additional OT</h2>
             <p className="text-xs text-gray-400 mb-4">Goes to a manager for approval. Not counted until approved.</p>
+
             <label className="block text-xs font-medium text-gray-500 mb-1">Worker</label>
-            <select value={extraForm.workerId} onChange={e => setExtraForm(f => ({ ...f, workerId: e.target.value }))} className="w-full border rounded-md px-3 py-2 text-sm mb-3 bg-white">
-              <option value="">-- Select --</option>
-              {myWorkers.map(w => <option key={w.id} value={w.id}>{w.name}{w.worker_no ? ` (${w.worker_no})` : ''}</option>)}
-            </select>
-            <div className="flex gap-3 mb-3">
-              <div className="flex-1">
-                <label className="block text-xs font-medium text-gray-500 mb-1">Date</label>
-                <input type="date" min={`${month}-01`} max={`${month}-${String(daysInMonth(month)).padStart(2, '0')}`} value={extraForm.date} onChange={e => setExtraForm(f => ({ ...f, date: e.target.value }))} className="w-full border rounded-md px-3 py-2 text-sm" />
-              </div>
-              <div className="w-24">
-                <label className="block text-xs font-medium text-gray-500 mb-1">OT Hours</label>
-                <input type="number" min={0} max={24} step={0.5} value={extraForm.hours} onChange={e => setExtraForm(f => ({ ...f, hours: e.target.value }))} className="no-spin w-full border rounded-md px-3 py-2 text-sm" />
-              </div>
+            <div className="relative mb-1.5">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                value={extraWorkerSearch}
+                onChange={e => setExtraWorkerSearch(e.target.value)}
+                placeholder="Filter worker by name or ID..."
+                className="w-full border rounded-md pl-8 pr-3 py-1.5 text-xs bg-gray-50 focus:bg-white"
+              />
             </div>
+            <select
+              value={extraForm.workerId}
+              onChange={e => setExtraForm(f => ({ ...f, workerId: e.target.value }))}
+              className="w-full border rounded-md px-3 py-2 text-sm mb-3 bg-white"
+            >
+              <option value="">-- Select Worker --</option>
+              {myWorkers
+                .filter(w => !extraWorkerSearch || w.name.toLowerCase().includes(extraWorkerSearch.toLowerCase()) || (w.worker_no || '').toLowerCase().includes(extraWorkerSearch.toLowerCase()))
+                .map(w => (
+                  <option key={w.id} value={w.id}>{w.name}{w.worker_no ? ` (${w.worker_no})` : ''}</option>
+                ))}
+            </select>
+
+            <label className="block text-xs font-medium text-gray-500 mb-1">Date Selection</label>
+            <div className="flex rounded-lg border bg-gray-100 p-0.5 text-xs mb-3">
+              {([
+                ['range', 'Date Range'],
+                ['single', 'Single Day'],
+                ['custom', 'Select Days'],
+              ] as const).map(([mode, label]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setExtraDateMode(mode)}
+                  className={`flex-1 py-1.5 rounded-md font-medium transition ${
+                    extraDateMode === mode ? 'bg-white shadow text-indigo-700' : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {extraDateMode === 'single' && (
+              <div className="mb-3">
+                <label className="block text-xs font-medium text-gray-500 mb-1">Date</label>
+                <input
+                  type="date"
+                  min={`${month}-01`}
+                  max={`${month}-${String(daysInThisMonth).padStart(2, '0')}`}
+                  value={extraForm.date}
+                  onChange={e => setExtraForm(f => ({ ...f, date: e.target.value }))}
+                  className="w-full border rounded-md px-3 py-2 text-sm"
+                />
+              </div>
+            )}
+
+            {extraDateMode === 'range' && (
+              <div className="space-y-2 mb-3">
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <label className="block text-[11px] font-medium text-gray-500 mb-1">Start Date</label>
+                    <input
+                      type="date"
+                      min={`${month}-01`}
+                      max={`${month}-${String(daysInThisMonth).padStart(2, '0')}`}
+                      value={extraForm.startDate}
+                      onChange={e => setExtraForm(f => ({ ...f, startDate: e.target.value }))}
+                      className="w-full border rounded-md px-2.5 py-1.5 text-xs"
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-[11px] font-medium text-gray-500 mb-1">End Date</label>
+                    <input
+                      type="date"
+                      min={`${month}-01`}
+                      max={`${month}-${String(daysInThisMonth).padStart(2, '0')}`}
+                      value={extraForm.endDate}
+                      onChange={e => setExtraForm(f => ({ ...f, endDate: e.target.value }))}
+                      className="w-full border rounded-md px-2.5 py-1.5 text-xs"
+                    />
+                  </div>
+                </div>
+                <label className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={extraForm.excludeSundays}
+                    onChange={e => setExtraForm(f => ({ ...f, excludeSundays: e.target.checked }))}
+                    className="rounded text-indigo-600"
+                  />
+                  Exclude Sundays
+                </label>
+                {computedDates.length > 0 && (
+                  <div className="text-[11px] text-gray-500 bg-gray-50 p-2 rounded border">
+                    <span className="font-semibold text-indigo-600">{computedDates.length} day(s) selected:</span>{' '}
+                    {computedDates.map(d => d.slice(8)).join(', ')} of {monthLabel(month)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {extraDateMode === 'custom' && (
+              <div className="mb-3">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs font-medium text-gray-500">Click days to select:</span>
+                  <div className="flex gap-2 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const allWeekdays = Array.from({ length: daysInThisMonth }, (_, i) => i + 1)
+                          .filter(d => new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, d).getDay() !== 0)
+                        setExtraForm(f => ({ ...f, customDays: allWeekdays }))
+                      }}
+                      className="text-indigo-600 hover:underline"
+                    >
+                      All Weekdays
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setExtraForm(f => ({ ...f, customDays: [] }))}
+                      className="text-gray-500 hover:underline"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-7 gap-1 p-2 bg-gray-50 rounded-lg border text-center text-xs">
+                  {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((d, i) => (
+                    <div key={d} className={`font-semibold text-[10px] ${i === 0 ? 'text-blue-500' : 'text-gray-400'}`}>{d}</div>
+                  ))}
+                  {Array.from({ length: new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, 1).getDay() }).map((_, i) => (
+                    <div key={`b-${i}`} />
+                  ))}
+                  {Array.from({ length: daysInThisMonth }, (_, i) => i + 1).map(day => {
+                    const isSelected = extraForm.customDays.includes(day)
+                    const dow = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, day).getDay()
+                    return (
+                      <button
+                        key={day}
+                        type="button"
+                        onClick={() => {
+                          setExtraForm(f => ({
+                            ...f,
+                            customDays: isSelected ? f.customDays.filter(d => d !== day) : [...f.customDays, day],
+                          }))
+                        }}
+                        className={`h-7 rounded text-xs font-medium transition ${
+                          isSelected
+                            ? 'bg-indigo-600 text-white font-bold shadow-sm'
+                            : dow === 0
+                            ? 'bg-blue-50/70 text-blue-800 hover:bg-blue-100'
+                            : 'hover:bg-gray-200 text-gray-700'
+                        }`}
+                      >
+                        {day}
+                      </button>
+                    )
+                  })}
+                </div>
+                <div className="text-[11px] text-gray-500 mt-1">
+                  {extraForm.customDays.length} day{extraForm.customDays.length === 1 ? '' : 's'} selected
+                </div>
+              </div>
+            )}
+
+            <div className="mb-3">
+              <label className="block text-xs font-medium text-gray-500 mb-1">OT Hours (per day)</label>
+              <input
+                type="number"
+                min={0}
+                max={24}
+                step={0.5}
+                value={extraForm.hours}
+                onChange={e => setExtraForm(f => ({ ...f, hours: e.target.value }))}
+                className="no-spin w-full border rounded-md px-3 py-2 text-sm"
+                placeholder="e.g. 2.0"
+              />
+            </div>
+
+            {computedDates.length > 0 && Number(extraForm.hours) > 0 && (
+              <div className="bg-indigo-50 border border-indigo-100 rounded-lg p-2.5 text-xs text-indigo-900 mb-3 flex items-center justify-between">
+                <span>{computedDates.length} day{computedDates.length === 1 ? '' : 's'} × {extraForm.hours} hrs/day</span>
+                <span className="font-bold">Total: {fmt(computedDates.length * Number(extraForm.hours))} hrs OT</span>
+              </div>
+            )}
+
             <label className="block text-xs font-medium text-gray-500 mb-1">Reason</label>
             <textarea value={extraForm.reason} onChange={e => setExtraForm(f => ({ ...f, reason: e.target.value }))} rows={2} className="w-full border rounded-md px-3 py-2 text-sm mb-3" placeholder="Why was extra OT needed?" />
+
             <label className="block text-xs font-medium text-gray-500 mb-1">Project allocation % <span className="font-normal text-gray-400">(optional — blank uses the worker&apos;s monthly allocation)</span></label>
             <div className="grid grid-cols-2 gap-x-3 gap-y-1 mb-1">
               {sortedActiveProjects.map(p => (
@@ -558,9 +881,16 @@ export default function OTClient({
               ))}
             </div>
             {extraAllocTotal > 0 && <p className={`text-xs mb-2 ${extraAllocTotal === 100 ? 'text-green-600' : 'text-red-600'}`}>Total: {extraAllocTotal}%</p>}
+
             <div className="flex justify-end gap-2 mt-4">
               <button onClick={() => setExtraModal(false)} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm">Cancel</button>
-              <button disabled={extraBusy || !extraForm.workerId || !extraForm.date || !Number(extraForm.hours) || !extraForm.reason.trim() || (extraAllocTotal > 0 && extraAllocTotal !== 100)} onClick={submitExtra} className="bg-indigo-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm">Submit Request</button>
+              <button
+                disabled={extraBusy || !extraForm.workerId || computedDates.length === 0 || !Number(extraForm.hours) || !extraForm.reason.trim() || (extraAllocTotal > 0 && extraAllocTotal !== 100)}
+                onClick={submitExtra}
+                className="bg-indigo-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm font-medium hover:bg-indigo-700 transition"
+              >
+                {extraBusy ? 'Submitting…' : `Submit Request (${computedDates.length} ${computedDates.length === 1 ? 'day' : 'days'})`}
+              </button>
             </div>
           </div>
         </div>

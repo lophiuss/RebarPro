@@ -2,7 +2,7 @@
 
 import { guard, useColResize } from '../feedback'
 import { useState } from 'react'
-import { Building2, Plus, Trash2, Users, History, Receipt, Tag, ArrowRightLeft, ChevronDown, ChevronRight } from 'lucide-react'
+import { Building2, Plus, Trash2, Users, History, Receipt, Tag, ArrowRightLeft, ChevronDown, ChevronRight, Search } from 'lucide-react'
 import {
   createHostel, updateHostel, deleteHostel, assignHostelStay, moveOutStay,
   createBillItemType, updateBillItemType, deleteBillItemType,
@@ -10,7 +10,7 @@ import {
 } from '../actions'
 
 type Hostel = { id: number; name: string; status: string; address: string | null; owner_name: string | null; owner_contact: string | null; rental_per_month: number | null; deposit_withheld: number | null }
-type Worker = { id: number; name: string }
+type Worker = { id: number; name: string; worker_no?: string | null }
 type Stay = { id: number; worker_id: number; hostel_id: number; move_in_date: string; move_out_date: string | null }
 type ItemType = { id: number; name: string; charge_to_workers: boolean; sort_order: number }
 type Bill = { id: number; hostel_id: number; month: string; applied_at: string | null; line_items: { item_type_id: number; amount: number }[] }
