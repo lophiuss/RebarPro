@@ -3,10 +3,11 @@
 import { guard } from '../feedback'
 import { useState, useMemo, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Loader2, ChevronLeft, ChevronRight, Check, X, Copy, Eraser, Send, CheckCircle, XCircle, Edit3, ArrowRightLeft, Search, ArrowUpDown } from 'lucide-react'
+import { Loader2, ChevronLeft, ChevronRight, Check, X, Copy, Eraser, Send, CheckCircle, XCircle, Edit3, ArrowRightLeft, Search, ArrowUpDown, Plus, Trash2 } from 'lucide-react'
 import {
   updateOtDayHours, updateOtMonthMeta, bulkFillOt, copyOtMonth, clearOtMonth,
   otApprovalAction, updateWorkerAllocationPct, transferWorker, updateWorkerField,
+  requestExtraOt, decideExtraOt, withdrawExtraOt,
 } from '../actions'
 
 type Worker = {
@@ -32,6 +33,12 @@ type Target = { project_id: number; production_target: number; delivery_target: 
 type Claim = { project_id: number; type: string; amount: number; date: string }
 type PayValue = { worker_id: number; pay_column_id: number; value: number }
 type PayColumn = { id: number; key: string }
+type ExtraReq = {
+  id: number; work_date: string; worker_id: number; supervisor_id: number | null; hours: number; reason: string
+  allocations: { project_id: number; percentage: number }[]; status: 'Pending' | 'Approved' | 'Rejected'
+  requested_by: string | null; requested_at: string; decision_note: string | null
+  requester: { full_name: string | null } | null; decider: { full_name: string | null } | null
+}
 
 function fmt(n: number, digits = 2) {
   return n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: digits })
@@ -54,6 +61,9 @@ function monthLabel(month: string) {
   return new Date(y, m - 1, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })
 }
 
+const EXTRA_STATUS_STYLE: Record<string, string> = {
+  Pending: 'bg-amber-100 text-amber-700', Approved: 'bg-green-100 text-green-700', Rejected: 'bg-red-100 text-red-700',
+}
 const STATUS_STYLE: Record<string, string> = {
   Draft: 'bg-gray-100 text-gray-600', 'Pending Approval': 'bg-amber-100 text-amber-700',
   Approved: 'bg-green-100 text-green-700', Rejected: 'bg-red-100 text-red-700',
@@ -62,12 +72,12 @@ const STATUS_STYLE: Record<string, string> = {
 
 export default function OTClient({
   canSeeWages, month, myRole, myUserId, mySupervisorName, workers, supervisors, projects, projectTypes,
-  otMonths, allocations, otApprovals, targets, claims, payValues, payColumns,
+  otMonths, allocations, otApprovals, targets, claims, payValues, payColumns, extraRequests,
 }: {
   month: string; myRole: string; myUserId: string | null; mySupervisorName: string | null
   workers: Worker[]; supervisors: Supervisor[]; projects: Project[]; projectTypes: ProjectType[]
   otMonths: OtMonthRow[]; allocations: Allocation[]; otApprovals: Approval[]
-  targets: Target[]; claims: Claim[]; payValues: PayValue[]; payColumns: PayColumn[]; canSeeWages: boolean
+  targets: Target[]; claims: Claim[]; payValues: PayValue[]; payColumns: PayColumn[]; canSeeWages: boolean; extraRequests: ExtraReq[]
 }) {
   const router = useRouter()
   const canApprove = myRole === 'admin' || myRole === 'manager'
@@ -88,6 +98,9 @@ export default function OTClient({
   const [bulkBusy, setBulkBusy] = useState<number | null>(null)
   const [flashId, setFlashId] = useState<number | null>(null)
   const [isPending, startTransition] = useTransition()
+  const [extraModal, setExtraModal] = useState(false)
+  const [extraForm, setExtraForm] = useState<{ workerId: string; date: string; hours: string; reason: string; allocs: Record<number, string> }>({ workerId: '', date: '', hours: '', reason: '', allocs: {} })
+  const [extraBusy, setExtraBusy] = useState(false)
   // Column widths (px) — drag the right edge of any header to resize. All
   // day columns share one width, as do all project-allocation columns.
   const [colW, setColW] = useState<Record<string, number>>({
@@ -141,8 +154,14 @@ export default function OTClient({
     const defaultBasic = isSunday(month, day) ? 0 : 8
     return { basic: rec?.basic ?? defaultBasic, ot: rec?.ot ?? 0, allocations: rec?.allocations || [] }
   }
+  // Only manager-approved additional OT counts toward totals.
+  const approvedExtraByWorker = useMemo(() => {
+    const m = new Map<number, number>()
+    for (const r of extraRequests) if (r.status === 'Approved') m.set(r.worker_id, (m.get(r.worker_id) || 0) + Number(r.hours))
+    return m
+  }, [extraRequests])
   function getWorkerTotalOT(workerId: number) {
-    return daysArray.reduce((s, d) => s + getDayHours(workerId, d).ot, 0)
+    return daysArray.reduce((s, d) => s + getDayHours(workerId, d).ot, 0) + (approvedExtraByWorker.get(workerId) || 0)
   }
   function getAllocation(workerId: number, projectId: number) {
     return allocByWorker.get(workerId)?.get(projectId) ?? ''
@@ -182,6 +201,7 @@ export default function OTClient({
 
   let totalBasic = 0, totalOT = 0
   myWorkers.forEach(w => daysArray.forEach(d => { const { basic, ot } = getDayHours(w.id, d); totalBasic += basic; totalOT += ot }))
+  myWorkers.forEach(w => { totalOT += approvedExtraByWorker.get(w.id) || 0 })
 
   const currentClaims = claims.filter(c => c.date?.startsWith(month))
   const targetByProject = new Map(targets.map(t => [t.project_id, t]))
@@ -206,6 +226,12 @@ export default function OTClient({
         projHours += dayTotal * frac
         projCost += (netPay / daysInMonth(month)) * frac
       })
+      // Approved additional OT: split by the request's own allocation, else the worker's monthly allocation.
+      extraRequests.filter(r => r.status === 'Approved' && r.worker_id === w.id).forEach(r => {
+        const own = r.allocations?.find(a => a.project_id === proj.id)
+        const pct = r.allocations?.length ? (own?.percentage || 0) : monthlyPct
+        projHours += Number(r.hours) * (pct / 100)
+      })
     })
     const t = targetByProject.get(proj.id)
     const claimSum = (type: string) => currentClaims.filter(c => c.project_id === proj.id && c.type === type).reduce((s, c) => s + Number(c.amount), 0)
@@ -220,6 +246,21 @@ export default function OTClient({
       rmGen: canSeeWages ? per(projCost + claimSum('General'), t?.general_target || 0) : '-',
     }
   })
+
+  const myWorkerIds = new Set(myWorkers.map(w => w.id))
+  const visibleExtras = extraRequests.filter(r => myWorkerIds.has(r.worker_id))
+  const extraAllocTotal = Math.round(Object.values(extraForm.allocs).reduce((s, v) => s + (Number(v) || 0), 0))
+  function openExtraModal() {
+    const today = new Date().toISOString().slice(0, 10)
+    setExtraForm({ workerId: '', date: today.startsWith(month) ? today : `${month}-01`, hours: '', reason: '', allocs: {} })
+    setExtraModal(true)
+  }
+  async function submitExtra() {
+    setExtraBusy(true)
+    const allocations = Object.entries(extraForm.allocs).map(([pid, v]) => ({ project_id: Number(pid), percentage: Number(v) || 0 })).filter(a => a.percentage > 0)
+    await guard(() => requestExtraOt({ workerId: Number(extraForm.workerId), date: extraForm.date, hours: Number(extraForm.hours), reason: extraForm.reason, allocations }), 'Submitting request…')
+    setExtraBusy(false); setExtraModal(false)
+  }
 
   const supervisorsWithWorkers = supervisors.filter(s => workers.some(w => w.supervisor_id === s.id))
   const approvalsBySupervisorRows = supervisorsWithWorkers.map(s => ({
@@ -420,6 +461,52 @@ export default function OTClient({
         </div>
 
         <div className="p-4 border-t">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <h4 className="text-sm font-bold">Additional OT Requests — {monthLabel(month)}</h4>
+            {canSubmit && (
+              <button onClick={openExtraModal} className="flex items-center gap-1 text-xs bg-indigo-600 text-white px-2.5 py-1.5 rounded-lg hover:bg-indigo-700"><Plus className="w-3.5 h-3.5" /> Request Additional OT</button>
+            )}
+          </div>
+          <p className="text-xs text-gray-400 mb-2">For OT worked after the monthly sheet is submitted/approved. Counts toward totals only once a manager approves it.</p>
+          {visibleExtras.length === 0 ? <p className="text-xs text-gray-400">No additional OT requests.</p> : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="text-left border-b text-xs text-gray-500 uppercase"><th className="pb-2">Date</th><th>Worker</th><th>Hours</th><th>Reason</th><th>Requested by</th><th>Status</th><th className="text-right">Actions</th></tr></thead>
+                <tbody>
+                  {visibleExtras.map(r => {
+                    const w = workers.find(x => x.id === r.worker_id)
+                    return (
+                      <tr key={r.id} className="border-b border-gray-100 align-top">
+                        <td className="py-1.5 whitespace-nowrap">{r.work_date}</td>
+                        <td>{w ? `${w.name}${w.worker_no ? ` (${w.worker_no})` : ''}` : r.worker_id}</td>
+                        <td>{fmt(Number(r.hours))}</td>
+                        <td className="text-xs text-gray-600 max-w-xs">{r.reason}{r.decision_note && <div className="text-gray-400">Note: {r.decision_note}</div>}</td>
+                        <td className="text-xs text-gray-500">{r.requester?.full_name || '-'}</td>
+                        <td>
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${EXTRA_STATUS_STYLE[r.status]}`}>{r.status}</span>
+                          {r.status !== 'Pending' && r.decider?.full_name && <div className="text-[10px] text-gray-400">by {r.decider.full_name}</div>}
+                        </td>
+                        <td className="text-right whitespace-nowrap">
+                          {r.status === 'Pending' && canApprove && (
+                            <>
+                              <button onClick={() => guard(() => decideExtraOt(r.id, 'approve'), 'Approving…')} className="text-xs bg-green-600 text-white px-2 py-1 rounded mr-1">Approve</button>
+                              <button onClick={() => { const note = prompt('Reason for rejection (optional)') ; if (note !== null) guard(() => decideExtraOt(r.id, 'reject', note), 'Rejecting…') }} className="text-xs bg-red-600 text-white px-2 py-1 rounded">Reject</button>
+                            </>
+                          )}
+                          {r.status === 'Pending' && (canApprove || r.requested_by === myUserId) && (
+                            <button title="Withdraw request" onClick={() => confirm('Withdraw this request?') && guard(() => withdrawExtraOt(r.id), 'Withdrawing…')} className="text-xs text-gray-500 hover:text-red-600 px-1.5 py-1 ml-1"><Trash2 className="w-3.5 h-3.5 inline" /></button>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="p-4 border-t">
           <h4 className="text-sm font-bold mb-3">Efficiency by Project</h4>
           <div className="overflow-x-auto">
             <table className="text-sm w-full">
@@ -438,6 +525,46 @@ export default function OTClient({
           {!canSeeWages && <p className="text-xs text-gray-400 mt-2">RM figures show &apos;-&apos; if your role can&apos;t see wage data.</p>}
         </div>
       </div>
+
+      {extraModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setExtraModal(false)}>
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <h2 className="text-lg font-bold mb-1">Request Additional OT</h2>
+            <p className="text-xs text-gray-400 mb-4">Goes to a manager for approval. Not counted until approved.</p>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Worker</label>
+            <select value={extraForm.workerId} onChange={e => setExtraForm(f => ({ ...f, workerId: e.target.value }))} className="w-full border rounded-md px-3 py-2 text-sm mb-3 bg-white">
+              <option value="">-- Select --</option>
+              {myWorkers.map(w => <option key={w.id} value={w.id}>{w.name}{w.worker_no ? ` (${w.worker_no})` : ''}</option>)}
+            </select>
+            <div className="flex gap-3 mb-3">
+              <div className="flex-1">
+                <label className="block text-xs font-medium text-gray-500 mb-1">Date</label>
+                <input type="date" min={`${month}-01`} max={`${month}-${String(daysInMonth(month)).padStart(2, '0')}`} value={extraForm.date} onChange={e => setExtraForm(f => ({ ...f, date: e.target.value }))} className="w-full border rounded-md px-3 py-2 text-sm" />
+              </div>
+              <div className="w-24">
+                <label className="block text-xs font-medium text-gray-500 mb-1">OT Hours</label>
+                <input type="number" min={0} max={24} step={0.5} value={extraForm.hours} onChange={e => setExtraForm(f => ({ ...f, hours: e.target.value }))} className="w-full border rounded-md px-3 py-2 text-sm" />
+              </div>
+            </div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Reason</label>
+            <textarea value={extraForm.reason} onChange={e => setExtraForm(f => ({ ...f, reason: e.target.value }))} rows={2} className="w-full border rounded-md px-3 py-2 text-sm mb-3" placeholder="Why was extra OT needed?" />
+            <label className="block text-xs font-medium text-gray-500 mb-1">Project allocation % <span className="font-normal text-gray-400">(optional — blank uses the worker&apos;s monthly allocation)</span></label>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1 mb-1">
+              {sortedActiveProjects.map(p => (
+                <div key={p.id} className="flex items-center gap-1.5 text-xs">
+                  <span className="flex-1 truncate" title={p.name}>{p.name}</span>
+                  <input type="number" min={0} max={100} value={extraForm.allocs[p.id] || ''} onChange={e => setExtraForm(f => ({ ...f, allocs: { ...f.allocs, [p.id]: e.target.value } }))} className="w-14 border rounded px-1 py-0.5 text-xs" placeholder="0" />
+                </div>
+              ))}
+            </div>
+            {extraAllocTotal > 0 && <p className={`text-xs mb-2 ${extraAllocTotal === 100 ? 'text-green-600' : 'text-red-600'}`}>Total: {extraAllocTotal}%</p>}
+            <div className="flex justify-end gap-2 mt-4">
+              <button onClick={() => setExtraModal(false)} className="bg-gray-100 text-gray-700 rounded-lg px-4 py-2 text-sm">Cancel</button>
+              <button disabled={extraBusy || !extraForm.workerId || !extraForm.date || !Number(extraForm.hours) || !extraForm.reason.trim() || (extraAllocTotal > 0 && extraAllocTotal !== 100)} onClick={submitExtra} className="bg-indigo-600 disabled:opacity-50 text-white rounded-lg px-4 py-2 text-sm">Submit Request</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showCopyModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowCopyModal(false)}>

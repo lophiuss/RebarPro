@@ -345,6 +345,53 @@ export async function otApprovalAction(month: string, supervisorId: number, acti
   revalidatePath('/plantpro/ot')
 }
 
+// ---------------------------------------------------------------------------
+// Additional OT requests — raised after a month's sheet is locked; each needs
+// manager/admin approval before it counts toward the month's OT totals.
+// ---------------------------------------------------------------------------
+export async function requestExtraOt(input: {
+  workerId: number; date: string; hours: number; reason: string
+  allocations: { project_id: number; percentage: number }[]
+}) {
+  const { supabase, user } = await requirePlantproAccess()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date)) throw new Error('Invalid date')
+  const hours = Number(input.hours)
+  if (!hours || hours <= 0 || hours > 24) throw new Error('Hours must be between 0 and 24')
+  const reason = input.reason.trim()
+  if (!reason) throw new Error('A reason is required')
+  const allocations = (input.allocations || []).filter(a => a.percentage > 0)
+  if (allocations.length && Math.round(allocations.reduce((s, a) => s + a.percentage, 0)) !== 100) {
+    throw new Error('Project allocation must total 100%')
+  }
+  const { data: worker } = await supabase.from('plantpro_workers').select('supervisor_id').eq('id', input.workerId).maybeSingle()
+  const { error } = await supabase.from('plantpro_ot_extra_requests').insert({
+    month: input.date.slice(0, 7), work_date: input.date, worker_id: input.workerId,
+    supervisor_id: worker?.supervisor_id ?? null, hours, reason, allocations,
+    status: 'Pending', requested_by: user.id,
+  })
+  if (error) throw error
+  revalidatePath('/plantpro/ot')
+}
+
+export async function decideExtraOt(id: number, decision: 'approve' | 'reject', note?: string) {
+  const { supabase, user } = await requirePlantproAccess()
+  const { data: isApprover } = await supabase.rpc('plantpro_is_ot_approver')
+  if (!isApprover) throw new Error('Only a manager or admin can approve additional OT.')
+  const { error } = await supabase.from('plantpro_ot_extra_requests').update({
+    status: decision === 'approve' ? 'Approved' : 'Rejected',
+    decided_by: user.id, decided_at: new Date().toISOString(), decision_note: note?.trim() || null,
+  }).eq('id', id)
+  if (error) throw error
+  revalidatePath('/plantpro/ot')
+}
+
+export async function withdrawExtraOt(id: number) {
+  const { supabase } = await requirePlantproAccess()
+  const { error } = await supabase.from('plantpro_ot_extra_requests').delete().eq('id', id)
+  if (error) throw error
+  revalidatePath('/plantpro/ot')
+}
+
 export async function updateWorkerAllocationPct(workerId: number, projectId: number, percentage: number) {
   const { supabase } = await requirePlantproAccess()
   if (!percentage || percentage <= 0) {

@@ -30,6 +30,7 @@ export default async function PlantproOtPage({ searchParams }: { searchParams: P
     { data: workers }, { data: supervisors }, { data: projects }, { data: projectTypes },
     { data: otMonths }, { data: allocations }, { data: otApprovals },
     { data: targets }, { data: claims }, { data: payValues }, { data: payColumns },
+    { data: extraRequests },
   ] = await Promise.all([
     supabase.from('plantpro_workers').select('id, name, worker_no, designation, line, status, supervisor_id, supervisors:plantpro_supervisors(name)').eq('status', 'Active').order('name'),
     supabase.from('plantpro_supervisors').select('id, name, status').eq('status', 'Active').order('name'),
@@ -43,6 +44,7 @@ export default async function PlantproOtPage({ searchParams }: { searchParams: P
     // RLS-gated: comes back empty for a supervisor-tier viewer, by design.
     supabase.from('plantpro_worker_pay_values').select('worker_id, pay_column_id, value'),
     supabase.from('plantpro_pay_columns').select('id, key'),
+    supabase.from('plantpro_ot_extra_requests').select('id, work_date, worker_id, supervisor_id, hours, reason, allocations, status, requested_by, requested_at, decision_note, requester:profiles!plantpro_ot_extra_requests_requested_by_fkey(full_name), decider:profiles!plantpro_ot_extra_requests_decided_by_fkey(full_name)').eq('month', month).order('work_date'),
   ])
 
   return (
@@ -65,6 +67,7 @@ export default async function PlantproOtPage({ searchParams }: { searchParams: P
         claims={claims || []}
         payValues={payValues || []}
         payColumns={payColumns || []}
+        extraRequests={(extraRequests as any) || []}
       />
     </div>
   )
