@@ -21,6 +21,8 @@ export const TEMPLATE_COLUMNS = [
   'Supplier',
   'Marking',
   'Type of Test',
+  'Quantity',
+  'Unit',
   'Date Cast',
   'Date Tested',
   'Report Number',
@@ -96,6 +98,8 @@ const FIELD_OPTIONS = [
   { key: 'supplier', label: 'Supplier / Lab *' },
   { key: 'marking', label: 'Marking / Element' },
   { key: 'test_type', label: 'Type of Test *' },
+  { key: 'qty', label: 'Quantity' },
+  { key: 'unit', label: 'Unit (nos, cubes, sets)' },
   { key: 'date_cast', label: 'Date Cast (YYYY-MM-DD)' },
   { key: 'date_test', label: 'Date Tested *' },
   { key: 'report_no', label: 'Report Number' },
@@ -225,6 +229,8 @@ export default function PasteExcelModal({ isOpen, onClose, onSuccess, knownProje
       if (lower.includes('supp') || lower.includes('lab') || lower.includes('vendor')) return 'supplier'
       if (lower.includes('mark') || lower.includes('heat') || lower.includes('elem') || lower.includes('sample')) return 'marking'
       if (lower.includes('type') || lower.includes('testtype')) return 'test_type'
+      if (lower.includes('qty') || lower.includes('quantity') || lower.includes('count')) return 'qty'
+      if (lower.includes('unit') || lower.includes('uom')) return 'unit'
       if (lower.includes('cast')) return 'date_cast'
       if (lower.includes('tested') || lower.includes('datetest') || lower.includes('testdate')) return 'date_test'
       if (lower.includes('report') || lower.includes('cert')) return 'report_no'
@@ -324,6 +330,8 @@ export default function PasteExcelModal({ isOpen, onClose, onSuccess, knownProje
       supplier: finalSupplier,
       marking: item.marking?.trim() || null,
       test_type: finalTestType,
+      qty: item.qty ? Number(String(item.qty).replace(/[^0-9.]/g, '')) : 1,
+      unit: item.unit?.trim() || 'nos',
       date_cast: normalizeDate(item.date_cast),
       date_test: finalDateTest,
       report_no: item.report_no?.trim() || null,

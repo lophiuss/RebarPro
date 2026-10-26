@@ -8,6 +8,8 @@ export type QaqcTestInput = {
   supplier: string
   marking?: string | null
   test_type: string
+  qty?: number | null
+  unit?: string | null
   date_cast?: string | null
   date_test: string
   report_no?: string | null
@@ -84,6 +86,8 @@ export async function createQaqcTest(input: QaqcTestInput) {
       supplier: input.supplier.trim(),
       marking: input.marking?.trim() || null,
       test_type: input.test_type.trim(),
+      qty: input.qty ?? 1,
+      unit: input.unit?.trim() || 'nos',
       date_cast: input.date_cast || null,
       date_test: input.date_test,
       report_no: input.report_no?.trim() || null,
@@ -155,6 +159,8 @@ export async function bulkCreateQaqcTests(items: QaqcTestInput[]) {
       supplier: item.supplier.trim(),
       marking: item.marking?.trim() || null,
       test_type: item.test_type.trim(),
+      qty: item.qty ?? 1,
+      unit: item.unit?.trim() || 'nos',
       date_cast: item.date_cast || null,
       date_test: item.date_test || new Date().toISOString().slice(0, 10),
       report_no: item.report_no?.trim() || null,
@@ -204,7 +210,7 @@ export async function updateQaqcTest(id: number, patch: Partial<QaqcTestInput>) 
   }
 
   const fields: (keyof QaqcTestInput)[] = [
-    'project', 'supplier', 'marking', 'test_type', 'date_cast', 'date_test',
+    'project', 'supplier', 'marking', 'test_type', 'qty', 'unit', 'date_cast', 'date_test',
     'report_no', 'email_date', 'qaqc_remarks', 'po_no', 'po_date', 'po_amount',
     'purchaser_remarks', 'invoice_no', 'invoice_date', 'invoice_amount',
     'cn_no', 'cn_date', 'cn_amount', 'cn_remarks',
@@ -321,4 +327,134 @@ export async function upsertQaqcTarget(project: string, month: string, test_coun
   if (error) throw error
   revalidatePath('/qaqc/targets')
   revalidatePath('/qaqc/dashboard')
+}
+
+export async function batchAssignQaqcPo(
+  ids: number[],
+  poData: {
+    po_no: string
+    po_date?: string | null
+    total_amount?: number | null
+    split_mode: 'split_equally' | 'same_each'
+    purchaser_remarks?: string | null
+  }
+) {
+  const { supabase } = await requireQaqcAccess()
+  if (!ids.length) return { ok: true, count: 0 }
+
+  const poNo = poData.po_no.trim()
+  const poDate = poData.po_date || null
+  const remarks = poData.purchaser_remarks?.trim() || null
+  const total = poData.total_amount !== null && poData.total_amount !== undefined ? Number(poData.total_amount) : null
+
+  const N = ids.length
+  let allocatedAmounts: (number | null)[] = []
+
+  if (total === null || isNaN(total)) {
+    allocatedAmounts = ids.map(() => null)
+  } else if (poData.split_mode === 'same_each') {
+    allocatedAmounts = ids.map(() => total)
+  } else {
+    // split_equally across N tests
+    const base = Math.floor((total / N) * 100) / 100
+    const rem = Math.round((total - base * N) * 100) / 100
+    allocatedAmounts = ids.map((_, idx) => (idx === N - 1 ? Math.round((base + rem) * 100) / 100 : base))
+  }
+
+  await Promise.all(
+    ids.map((id, idx) =>
+      supabase
+        .from('qaqc_tests')
+        .update({
+          po_no: poNo,
+          po_date: poDate,
+          po_amount: allocatedAmounts[idx],
+          purchaser_remarks: remarks,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id)
+    )
+  )
+
+  revalidatePath('/qaqc/records')
+  revalidatePath('/qaqc/dashboard')
+  return { ok: true, count: ids.length }
+}
+
+export async function batchAssignQaqcInvoice(
+  ids: number[],
+  invData: {
+    invoice_no: string
+    invoice_date?: string | null
+    total_amount?: number | null
+    split_mode: 'split_equally' | 'same_each'
+    cn_no?: string | null
+    cn_date?: string | null
+    cn_amount?: number | null
+    payment_status?: 'Pending' | 'Paid' | 'Partially Paid' | 'Void'
+    payment_date?: string | null
+    account_remarks?: string | null
+  }
+) {
+  const { supabase } = await requireQaqcAccess()
+  if (!ids.length) return { ok: true, count: 0 }
+
+  const invNo = invData.invoice_no.trim()
+  const invDate = invData.invoice_date || null
+  const status = invData.payment_status || 'Pending'
+  const payDate = invData.payment_date || null
+  const remarks = invData.account_remarks?.trim() || null
+  const cnNo = invData.cn_no?.trim() || null
+  const cnDate = invData.cn_date || null
+
+  const N = ids.length
+  const totalInv = invData.total_amount !== null && invData.total_amount !== undefined ? Number(invData.total_amount) : null
+  const totalCn = invData.cn_amount !== null && invData.cn_amount !== undefined ? Number(invData.cn_amount) : null
+
+  let allocatedInv: (number | null)[] = []
+  let allocatedCn: (number | null)[] = []
+
+  if (totalInv === null || isNaN(totalInv)) {
+    allocatedInv = ids.map(() => null)
+  } else if (invData.split_mode === 'same_each') {
+    allocatedInv = ids.map(() => totalInv)
+  } else {
+    const base = Math.floor((totalInv / N) * 100) / 100
+    const rem = Math.round((totalInv - base * N) * 100) / 100
+    allocatedInv = ids.map((_, idx) => (idx === N - 1 ? Math.round((base + rem) * 100) / 100 : base))
+  }
+
+  if (totalCn === null || isNaN(totalCn)) {
+    allocatedCn = ids.map(() => null)
+  } else if (invData.split_mode === 'same_each') {
+    allocatedCn = ids.map(() => totalCn)
+  } else {
+    const base = Math.floor((totalCn / N) * 100) / 100
+    const rem = Math.round((totalCn - base * N) * 100) / 100
+    allocatedCn = ids.map((_, idx) => (idx === N - 1 ? Math.round((base + rem) * 100) / 100 : base))
+  }
+
+  await Promise.all(
+    ids.map((id, idx) =>
+      supabase
+        .from('qaqc_tests')
+        .update({
+          invoice_no: invNo,
+          invoice_date: invDate,
+          invoice_amount: allocatedInv[idx],
+          cn_no: cnNo,
+          cn_date: cnDate,
+          cn_amount: allocatedCn[idx],
+          payment_status: status,
+          payment_date: payDate,
+          account_remarks: remarks,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', id)
+    )
+  )
+
+  revalidatePath('/qaqc/records')
+  revalidatePath('/qaqc/dashboard')
+  return { ok: true, count: ids.length }
 }

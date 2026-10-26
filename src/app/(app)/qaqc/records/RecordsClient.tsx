@@ -4,10 +4,11 @@ import React, { useState, useMemo } from 'react'
 import {
   Search, Plus, FileSpreadsheet, Download, Trash2, Edit3,
   Calendar, CheckCircle2, Clock, ArrowUpDown, Check, X,
-  FileCheck2, DollarSign, Receipt, AlertCircle, HelpCircle
+  Receipt, FileCheck, Layers, Sparkles
 } from 'lucide-react'
 import PasteExcelModal, { downloadQaqcTemplate } from './PasteExcelModal'
 import TestFormModal from './TestFormModal'
+import { BatchPoModal, BatchInvoiceModal } from './BatchModals'
 import { deleteQaqcTest, updateQaqcTest } from '../actions'
 
 export type QaqcTestRecord = {
@@ -17,6 +18,8 @@ export type QaqcTestRecord = {
   supplier: string
   marking: string | null
   test_type: string
+  qty?: number | null
+  unit?: string | null
   date_cast: string | null
   date_test: string
   report_no: string | null
@@ -69,9 +72,14 @@ export default function RecordsClient({
   const [sortKey, setSortKey] = useState<keyof QaqcTestRecord>('date_test')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
+  // Multi-selection for batch operations
+  const [selectedIds, setSelectedIds] = useState<number[]>([])
+
   // Modals
   const [isExcelModalOpen, setIsExcelModalOpen] = useState(false)
   const [isFormModalOpen, setIsFormModalOpen] = useState(false)
+  const [isBatchPoOpen, setIsBatchPoOpen] = useState(false)
+  const [isBatchInvoiceOpen, setIsBatchInvoiceOpen] = useState(false)
   const [editingRecord, setEditingRecord] = useState<QaqcTestRecord | null>(null)
 
   // Saved cell animation tracker: key is `${rowId}-${field}`
@@ -82,7 +90,7 @@ export default function RecordsClient({
   const canEditPurchaser = isSuper || userRole === 'purchaser'
   const canEditAccount = isSuper || userRole === 'account'
 
-  // Derive distinct options
+  // Distinct master lists
   const allProjects = useMemo(() => {
     return Array.from(new Set([...knownProjects, ...tests.map(t => t.project)])).filter(Boolean).sort()
   }, [knownProjects, tests])
@@ -100,18 +108,54 @@ export default function RecordsClient({
     return Array.from(new Set(years)).sort().reverse()
   }, [tests])
 
+  // Distinct PO and Invoice numbers for auto-completion
+  const existingPoList = useMemo(() => {
+    return Array.from(new Set(tests.map(t => t.po_no?.trim()).filter(Boolean))) as string[]
+  }, [tests])
+
+  const existingInvList = useMemo(() => {
+    return Array.from(new Set(tests.map(t => t.invoice_no?.trim()).filter(Boolean))) as string[]
+  }, [tests])
+
+  // Multi-test coverage counters: how many tests share each PO / Invoice
+  const poCoverageMap = useMemo(() => {
+    const map = new Map<string, { count: number; total: number }>()
+    for (const t of tests) {
+      if (t.po_no) {
+        const cur = map.get(t.po_no) || { count: 0, total: 0 }
+        cur.count += 1
+        cur.total += Number(t.po_amount) || 0
+        map.set(t.po_no, cur)
+      }
+    }
+    return map
+  }, [tests])
+
+  const invCoverageMap = useMemo(() => {
+    const map = new Map<string, { count: number; total: number }>()
+    for (const t of tests) {
+      if (t.invoice_no) {
+        const cur = map.get(t.invoice_no) || { count: 0, total: 0 }
+        cur.count += 1
+        cur.total += Number(t.invoice_amount) || 0
+        map.set(t.invoice_no, cur)
+      }
+    }
+    return map
+  }, [tests])
+
   // Direct Inline Save
   const handleInlineSave = async (id: number, field: keyof QaqcTestRecord, rawVal: any) => {
     const target = tests.find(t => t.id === id)
     if (!target) return
 
     let finalVal = rawVal
-    if (field === 'po_amount' || field === 'invoice_amount' || field === 'cn_amount') {
+    if (field === 'po_amount' || field === 'invoice_amount' || field === 'cn_amount' || field === 'qty') {
       if (rawVal === '' || rawVal === null || rawVal === undefined) {
-        finalVal = null
+        finalVal = field === 'qty' ? 1 : null
       } else {
         const num = Number(String(rawVal).replace(/[^0-9.]/g, ''))
-        finalVal = isNaN(num) ? null : num
+        finalVal = isNaN(num) ? (field === 'qty' ? 1 : null) : num
       }
     } else if (typeof rawVal === 'string') {
       finalVal = rawVal.trim() || null
@@ -157,7 +201,7 @@ export default function RecordsClient({
         const hay = [
           item.running_no, item.project, item.supplier, item.marking,
           item.test_type, item.report_no, item.po_no, item.invoice_no,
-          item.cn_no, item.cn_remarks,
+          item.cn_no, item.cn_remarks, item.unit,
         ].filter(Boolean).join(' ').toLowerCase()
         if (!hay.includes(s)) return false
       }
@@ -186,6 +230,23 @@ export default function RecordsClient({
     }
   }
 
+  // Multi-selection helpers
+  const isAllSelected = sorted.length > 0 && sorted.every(t => selectedIds.includes(t.id))
+  const toggleSelectAll = () => {
+    if (isAllSelected) {
+      setSelectedIds([])
+    } else {
+      setSelectedIds(sorted.map(t => t.id))
+    }
+  }
+  const toggleSelectRow = (id: number) => {
+    setSelectedIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]))
+  }
+
+  const selectedTests = useMemo(() => {
+    return tests.filter(t => selectedIds.includes(t.id))
+  }, [tests, selectedIds])
+
   // Summary Metrics for currently filtered records
   const summary = useMemo(() => {
     const totalCount = sorted.length
@@ -207,6 +268,7 @@ export default function RecordsClient({
     try {
       await deleteQaqcTest(id)
       setTests(prev => prev.filter(t => t.id !== id))
+      setSelectedIds(prev => prev.filter(x => x !== id))
     } catch (err: any) {
       alert('Delete failed: ' + err.message)
     }
@@ -216,7 +278,7 @@ export default function RecordsClient({
   const handleExportCsv = () => {
     const headers = [
       'Running No', 'Project', 'Supplier', 'Marking', 'Test Type',
-      'Date Cast', 'Date Tested', 'Report No', 'Email Date', 'QAQC Remarks',
+      'Quantity', 'Unit', 'Date Cast', 'Date Tested', 'Report No', 'Email Date', 'QAQC Remarks',
       'PO No', 'PO Date', 'PO Amount (RM)', 'Purchaser Remarks',
       'Invoice No', 'Invoice Date', 'Invoice Amount (RM)',
       'CN No', 'CN Date', 'CN Amount (RM)', 'Net Billed (RM)', 'CN Remarks',
@@ -229,6 +291,7 @@ export default function RecordsClient({
       const net = inv > 0 ? Math.max(0, inv - cn) : ''
       return [
         r.running_no, r.project, r.supplier, r.marking || '', r.test_type,
+        r.qty ?? 1, r.unit || 'nos',
         r.date_cast || '', r.date_test, r.report_no || '', r.email_date || '', r.qaqc_remarks || '',
         r.po_no || '', r.po_date || '', r.po_amount ?? '', r.purchaser_remarks || '',
         r.invoice_no || '', r.invoice_date || '', r.invoice_amount ?? '',
@@ -412,7 +475,7 @@ export default function RecordsClient({
           </select>
 
           <span className="text-slate-400 text-[11px] ml-auto hidden sm:inline">
-            💡 Direct field edit enabled (press Enter or click away to save). Double-click row for full details.
+            💡 Select rows to batch-tag PO or Invoice. Click directly into cells to edit.
           </span>
 
           {(filterProject || filterSupplier || filterTestType || filterYear || searchTerm) && (
@@ -432,13 +495,22 @@ export default function RecordsClient({
         </div>
       </div>
 
-      {/* Main Ledger Table with FROZEN HEADER */}
+      {/* Main Ledger Table with FROZEN HEADER & SELECTION */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden relative">
         <div className="overflow-auto max-h-[calc(100vh-14rem)] relative scrollbar-thin">
-          <table className="w-full text-xs text-left border-collapse min-w-[1500px]">
+          <table className="w-full text-xs text-left border-collapse min-w-[1600px]">
             {/* Frozen sticky thead */}
             <thead className="sticky top-0 z-30 bg-slate-100 shadow-xs border-b border-slate-300">
               <tr className="text-[11px] uppercase font-bold text-slate-700">
+                <th className="sticky top-0 bg-slate-100 z-30 py-3 px-3 w-10 text-center">
+                  <input
+                    type="checkbox"
+                    checked={isAllSelected}
+                    onChange={toggleSelectAll}
+                    title="Select / deselect all rows"
+                    className="rounded text-indigo-600 cursor-pointer"
+                  />
+                </th>
                 <th className="sticky top-0 bg-slate-100 z-30 py-3 px-3 cursor-pointer hover:bg-slate-200 transition" onClick={() => handleSort('running_no')}>
                   Running No <ArrowUpDown className="w-3 h-3 inline ml-0.5 opacity-50" />
                 </th>
@@ -448,7 +520,7 @@ export default function RecordsClient({
                 <th className="sticky top-0 bg-slate-100 z-30 py-3 px-3">Supplier / Lab</th>
                 <th className="sticky top-0 bg-slate-100 z-30 py-3 px-3">Marking</th>
                 <th className="sticky top-0 bg-slate-100 z-30 py-3 px-3 cursor-pointer hover:bg-slate-200 transition" onClick={() => handleSort('test_type')}>
-                  Test Type <ArrowUpDown className="w-3 h-3 inline ml-0.5 opacity-50" />
+                  Test Type & Qty <ArrowUpDown className="w-3 h-3 inline ml-0.5 opacity-50" />
                 </th>
                 <th className="sticky top-0 bg-slate-100 z-30 py-3 px-3 cursor-pointer hover:bg-slate-200 transition" onClick={() => handleSort('date_test')}>
                   Tested Date <ArrowUpDown className="w-3 h-3 inline ml-0.5 opacity-50" />
@@ -467,12 +539,13 @@ export default function RecordsClient({
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {sorted.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-slate-400">
+                  <td colSpan={12} className="py-12 text-center text-slate-400">
                     No test records match your filter. Click <strong>&quot;+ New Test&quot;</strong> or <strong>&quot;Paste from Excel&quot;</strong> to add.
                   </td>
                 </tr>
               ) : (
                 sorted.map(row => {
+                  const isChecked = selectedIds.includes(row.id)
                   const hasEmail = Boolean(row.email_date)
                   const hasPo = Boolean(row.po_no)
                   const hasInvoice = Boolean(row.invoice_no)
@@ -481,12 +554,26 @@ export default function RecordsClient({
                   const hasCn = Boolean(row.cn_no || cnAmt > 0)
                   const netInv = rawInv > 0 ? Math.max(0, rawInv - cnAmt) : null
 
+                  // Multi-test coverage indicator
+                  const poCoverage = row.po_no ? poCoverageMap.get(row.po_no) : null
+                  const invCoverage = row.invoice_no ? invCoverageMap.get(row.invoice_no) : null
+
                   return (
                     <tr
                       key={row.id}
-                      className="hover:bg-slate-50/90 transition-colors group"
+                      className={`hover:bg-slate-50/90 transition-colors group ${isChecked ? 'bg-indigo-50/40' : ''}`}
                       onDoubleClick={() => { setEditingRecord(row); setIsFormModalOpen(true) }}
                     >
+                      {/* Checkbox */}
+                      <td className="py-2.5 px-3 text-center w-10">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleSelectRow(row.id)}
+                          className="rounded text-indigo-600 cursor-pointer"
+                        />
+                      </td>
+
                       {/* Running Number */}
                       <td className="py-2.5 px-3 font-mono font-bold text-slate-900 whitespace-nowrap">
                         <span className="bg-slate-100 px-2 py-0.5 rounded text-slate-800">{row.running_no}</span>
@@ -523,14 +610,41 @@ export default function RecordsClient({
                         )}
                       </td>
 
-                      {/* Test Type */}
-                      <td className="py-2.5 px-3">
+                      {/* Test Type & Qty/Unit (Inline editable by QAQC) */}
+                      <td className="py-2.5 px-3 min-w-[180px]">
                         <span className="font-medium text-slate-800 block truncate max-w-[180px]" title={row.test_type}>
                           {row.test_type}
                         </span>
-                        {row.date_cast && (
-                          <span className="text-[10px] text-slate-400">Cast: {row.date_cast}</span>
-                        )}
+                        <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-0.5">
+                          {canEditQaqc ? (
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="number"
+                                min="0"
+                                step="any"
+                                defaultValue={row.qty ?? 1}
+                                onBlur={e => handleInlineSave(row.id, 'qty', e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
+                                className="w-12 text-center bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-1 py-0.2 font-semibold text-slate-700 text-[11px]"
+                                title="Quantity"
+                              />
+                              <input
+                                type="text"
+                                defaultValue={row.unit || 'nos'}
+                                onBlur={e => handleInlineSave(row.id, 'unit', e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
+                                className="w-14 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-1 py-0.2 text-slate-500 text-[11px]"
+                                title="Unit (e.g. cubes, nos, sets)"
+                              />
+                              {savedCell === `${row.id}-qty` && <Check className="w-2.5 h-2.5 text-emerald-600" />}
+                            </div>
+                          ) : (
+                            <span>{row.qty ?? 1} {row.unit || 'nos'}</span>
+                          )}
+                          {row.date_cast && (
+                            <span className="text-[10px] text-slate-400">· Cast: {row.date_cast}</span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Date Tested */}
@@ -580,8 +694,8 @@ export default function RecordsClient({
                         )}
                       </td>
 
-                      {/* PO Details (Purchaser - Direct editable) */}
-                      <td className="py-2.5 px-3 bg-amber-50/20 border-l border-amber-100 whitespace-nowrap min-w-[150px]">
+                      {/* PO Details (Purchaser - Direct editable & Multi-test Indicator) */}
+                      <td className="py-2.5 px-3 bg-amber-50/20 border-l border-amber-100 whitespace-nowrap min-w-[160px]">
                         {canEditPurchaser ? (
                           <div className="space-y-0.5">
                             <div className="relative flex items-center">
@@ -591,25 +705,36 @@ export default function RecordsClient({
                                 onBlur={e => handleInlineSave(row.id, 'po_no', e.target.value)}
                                 onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
                                 placeholder="PO Number..."
+                                list="records-po-datalist"
                                 className="w-full font-mono font-bold text-amber-900 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-amber-300 focus:border-amber-500 rounded px-1.5 py-0.5 text-xs transition"
                               />
                               {savedCell === `${row.id}-po_no` && (
                                 <Check className="w-3 h-3 text-emerald-600 absolute right-1" />
                               )}
                             </div>
-                            <div className="relative flex items-center">
-                              <span className="text-[11px] text-slate-400 mr-0.5">RM</span>
-                              <input
-                                type="number"
-                                step="0.01"
-                                defaultValue={row.po_amount !== null && row.po_amount !== undefined ? row.po_amount : ''}
-                                onBlur={e => handleInlineSave(row.id, 'po_amount', e.target.value)}
-                                onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
-                                placeholder="0.00"
-                                className="w-24 text-[11px] font-semibold text-slate-700 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-amber-300 focus:border-amber-500 rounded px-1 py-0.5 transition"
-                              />
-                              {savedCell === `${row.id}-po_amount` && (
-                                <Check className="w-2.5 h-2.5 text-emerald-600 ml-1" />
+                            <div className="flex items-center justify-between gap-1">
+                              <div className="relative flex items-center">
+                                <span className="text-[11px] text-slate-400 mr-0.5">RM</span>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  defaultValue={row.po_amount !== null && row.po_amount !== undefined ? row.po_amount : ''}
+                                  onBlur={e => handleInlineSave(row.id, 'po_amount', e.target.value)}
+                                  onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
+                                  placeholder="0.00"
+                                  className="w-20 text-[11px] font-semibold text-slate-700 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-amber-300 focus:border-amber-500 rounded px-1 py-0.5 transition"
+                                />
+                                {savedCell === `${row.id}-po_amount` && (
+                                  <Check className="w-2.5 h-2.5 text-emerald-600 ml-1" />
+                                )}
+                              </div>
+                              {poCoverage && poCoverage.count > 1 && (
+                                <span
+                                  className="text-[10px] font-bold text-amber-800 bg-amber-100/90 px-1.5 py-0.5 rounded shadow-2xs"
+                                  title={`PO covers ${poCoverage.count} tests. Combined PO total: RM ${poCoverage.total.toFixed(2)}`}
+                                >
+                                  covers {poCoverage.count}
+                                </span>
                               )}
                             </div>
                           </div>
@@ -617,7 +742,14 @@ export default function RecordsClient({
                           <div>
                             {hasPo ? (
                               <>
-                                <span className="font-mono font-bold text-amber-900">{row.po_no}</span>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-mono font-bold text-amber-900">{row.po_no}</span>
+                                  {poCoverage && poCoverage.count > 1 && (
+                                    <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-1 rounded">
+                                      {poCoverage.count} tests
+                                    </span>
+                                  )}
+                                </div>
                                 <div className="text-[11px] font-semibold text-slate-700">{fmtRm(row.po_amount)}</div>
                               </>
                             ) : (
@@ -629,8 +761,8 @@ export default function RecordsClient({
                         )}
                       </td>
 
-                      {/* Invoice & Credit Note Details (Account - Direct editable) */}
-                      <td className="py-2.5 px-3 bg-emerald-50/20 border-l border-emerald-100 whitespace-nowrap min-w-[210px]">
+                      {/* Invoice & Credit Note Details (Account - Direct editable & Multi-test Indicator) */}
+                      <td className="py-2.5 px-3 bg-emerald-50/20 border-l border-emerald-100 whitespace-nowrap min-w-[220px]">
                         {canEditAccount ? (
                           <div className="space-y-1">
                             {/* Invoice No & Amount */}
@@ -642,6 +774,7 @@ export default function RecordsClient({
                                   onBlur={e => handleInlineSave(row.id, 'invoice_no', e.target.value)}
                                   onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
                                   placeholder="Inv No..."
+                                  list="records-inv-datalist"
                                   className="w-full font-mono font-bold text-emerald-950 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-emerald-300 focus:border-emerald-500 rounded px-1.5 py-0.5 text-xs transition"
                                 />
                                 {savedCell === `${row.id}-invoice_no` && (
@@ -663,6 +796,14 @@ export default function RecordsClient({
                                   <Check className="w-2.5 h-2.5 text-emerald-600 ml-1" />
                                 )}
                               </div>
+                              {invCoverage && invCoverage.count > 1 && (
+                                <span
+                                  className="text-[10px] font-bold text-emerald-800 bg-emerald-100/90 px-1.5 py-0.5 rounded shadow-2xs"
+                                  title={`Invoice covers ${invCoverage.count} tests. Combined invoice total: RM ${invCoverage.total.toFixed(2)}`}
+                                >
+                                  covers {invCoverage.count}
+                                </span>
+                              )}
                             </div>
 
                             {/* Credit Note (CN) Adjustment */}
@@ -701,6 +842,11 @@ export default function RecordsClient({
                               <div className="space-y-0.5">
                                 <div className="flex items-center gap-1.5">
                                   <span className="font-mono font-bold text-emerald-900">{row.invoice_no}</span>
+                                  {invCoverage && invCoverage.count > 1 && (
+                                    <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-1 rounded">
+                                      {invCoverage.count} tests
+                                    </span>
+                                  )}
                                   <span className="text-[11px] font-semibold text-slate-700">{fmtRm(row.invoice_amount)}</span>
                                 </div>
                                 {hasCn && (
@@ -795,6 +941,81 @@ export default function RecordsClient({
           </table>
         </div>
       </div>
+
+      {/* Floating Batch Action Bar when tests are selected */}
+      {selectedIds.length > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900 text-white px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-4 animate-in fade-in slide-in-from-bottom-4 duration-150 border border-slate-700">
+          <div className="flex items-center gap-2">
+            <span className="w-6 h-6 rounded-full bg-indigo-500 text-white flex items-center justify-center font-bold text-xs">
+              {selectedIds.length}
+            </span>
+            <span className="text-xs font-semibold text-slate-200">
+              test{selectedIds.length === 1 ? '' : 's'} selected
+            </span>
+          </div>
+
+          <div className="h-4 w-px bg-slate-700" />
+
+          {/* Purchaser batch PO action */}
+          {canEditPurchaser && (
+            <button
+              onClick={() => setIsBatchPoOpen(true)}
+              className="flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs transition shadow-xs"
+            >
+              <FileCheck className="w-3.5 h-3.5" />
+              Assign 1 PO to {selectedIds.length} Tests
+            </button>
+          )}
+
+          {/* Account batch Invoice action */}
+          {canEditAccount && (
+            <button
+              onClick={() => setIsBatchInvoiceOpen(true)}
+              className="flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold px-3 py-1.5 rounded-xl text-xs transition shadow-xs"
+            >
+              <Receipt className="w-3.5 h-3.5" />
+              Assign 1 Invoice / CN to {selectedIds.length} Tests
+            </button>
+          )}
+
+          <button
+            onClick={() => setSelectedIds([])}
+            className="text-xs text-slate-400 hover:text-white px-2 py-1"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
+      {/* Datalists for PO and Invoice inline suggestions */}
+      <datalist id="records-po-datalist">
+        {existingPoList.map(po => <option key={po} value={po} />)}
+      </datalist>
+      <datalist id="records-inv-datalist">
+        {existingInvList.map(inv => <option key={inv} value={inv} />)}
+      </datalist>
+
+      {/* Batch PO Modal */}
+      {isBatchPoOpen && (
+        <BatchPoModal
+          isOpen={isBatchPoOpen}
+          onClose={() => setIsBatchPoOpen(false)}
+          onSuccess={() => window.location.reload()}
+          selectedTests={selectedTests}
+          existingPoList={existingPoList}
+        />
+      )}
+
+      {/* Batch Invoice Modal */}
+      {isBatchInvoiceOpen && (
+        <BatchInvoiceModal
+          isOpen={isBatchInvoiceOpen}
+          onClose={() => setIsBatchInvoiceOpen(false)}
+          onSuccess={() => window.location.reload()}
+          selectedTests={selectedTests}
+          existingInvList={existingInvList}
+        />
+      )}
 
       {/* Excel Paste/Import Modal */}
       {isExcelModalOpen && (

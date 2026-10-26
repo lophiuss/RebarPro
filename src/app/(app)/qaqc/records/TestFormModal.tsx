@@ -32,6 +32,8 @@ export default function TestFormModal({
   const [supplier, setSupplier] = useState(initialData?.supplier || knownSuppliers[0] || '')
   const [marking, setMarking] = useState(initialData?.marking || '')
   const [testType, setTestType] = useState(initialData?.test_type || knownTestTypes[0] || '')
+  const [qty, setQty] = useState((initialData as any)?.qty !== null && (initialData as any)?.qty !== undefined ? String((initialData as any).qty) : '1')
+  const [unit, setUnit] = useState((initialData as any)?.unit || 'nos')
   const [dateCast, setDateCast] = useState(initialData?.date_cast || '')
   const [dateTest, setDateTest] = useState(initialData?.date_test || new Date().toISOString().slice(0, 10))
   const [reportNo, setReportNo] = useState(initialData?.report_no || '')
@@ -81,6 +83,8 @@ export default function TestFormModal({
       supplier: supplier.trim(),
       marking: marking.trim() || null,
       test_type: testType.trim(),
+      qty: qty ? Number(qty) : 1,
+      unit: unit.trim() || 'nos',
       date_cast: dateCast || null,
       date_test: dateTest,
       report_no: reportNo.trim() || null,
@@ -182,6 +186,43 @@ export default function TestFormModal({
                   placeholder="Type other test type..."
                   className={`w-full border rounded-lg px-3 py-2 text-xs ${!canEditQaqc ? 'bg-slate-100 pointer-events-none' : 'bg-white'}`}
                 />
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block font-medium text-slate-700 mb-1">Quantity</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    disabled={!canEditQaqc}
+                    value={qty}
+                    onChange={e => setQty(e.target.value)}
+                    placeholder="1"
+                    className="w-full border rounded-lg px-3 py-2 text-xs bg-white disabled:bg-slate-100"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-slate-700 mb-1">Unit</label>
+                  <input
+                    type="text"
+                    disabled={!canEditQaqc}
+                    value={unit}
+                    onChange={e => setUnit(e.target.value)}
+                    placeholder="e.g. nos, cubes, sets"
+                    list="qaqc-unit-suggestions"
+                    className="w-full border rounded-lg px-3 py-2 text-xs bg-white disabled:bg-slate-100"
+                  />
+                  <datalist id="qaqc-unit-suggestions">
+                    <option value="nos" />
+                    <option value="cubes" />
+                    <option value="sets" />
+                    <option value="samples" />
+                    <option value="cores" />
+                    <option value="trips" />
+                    <option value="pcs" />
+                  </datalist>
+                </div>
               </div>
 
               <div>
