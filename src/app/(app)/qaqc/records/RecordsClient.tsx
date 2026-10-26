@@ -2,8 +2,9 @@
 
 import React, { useState, useMemo } from 'react'
 import {
-  Search, Plus, FileSpreadsheet, Download, Filter, Trash2, Edit3,
-  Calendar, CheckCircle2, Clock, AlertTriangle, ArrowUpDown, ChevronDown, Check, X
+  Search, Plus, FileSpreadsheet, Download, Trash2, Edit3,
+  Calendar, CheckCircle2, Clock, ArrowUpDown, Check, X,
+  FileCheck2, DollarSign, Receipt, AlertCircle, HelpCircle
 } from 'lucide-react'
 import PasteExcelModal, { downloadQaqcTemplate } from './PasteExcelModal'
 import TestFormModal from './TestFormModal'
@@ -28,6 +29,10 @@ export type QaqcTestRecord = {
   invoice_no: string | null
   invoice_date: string | null
   invoice_amount: number | null
+  cn_no?: string | null
+  cn_date?: string | null
+  cn_amount?: number | null
+  cn_remarks?: string | null
   payment_status: 'Pending' | 'Paid' | 'Partially Paid' | 'Void'
   payment_date: string | null
   account_remarks: string | null
@@ -55,7 +60,7 @@ export default function RecordsClient({
   knownTestTypes,
 }: Props) {
   const [tests, setTests] = useState<QaqcTestRecord[]>(initialTests)
-  const [tab, setTab] = useState<'all' | 'need_po' | 'need_inv' | 'unpaid' | 'paid'>('all')
+  const [tab, setTab] = useState<'all' | 'need_po' | 'need_inv' | 'has_cn' | 'unpaid' | 'paid'>('all')
   const [searchTerm, setSearchTerm] = useState('')
   const [filterProject, setFilterProject] = useState('')
   const [filterSupplier, setFilterSupplier] = useState('')
@@ -68,6 +73,14 @@ export default function RecordsClient({
   const [isExcelModalOpen, setIsExcelModalOpen] = useState(false)
   const [isFormModalOpen, setIsFormModalOpen] = useState(false)
   const [editingRecord, setEditingRecord] = useState<QaqcTestRecord | null>(null)
+
+  // Saved cell animation tracker: key is `${rowId}-${field}`
+  const [savedCell, setSavedCell] = useState<string | null>(null)
+
+  const isSuper = userRole === 'admin' || userRole === 'manager'
+  const canEditQaqc = isSuper || userRole === 'qaqc'
+  const canEditPurchaser = isSuper || userRole === 'purchaser'
+  const canEditAccount = isSuper || userRole === 'account'
 
   // Derive distinct options
   const allProjects = useMemo(() => {
@@ -87,6 +100,41 @@ export default function RecordsClient({
     return Array.from(new Set(years)).sort().reverse()
   }, [tests])
 
+  // Direct Inline Save
+  const handleInlineSave = async (id: number, field: keyof QaqcTestRecord, rawVal: any) => {
+    const target = tests.find(t => t.id === id)
+    if (!target) return
+
+    let finalVal = rawVal
+    if (field === 'po_amount' || field === 'invoice_amount' || field === 'cn_amount') {
+      if (rawVal === '' || rawVal === null || rawVal === undefined) {
+        finalVal = null
+      } else {
+        const num = Number(String(rawVal).replace(/[^0-9.]/g, ''))
+        finalVal = isNaN(num) ? null : num
+      }
+    } else if (typeof rawVal === 'string') {
+      finalVal = rawVal.trim() || null
+    }
+
+    // Skip if unchanged
+    if (target[field] === finalVal) return
+
+    // Optimistic update
+    setTests(prev => prev.map(t => (t.id === id ? { ...t, [field]: finalVal } : t)))
+
+    try {
+      await updateQaqcTest(id, { [field]: finalVal })
+      const cellKey = `${id}-${String(field)}`
+      setSavedCell(cellKey)
+      setTimeout(() => setSavedCell(cur => (cur === cellKey ? null : cur)), 1800)
+    } catch (err: any) {
+      alert(`Could not save change: ${err.message || 'Error occurred'}`)
+      // Revert
+      setTests(prev => prev.map(t => (t.id === id ? target : t)))
+    }
+  }
+
   // Filtering
   const filtered = useMemo(() => {
     const s = searchTerm.trim().toLowerCase()
@@ -94,6 +142,7 @@ export default function RecordsClient({
       // Tab filter
       if (tab === 'need_po' && item.po_no) return false
       if (tab === 'need_inv' && (!item.po_no || item.invoice_no)) return false
+      if (tab === 'has_cn' && (!item.cn_no && !item.cn_amount)) return false
       if (tab === 'unpaid' && (!item.invoice_no || item.payment_status === 'Paid')) return false
       if (tab === 'paid' && item.payment_status !== 'Paid') return false
 
@@ -108,6 +157,7 @@ export default function RecordsClient({
         const hay = [
           item.running_no, item.project, item.supplier, item.marking,
           item.test_type, item.report_no, item.po_no, item.invoice_no,
+          item.cn_no, item.cn_remarks,
         ].filter(Boolean).join(' ').toLowerCase()
         if (!hay.includes(s)) return false
       }
@@ -140,13 +190,16 @@ export default function RecordsClient({
   const summary = useMemo(() => {
     const totalCount = sorted.length
     const totalPo = sorted.reduce((sum, r) => sum + (Number(r.po_amount) || 0), 0)
-    const totalInv = sorted.reduce((sum, r) => sum + (Number(r.invoice_amount) || 0), 0)
+    const rawInv = sorted.reduce((sum, r) => sum + (Number(r.invoice_amount) || 0), 0)
+    const totalCn = sorted.reduce((sum, r) => sum + (Number(r.cn_amount) || 0), 0)
+    const netInv = Math.max(0, rawInv - totalCn)
     const totalPaid = sorted
       .filter(r => r.payment_status === 'Paid')
-      .reduce((sum, r) => sum + (Number(r.invoice_amount) || 0), 0)
+      .reduce((sum, r) => sum + Math.max(0, (Number(r.invoice_amount) || 0) - (Number(r.cn_amount) || 0)), 0)
     const awaitingPoCount = sorted.filter(r => !r.po_no).length
     const awaitingInvCount = sorted.filter(r => r.po_no && !r.invoice_no).length
-    return { totalCount, totalPo, totalInv, totalPaid, awaitingPoCount, awaitingInvCount }
+    const cnCount = sorted.filter(r => r.cn_no || r.cn_amount).length
+    return { totalCount, totalPo, rawInv, totalCn, netInv, totalPaid, awaitingPoCount, awaitingInvCount, cnCount }
   }, [sorted])
 
   const handleDelete = async (id: number, runningNo: string) => {
@@ -165,17 +218,26 @@ export default function RecordsClient({
       'Running No', 'Project', 'Supplier', 'Marking', 'Test Type',
       'Date Cast', 'Date Tested', 'Report No', 'Email Date', 'QAQC Remarks',
       'PO No', 'PO Date', 'PO Amount (RM)', 'Purchaser Remarks',
-      'Invoice No', 'Invoice Date', 'Invoice Amount (RM)', 'Payment Status', 'Payment Date', 'Account Remarks',
+      'Invoice No', 'Invoice Date', 'Invoice Amount (RM)',
+      'CN No', 'CN Date', 'CN Amount (RM)', 'Net Billed (RM)', 'CN Remarks',
+      'Payment Status', 'Payment Date', 'Account Remarks',
     ]
 
-    const rows = sorted.map(r => [
-      r.running_no, r.project, r.supplier, r.marking || '', r.test_type,
-      r.date_cast || '', r.date_test, r.report_no || '', r.email_date || '', r.qaqc_remarks || '',
-      r.po_no || '', r.po_date || '', r.po_amount ?? '', r.purchaser_remarks || '',
-      r.invoice_no || '', r.invoice_date || '', r.invoice_amount ?? '', r.payment_status, r.payment_date || '', r.account_remarks || '',
-    ])
+    const rows = sorted.map(r => {
+      const inv = Number(r.invoice_amount) || 0
+      const cn = Number(r.cn_amount) || 0
+      const net = inv > 0 ? Math.max(0, inv - cn) : ''
+      return [
+        r.running_no, r.project, r.supplier, r.marking || '', r.test_type,
+        r.date_cast || '', r.date_test, r.report_no || '', r.email_date || '', r.qaqc_remarks || '',
+        r.po_no || '', r.po_date || '', r.po_amount ?? '', r.purchaser_remarks || '',
+        r.invoice_no || '', r.invoice_date || '', r.invoice_amount ?? '',
+        r.cn_no || '', r.cn_date || '', r.cn_amount ?? '', net, r.cn_remarks || '',
+        r.payment_status, r.payment_date || '', r.account_remarks || '',
+      ]
+    })
 
-    const csvContent = [
+    const csvContent = '\uFEFF' + [
       headers.map(h => `"${h.replace(/"/g, '""')}"`).join(','),
       ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')),
     ].join('\r\n')
@@ -193,7 +255,7 @@ export default function RecordsClient({
   return (
     <div className="space-y-4">
       {/* Top Banner & Metric Summary */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
         <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
           <span className="text-[11px] font-semibold text-slate-500 uppercase block">Total Tests</span>
           <span className="text-xl font-bold text-slate-800">{summary.totalCount}</span>
@@ -215,8 +277,18 @@ export default function RecordsClient({
           <span className="text-xl font-bold text-slate-800">{fmtRm(summary.totalPo)}</span>
         </div>
         <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-[11px] font-semibold text-slate-500 uppercase block">Total Invoiced</span>
-          <span className="text-xl font-bold text-emerald-700">{fmtRm(summary.totalInv)}</span>
+          <span className="text-[11px] font-semibold text-slate-500 uppercase block">Net Invoiced</span>
+          <span className="text-xl font-bold text-emerald-700">{fmtRm(summary.netInv)}</span>
+          {summary.totalCn > 0 && (
+            <span className="text-[10px] text-emerald-600 block">Gross {fmtRm(summary.rawInv)}</span>
+          )}
+        </div>
+        <div className="bg-white p-3.5 rounded-xl border border-emerald-100 bg-emerald-50/30 shadow-2xs">
+          <span className="text-[11px] font-semibold text-emerald-800 uppercase block">CN Adjustments</span>
+          <span className="text-xl font-bold text-emerald-800">
+            {summary.totalCn > 0 ? `-${fmtRm(summary.totalCn)}` : 'RM 0.00'}
+          </span>
+          <span className="text-[10px] text-slate-500 block">{summary.cnCount} credit notes</span>
         </div>
         <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
           <span className="text-[11px] font-semibold text-slate-500 uppercase block">Total Paid</span>
@@ -233,6 +305,7 @@ export default function RecordsClient({
               { key: 'all', label: 'All Records' },
               { key: 'need_po', label: '🟡 Awaiting PO' },
               { key: 'need_inv', label: '🟣 Awaiting Invoice' },
+              { key: 'has_cn', label: '🏷️ Has Credit Note' },
               { key: 'unpaid', label: '🔴 Unpaid Invoices' },
               { key: 'paid', label: '🟢 Paid' },
             ].map(t => (
@@ -292,7 +365,7 @@ export default function RecordsClient({
               type="text"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
-              placeholder="Search running no, report, PO, invoice, lab..."
+              placeholder="Search running no, report, PO, invoice, CN, lab..."
               className="w-full pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg bg-slate-50 focus:bg-white text-xs"
             />
             {searchTerm && (
@@ -305,7 +378,7 @@ export default function RecordsClient({
           <select
             value={filterProject}
             onChange={e => setFilterProject(e.target.value)}
-            className="border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-xs text-slate-700"
+            className="border border-slate-200 rounded-lg px-2.5 py-1.5 bg-slate-50 text-slate-700"
           >
             <option value="">All Projects</option>
             {allProjects.map(p => <option key={p} value={p}>{p}</option>)}
@@ -314,16 +387,16 @@ export default function RecordsClient({
           <select
             value={filterSupplier}
             onChange={e => setFilterSupplier(e.target.value)}
-            className="border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-xs text-slate-700"
+            className="border border-slate-200 rounded-lg px-2.5 py-1.5 bg-slate-50 text-slate-700 max-w-[160px] truncate"
           >
-            <option value="">All Suppliers / Labs</option>
+            <option value="">All Suppliers</option>
             {allSuppliers.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
 
           <select
             value={filterTestType}
             onChange={e => setFilterTestType(e.target.value)}
-            className="border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-xs text-slate-700"
+            className="border border-slate-200 rounded-lg px-2.5 py-1.5 bg-slate-50 text-slate-700 max-w-[160px] truncate"
           >
             <option value="">All Test Types</option>
             {allTestTypes.map(t => <option key={t} value={t}>{t}</option>)}
@@ -332,11 +405,15 @@ export default function RecordsClient({
           <select
             value={filterYear}
             onChange={e => setFilterYear(e.target.value)}
-            className="border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-xs text-slate-700"
+            className="border border-slate-200 rounded-lg px-2.5 py-1.5 bg-slate-50 text-slate-700"
           >
             <option value="">All Years</option>
             {allYears.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
+
+          <span className="text-slate-400 text-[11px] ml-auto hidden sm:inline">
+            💡 Direct field edit enabled (press Enter or click away to save). Double-click row for full details.
+          </span>
 
           {(filterProject || filterSupplier || filterTestType || filterYear || searchTerm) && (
             <button
@@ -355,31 +432,36 @@ export default function RecordsClient({
         </div>
       </div>
 
-      {/* Main Ledger Table */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="overflow-x-auto max-h-[calc(100vh-21rem)]">
-          <table className="w-full text-xs text-left border-collapse min-w-[1300px]">
-            <thead className="bg-slate-50 sticky top-0 z-20 shadow-xs border-b border-slate-200">
-              <tr className="text-[11px] uppercase font-bold text-slate-600">
-                <th className="py-2.5 px-3 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('running_no')}>
+      {/* Main Ledger Table with FROZEN HEADER */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden relative">
+        <div className="overflow-auto max-h-[calc(100vh-14rem)] relative scrollbar-thin">
+          <table className="w-full text-xs text-left border-collapse min-w-[1500px]">
+            {/* Frozen sticky thead */}
+            <thead className="sticky top-0 z-30 bg-slate-100 shadow-xs border-b border-slate-300">
+              <tr className="text-[11px] uppercase font-bold text-slate-700">
+                <th className="sticky top-0 bg-slate-100 z-30 py-3 px-3 cursor-pointer hover:bg-slate-200 transition" onClick={() => handleSort('running_no')}>
                   Running No <ArrowUpDown className="w-3 h-3 inline ml-0.5 opacity-50" />
                 </th>
-                <th className="py-2.5 px-3 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('project')}>
+                <th className="sticky top-0 bg-slate-100 z-30 py-3 px-3 cursor-pointer hover:bg-slate-200 transition" onClick={() => handleSort('project')}>
                   Project <ArrowUpDown className="w-3 h-3 inline ml-0.5 opacity-50" />
                 </th>
-                <th className="py-2.5 px-3">Supplier / Lab</th>
-                <th className="py-2.5 px-3">Marking</th>
-                <th className="py-2.5 px-3 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('test_type')}>
+                <th className="sticky top-0 bg-slate-100 z-30 py-3 px-3">Supplier / Lab</th>
+                <th className="sticky top-0 bg-slate-100 z-30 py-3 px-3">Marking</th>
+                <th className="sticky top-0 bg-slate-100 z-30 py-3 px-3 cursor-pointer hover:bg-slate-200 transition" onClick={() => handleSort('test_type')}>
                   Test Type <ArrowUpDown className="w-3 h-3 inline ml-0.5 opacity-50" />
                 </th>
-                <th className="py-2.5 px-3 cursor-pointer hover:bg-slate-100" onClick={() => handleSort('date_test')}>
+                <th className="sticky top-0 bg-slate-100 z-30 py-3 px-3 cursor-pointer hover:bg-slate-200 transition" onClick={() => handleSort('date_test')}>
                   Tested Date <ArrowUpDown className="w-3 h-3 inline ml-0.5 opacity-50" />
                 </th>
-                <th className="py-2.5 px-3">Report / Email</th>
-                <th className="py-2.5 px-3 bg-amber-50/40 border-l border-amber-100">PO Details</th>
-                <th className="py-2.5 px-3 bg-emerald-50/40 border-l border-emerald-100">Invoice Details</th>
-                <th className="py-2.5 px-3 bg-emerald-50/40">Status</th>
-                <th className="py-2.5 px-3 text-right">Actions</th>
+                <th className="sticky top-0 bg-slate-100 z-30 py-3 px-3">Report / Email</th>
+                <th className="sticky top-0 bg-amber-50 z-30 py-3 px-3 border-l border-amber-200">
+                  Purchaser PO
+                </th>
+                <th className="sticky top-0 bg-emerald-50 z-30 py-3 px-3 border-l border-emerald-200">
+                  Invoice & CN Adjustments
+                </th>
+                <th className="sticky top-0 bg-emerald-50 z-30 py-3 px-3">Status</th>
+                <th className="sticky top-0 bg-slate-100 z-30 py-3 px-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -394,36 +476,55 @@ export default function RecordsClient({
                   const hasEmail = Boolean(row.email_date)
                   const hasPo = Boolean(row.po_no)
                   const hasInvoice = Boolean(row.invoice_no)
-                  const isPaid = row.payment_status === 'Paid'
+                  const rawInv = Number(row.invoice_amount) || 0
+                  const cnAmt = Number(row.cn_amount) || 0
+                  const hasCn = Boolean(row.cn_no || cnAmt > 0)
+                  const netInv = rawInv > 0 ? Math.max(0, rawInv - cnAmt) : null
 
                   return (
                     <tr
                       key={row.id}
-                      className="hover:bg-slate-50/80 transition-colors group cursor-pointer"
+                      className="hover:bg-slate-50/90 transition-colors group"
                       onDoubleClick={() => { setEditingRecord(row); setIsFormModalOpen(true) }}
                     >
                       {/* Running Number */}
-                      <td className="py-2 px-3 font-mono font-bold text-slate-900 whitespace-nowrap">
-                        {row.running_no}
+                      <td className="py-2.5 px-3 font-mono font-bold text-slate-900 whitespace-nowrap">
+                        <span className="bg-slate-100 px-2 py-0.5 rounded text-slate-800">{row.running_no}</span>
                       </td>
 
                       {/* Project */}
-                      <td className="py-2 px-3 font-semibold text-slate-800 whitespace-nowrap">
+                      <td className="py-2.5 px-3 font-semibold text-slate-800 whitespace-nowrap">
                         {row.project}
                       </td>
 
                       {/* Supplier */}
-                      <td className="py-2 px-3 text-slate-700 max-w-[140px] truncate" title={row.supplier}>
+                      <td className="py-2.5 px-3 text-slate-700 max-w-[140px] truncate" title={row.supplier}>
                         {row.supplier}
                       </td>
 
-                      {/* Marking */}
-                      <td className="py-2 px-3 text-slate-600 max-w-[120px] truncate" title={row.marking || ''}>
-                        {row.marking || '-'}
+                      {/* Marking (Inline editable by QAQC) */}
+                      <td className="py-2.5 px-3 min-w-[120px]">
+                        {canEditQaqc ? (
+                          <div className="relative flex items-center">
+                            <input
+                              type="text"
+                              defaultValue={row.marking || ''}
+                              onBlur={e => handleInlineSave(row.id, 'marking', e.target.value)}
+                              onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
+                              placeholder="-"
+                              className="w-full bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-1.5 py-0.5 text-xs text-slate-700 transition"
+                            />
+                            {savedCell === `${row.id}-marking` && (
+                              <Check className="w-3 h-3 text-emerald-600 absolute right-1" />
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-600 px-1.5">{row.marking || '-'}</span>
+                        )}
                       </td>
 
                       {/* Test Type */}
-                      <td className="py-2 px-3">
+                      <td className="py-2.5 px-3">
                         <span className="font-medium text-slate-800 block truncate max-w-[180px]" title={row.test_type}>
                           {row.test_type}
                         </span>
@@ -433,87 +534,255 @@ export default function RecordsClient({
                       </td>
 
                       {/* Date Tested */}
-                      <td className="py-2 px-3 whitespace-nowrap text-slate-600">
+                      <td className="py-2.5 px-3 whitespace-nowrap text-slate-600">
                         {row.date_test}
                       </td>
 
-                      {/* Report & Email */}
-                      <td className="py-2 px-3 whitespace-nowrap">
-                        <div className="font-mono text-slate-800">{row.report_no || '-'}</div>
-                        {hasEmail ? (
-                          <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-700 font-medium">
-                            <Check className="w-2.5 h-2.5" /> Sent: {row.email_date}
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-amber-600">Email pending</span>
-                        )}
-                      </td>
-
-                      {/* PO Details (Purchaser) */}
-                      <td className="py-2 px-3 bg-amber-50/20 border-l border-amber-100 whitespace-nowrap">
-                        {hasPo ? (
-                          <div>
-                            <span className="font-mono font-bold text-amber-900">{row.po_no}</span>
-                            <div className="text-[11px] font-semibold text-slate-700">{fmtRm(row.po_amount)}</div>
+                      {/* Report & Email (Inline editable) */}
+                      <td className="py-2.5 px-3 whitespace-nowrap min-w-[140px]">
+                        {canEditQaqc ? (
+                          <div className="space-y-0.5">
+                            <div className="relative flex items-center">
+                              <input
+                                type="text"
+                                defaultValue={row.report_no || ''}
+                                onBlur={e => handleInlineSave(row.id, 'report_no', e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
+                                placeholder="Report no..."
+                                className="w-full font-mono bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-1.5 py-0.5 text-xs text-slate-800 transition"
+                              />
+                              {savedCell === `${row.id}-report_no` && (
+                                <Check className="w-3 h-3 text-emerald-600 absolute right-1" />
+                              )}
+                            </div>
+                            <div className="relative flex items-center">
+                              <input
+                                type="date"
+                                defaultValue={row.email_date || ''}
+                                onBlur={e => handleInlineSave(row.id, 'email_date', e.target.value)}
+                                className="text-[10px] bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-1 text-slate-500 cursor-pointer"
+                                title="Email date"
+                              />
+                              {savedCell === `${row.id}-email_date` && (
+                                <Check className="w-2.5 h-2.5 text-emerald-600 ml-1" />
+                              )}
+                            </div>
                           </div>
                         ) : (
-                          <span className="text-[11px] font-medium text-amber-600 bg-amber-100/60 px-2 py-0.5 rounded">
-                            Pending PO
-                          </span>
+                          <div>
+                            <div className="font-mono text-slate-800">{row.report_no || '-'}</div>
+                            {hasEmail ? (
+                              <span className="text-[10px] text-emerald-700">Sent: {row.email_date}</span>
+                            ) : (
+                              <span className="text-[10px] text-amber-600">Email pending</span>
+                            )}
+                          </div>
                         )}
                       </td>
 
-                      {/* Invoice Details (Account) */}
-                      <td className="py-2 px-3 bg-emerald-50/20 border-l border-emerald-100 whitespace-nowrap">
-                        {hasInvoice ? (
-                          <div>
-                            <span className="font-mono font-bold text-emerald-900">{row.invoice_no}</span>
-                            <div className="text-[11px] font-semibold text-slate-700">{fmtRm(row.invoice_amount)}</div>
+                      {/* PO Details (Purchaser - Direct editable) */}
+                      <td className="py-2.5 px-3 bg-amber-50/20 border-l border-amber-100 whitespace-nowrap min-w-[150px]">
+                        {canEditPurchaser ? (
+                          <div className="space-y-0.5">
+                            <div className="relative flex items-center">
+                              <input
+                                type="text"
+                                defaultValue={row.po_no || ''}
+                                onBlur={e => handleInlineSave(row.id, 'po_no', e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
+                                placeholder="PO Number..."
+                                className="w-full font-mono font-bold text-amber-900 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-amber-300 focus:border-amber-500 rounded px-1.5 py-0.5 text-xs transition"
+                              />
+                              {savedCell === `${row.id}-po_no` && (
+                                <Check className="w-3 h-3 text-emerald-600 absolute right-1" />
+                              )}
+                            </div>
+                            <div className="relative flex items-center">
+                              <span className="text-[11px] text-slate-400 mr-0.5">RM</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                defaultValue={row.po_amount !== null && row.po_amount !== undefined ? row.po_amount : ''}
+                                onBlur={e => handleInlineSave(row.id, 'po_amount', e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
+                                placeholder="0.00"
+                                className="w-24 text-[11px] font-semibold text-slate-700 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-amber-300 focus:border-amber-500 rounded px-1 py-0.5 transition"
+                              />
+                              {savedCell === `${row.id}-po_amount` && (
+                                <Check className="w-2.5 h-2.5 text-emerald-600 ml-1" />
+                              )}
+                            </div>
                           </div>
                         ) : (
-                          <span className="text-[11px] text-slate-400">
-                            {hasPo ? 'Pending invoice' : '-'}
-                          </span>
+                          <div>
+                            {hasPo ? (
+                              <>
+                                <span className="font-mono font-bold text-amber-900">{row.po_no}</span>
+                                <div className="text-[11px] font-semibold text-slate-700">{fmtRm(row.po_amount)}</div>
+                              </>
+                            ) : (
+                              <span className="text-[11px] text-amber-600 bg-amber-100/60 px-2 py-0.5 rounded">
+                                Pending PO
+                              </span>
+                            )}
+                          </div>
                         )}
                       </td>
 
-                      {/* Payment Status */}
-                      <td className="py-2 px-3 bg-emerald-50/20 whitespace-nowrap">
-                        {row.payment_status === 'Paid' && (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-full">
-                            <CheckCircle2 className="w-3 h-3" /> Paid
-                          </span>
+                      {/* Invoice & Credit Note Details (Account - Direct editable) */}
+                      <td className="py-2.5 px-3 bg-emerald-50/20 border-l border-emerald-100 whitespace-nowrap min-w-[210px]">
+                        {canEditAccount ? (
+                          <div className="space-y-1">
+                            {/* Invoice No & Amount */}
+                            <div className="flex items-center gap-1.5">
+                              <div className="relative flex-1">
+                                <input
+                                  type="text"
+                                  defaultValue={row.invoice_no || ''}
+                                  onBlur={e => handleInlineSave(row.id, 'invoice_no', e.target.value)}
+                                  onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
+                                  placeholder="Inv No..."
+                                  className="w-full font-mono font-bold text-emerald-950 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-emerald-300 focus:border-emerald-500 rounded px-1.5 py-0.5 text-xs transition"
+                                />
+                                {savedCell === `${row.id}-invoice_no` && (
+                                  <Check className="w-3 h-3 text-emerald-600 absolute right-1" />
+                                )}
+                              </div>
+                              <div className="relative flex items-center">
+                                <span className="text-[11px] text-slate-400 mr-0.5">RM</span>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  defaultValue={row.invoice_amount !== null && row.invoice_amount !== undefined ? row.invoice_amount : ''}
+                                  onBlur={e => handleInlineSave(row.id, 'invoice_amount', e.target.value)}
+                                  onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
+                                  placeholder="0.00"
+                                  className="w-20 text-[11px] font-semibold text-slate-800 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-emerald-300 focus:border-emerald-500 rounded px-1 py-0.5 transition"
+                                />
+                                {savedCell === `${row.id}-invoice_amount` && (
+                                  <Check className="w-2.5 h-2.5 text-emerald-600 ml-1" />
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Credit Note (CN) Adjustment */}
+                            <div className="flex items-center gap-1.5 bg-white/70 p-1 rounded border border-emerald-200/70 text-[11px]">
+                              <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-tight">CN:</span>
+                              <input
+                                type="text"
+                                defaultValue={row.cn_no || ''}
+                                onBlur={e => handleInlineSave(row.id, 'cn_no', e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
+                                placeholder="CN No"
+                                title="Credit Note Number"
+                                className="w-16 font-mono text-[10px] bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-emerald-300 rounded px-1 py-0.5"
+                              />
+                              <span className="text-[10px] text-slate-400">-RM</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                defaultValue={row.cn_amount !== null && row.cn_amount !== undefined ? row.cn_amount : ''}
+                                onBlur={e => handleInlineSave(row.id, 'cn_amount', e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
+                                placeholder="0.00"
+                                title="Credit Note Amount"
+                                className="w-16 font-semibold text-[10px] text-emerald-700 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-emerald-300 rounded px-1 py-0.5"
+                              />
+                              {netInv !== null && cnAmt > 0 && (
+                                <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/70 px-1 rounded ml-auto" title="Net Billed Amount">
+                                  Net {fmtRm(netInv)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <div>
+                            {hasInvoice ? (
+                              <div className="space-y-0.5">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-mono font-bold text-emerald-900">{row.invoice_no}</span>
+                                  <span className="text-[11px] font-semibold text-slate-700">{fmtRm(row.invoice_amount)}</span>
+                                </div>
+                                {hasCn && (
+                                  <div className="text-[10px] font-medium text-emerald-800 bg-emerald-100/60 px-1.5 py-0.5 rounded inline-block">
+                                    CN: -{fmtRm(row.cn_amount)} ({row.cn_no || 'CN'}) → <strong>Net {fmtRm(netInv)}</strong>
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-[11px] text-slate-400">
+                                {hasPo ? 'Pending invoice' : '-'}
+                              </span>
+                            )}
+                          </div>
                         )}
-                        {row.payment_status === 'Pending' && (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-100/80 px-2 py-0.5 rounded-full">
-                            <Clock className="w-3 h-3" /> Pending
-                          </span>
-                        )}
-                        {row.payment_status === 'Partially Paid' && (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 bg-indigo-100/80 px-2 py-0.5 rounded-full">
-                            Partial
-                          </span>
-                        )}
-                        {row.payment_status === 'Void' && (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-500 bg-slate-200 px-2 py-0.5 rounded-full">
-                            Void
-                          </span>
+                      </td>
+
+                      {/* Payment Status (Direct Selectable Dropdown) */}
+                      <td className="py-2.5 px-3 bg-emerald-50/20 whitespace-nowrap">
+                        {canEditAccount ? (
+                          <div className="relative inline-flex items-center">
+                            <select
+                              value={row.payment_status}
+                              onChange={e => handleInlineSave(row.id, 'payment_status', e.target.value)}
+                              className={`text-[11px] font-bold rounded-lg px-2 py-1 border transition cursor-pointer ${
+                                row.payment_status === 'Paid'
+                                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                  : row.payment_status === 'Pending'
+                                  ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                  : row.payment_status === 'Partially Paid'
+                                  ? 'bg-indigo-100 text-indigo-800 border-indigo-300'
+                                  : 'bg-slate-200 text-slate-700 border-slate-300'
+                              }`}
+                            >
+                              <option value="Pending">🟡 Pending</option>
+                              <option value="Paid">🟢 Paid</option>
+                              <option value="Partially Paid">🟠 Partial</option>
+                              <option value="Void">⚪ Void</option>
+                            </select>
+                            {savedCell === `${row.id}-payment_status` && (
+                              <Check className="w-3 h-3 text-emerald-600 ml-1 inline animate-in fade-in" />
+                            )}
+                          </div>
+                        ) : (
+                          <div>
+                            {row.payment_status === 'Paid' && (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-full">
+                                <CheckCircle2 className="w-3 h-3" /> Paid
+                              </span>
+                            )}
+                            {row.payment_status === 'Pending' && (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-100/80 px-2 py-0.5 rounded-full">
+                                <Clock className="w-3 h-3" /> Pending
+                              </span>
+                            )}
+                            {row.payment_status === 'Partially Paid' && (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 bg-indigo-100/80 px-2 py-0.5 rounded-full">
+                                Partial
+                              </span>
+                            )}
+                            {row.payment_status === 'Void' && (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-500 bg-slate-200 px-2 py-0.5 rounded-full">
+                                Void
+                              </span>
+                            )}
+                          </div>
                         )}
                       </td>
 
                       {/* Actions */}
-                      <td className="py-2 px-3 text-right whitespace-nowrap">
+                      <td className="py-2.5 px-3 text-right whitespace-nowrap">
                         <button
                           onClick={e => { e.stopPropagation(); setEditingRecord(row); setIsFormModalOpen(true) }}
                           className="p-1 text-slate-400 hover:text-indigo-600 rounded hover:bg-slate-100 mr-1"
-                          title="Edit"
+                          title="Open full edit form"
                         >
                           <Edit3 className="w-3.5 h-3.5" />
                         </button>
                         <button
                           onClick={e => { e.stopPropagation(); handleDelete(row.id, row.running_no) }}
                           className="p-1 text-slate-400 hover:text-red-600 rounded hover:bg-slate-100"
-                          title="Delete"
+                          title="Delete record"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
@@ -525,32 +794,33 @@ export default function RecordsClient({
             </tbody>
           </table>
         </div>
-        <div className="p-3 bg-slate-50 border-t text-[11px] text-slate-500 flex justify-between items-center">
-          <span>Showing {sorted.length} of {tests.length} records</span>
-          <span className="italic">💡 Double-click any row to view/edit details</span>
-        </div>
       </div>
 
-      {/* Modals */}
-      <PasteExcelModal
-        isOpen={isExcelModalOpen}
-        onClose={() => setIsExcelModalOpen(false)}
-        onSuccess={() => { window.location.reload() }}
-        knownProjects={allProjects}
-        knownSuppliers={allSuppliers}
-        knownTestTypes={allTestTypes}
-      />
+      {/* Excel Paste/Import Modal */}
+      {isExcelModalOpen && (
+        <PasteExcelModal
+          isOpen={isExcelModalOpen}
+          onClose={() => setIsExcelModalOpen(false)}
+          onSuccess={() => window.location.reload()}
+          knownProjects={knownProjects}
+          knownSuppliers={knownSuppliers}
+          knownTestTypes={knownTestTypes}
+        />
+      )}
 
-      <TestFormModal
-        isOpen={isFormModalOpen}
-        onClose={() => { setIsFormModalOpen(false); setEditingRecord(null) }}
-        onSuccess={() => { window.location.reload() }}
-        initialData={editingRecord}
-        userRole={userRole}
-        knownProjects={allProjects}
-        knownSuppliers={allSuppliers}
-        knownTestTypes={allTestTypes}
-      />
+      {/* Add / Edit Form Modal */}
+      {isFormModalOpen && (
+        <TestFormModal
+          isOpen={isFormModalOpen}
+          onClose={() => { setIsFormModalOpen(false); setEditingRecord(null) }}
+          onSuccess={() => window.location.reload()}
+          userRole={userRole}
+          knownProjects={allProjects}
+          knownSuppliers={allSuppliers}
+          knownTestTypes={allTestTypes}
+          initialData={editingRecord as any}
+        />
+      )}
     </div>
   )
 }

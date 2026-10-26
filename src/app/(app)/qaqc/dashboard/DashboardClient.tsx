@@ -21,6 +21,8 @@ export type QaqcTestRecord = {
   po_amount: number | null
   invoice_no: string | null
   invoice_amount: number | null
+  cn_no?: string | null
+  cn_amount?: number | null
   payment_status: 'Pending' | 'Paid' | 'Partially Paid' | 'Void'
 }
 
@@ -83,15 +85,16 @@ export default function DashboardClient({ tests, targets, projects }: Props) {
   const kpis = useMemo(() => {
     const totalTests = periodTests.length
     const totalPo = periodTests.reduce((s, t) => s + (Number(t.po_amount) || 0), 0)
-    const totalInvoiced = periodTests.reduce((s, t) => s + (Number(t.invoice_amount) || 0), 0)
+    const totalCn = periodTests.reduce((s, t) => s + (Number(t.cn_amount) || 0), 0)
+    const totalInvoiced = periodTests.reduce((s, t) => s + Math.max(0, (Number(t.invoice_amount) || 0) - (Number(t.cn_amount) || 0)), 0)
     const totalPaid = periodTests
       .filter(t => t.payment_status === 'Paid')
-      .reduce((s, t) => s + (Number(t.invoice_amount) || 0), 0)
+      .reduce((s, t) => s + Math.max(0, (Number(t.invoice_amount) || 0) - (Number(t.cn_amount) || 0)), 0)
     const pendingPoCount = periodTests.filter(t => !t.po_no).length
     const pendingInvoiceCount = periodTests.filter(t => t.po_no && !t.invoice_no).length
-    const unpaidAmount = totalInvoiced - totalPaid
+    const unpaidAmount = Math.max(0, totalInvoiced - totalPaid)
 
-    return { totalTests, totalPo, totalInvoiced, totalPaid, pendingPoCount, pendingInvoiceCount, unpaidAmount }
+    return { totalTests, totalPo, totalInvoiced, totalPaid, totalCn, pendingPoCount, pendingInvoiceCount, unpaidAmount }
   }, [periodTests])
 
   // Project Breakdown
@@ -102,7 +105,7 @@ export default function DashboardClient({ tests, targets, projects }: Props) {
       const cur = map.get(p) || { tests: 0, poSpend: 0, invSpend: 0 }
       cur.tests += 1
       cur.poSpend += Number(t.po_amount) || 0
-      cur.invSpend += Number(t.invoice_amount) || 0
+      cur.invSpend += Math.max(0, (Number(t.invoice_amount) || 0) - (Number(t.cn_amount) || 0))
       map.set(p, cur)
     }
 
@@ -118,7 +121,8 @@ export default function DashboardClient({ tests, targets, projects }: Props) {
       const type = t.test_type || 'Other'
       const cur = map.get(type) || { count: 0, spend: 0 }
       cur.count += 1
-      cur.spend += Number(t.invoice_amount || t.po_amount) || 0
+      const netSpend = t.invoice_amount ? Math.max(0, Number(t.invoice_amount) - (Number(t.cn_amount) || 0)) : (Number(t.po_amount) || 0)
+      cur.spend += netSpend
       map.set(type, cur)
     }
 

@@ -51,6 +51,10 @@ export default function TestFormModal({
   const [paymentStatus, setPaymentStatus] = useState(initialData?.payment_status || 'Pending')
   const [paymentDate, setPaymentDate] = useState(initialData?.payment_date || '')
   const [accountRemarks, setAccountRemarks] = useState(initialData?.account_remarks || '')
+  const [cnNo, setCnNo] = useState((initialData as any)?.cn_no || '')
+  const [cnDate, setCnDate] = useState((initialData as any)?.cn_date || '')
+  const [cnAmount, setCnAmount] = useState((initialData as any)?.cn_amount !== null && (initialData as any)?.cn_amount !== undefined ? String((initialData as any).cn_amount) : '')
+  const [cnRemarks, setCnRemarks] = useState((initialData as any)?.cn_remarks || '')
 
   const [saving, setSaving] = useState(false)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
@@ -92,6 +96,10 @@ export default function TestFormModal({
       payment_status: paymentStatus as any,
       payment_date: paymentDate || null,
       account_remarks: accountRemarks.trim() || null,
+      cn_no: cnNo.trim() || null,
+      cn_date: cnDate || null,
+      cn_amount: cnAmount ? Number(cnAmount) : null,
+      cn_remarks: cnRemarks.trim() || null,
     }
 
     try {
@@ -388,6 +396,69 @@ export default function TestFormModal({
                   placeholder="Payment ref / cheque no..."
                   className="w-full border rounded-lg px-3 py-2 text-xs bg-white disabled:bg-slate-100"
                 />
+              </div>
+
+              {/* Credit Note (CN) Adjustment */}
+              <div className="sm:col-span-3 bg-white p-3.5 rounded-xl border border-emerald-300 mt-2 space-y-2.5 shadow-2xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 font-bold text-emerald-950 text-xs">
+                    <span>Supplier Credit Note (CN) Adjustment</span>
+                    <span className="text-[11px] font-normal text-slate-500">(if supplier billed wrongly or overcharged)</span>
+                  </div>
+                  {Number(invoiceAmount) > 0 && Number(cnAmount) > 0 && (
+                    <div className="text-xs font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded border border-emerald-200">
+                      Net Billed: RM {Math.max(0, Number(invoiceAmount) - Number(cnAmount)).toFixed(2)}
+                      <span className="text-[10px] font-normal text-slate-500 ml-1.5">(RM {Number(invoiceAmount).toFixed(2)} - RM {Number(cnAmount).toFixed(2)})</span>
+                    </div>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-600 mb-0.5">CN Number</label>
+                    <input
+                      type="text"
+                      disabled={!canEditAccount}
+                      value={cnNo}
+                      onChange={e => setCnNo(e.target.value)}
+                      placeholder="e.g. CN-2026-004"
+                      className="w-full border rounded-lg px-2.5 py-1.5 text-xs bg-white disabled:bg-slate-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-600 mb-0.5">CN Date</label>
+                    <input
+                      type="date"
+                      disabled={!canEditAccount}
+                      value={cnDate}
+                      onChange={e => setCnDate(e.target.value)}
+                      className="w-full border rounded-lg px-2.5 py-1.5 text-xs bg-white disabled:bg-slate-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-600 mb-0.5">CN Amount (RM)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      disabled={!canEditAccount}
+                      value={cnAmount}
+                      onChange={e => setCnAmount(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full border rounded-lg px-2.5 py-1.5 text-xs bg-white disabled:bg-slate-100"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-600 mb-0.5">CN Reason / Adjustment Remarks</label>
+                  <input
+                    type="text"
+                    disabled={!canEditAccount}
+                    value={cnRemarks}
+                    onChange={e => setCnRemarks(e.target.value)}
+                    placeholder="e.g. Overcharged cube testing rate by RM 50; supplier credited"
+                    className="w-full border rounded-lg px-2.5 py-1.5 text-xs bg-white disabled:bg-slate-100"
+                  />
+                </div>
               </div>
             </div>
           </div>

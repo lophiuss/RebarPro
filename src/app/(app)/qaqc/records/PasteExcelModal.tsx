@@ -107,6 +107,10 @@ const FIELD_OPTIONS = [
   { key: 'invoice_no', label: 'Invoice Number' },
   { key: 'invoice_date', label: 'Invoice Date' },
   { key: 'invoice_amount', label: 'Invoice Amount' },
+  { key: 'cn_no', label: 'Credit Note (CN) Number' },
+  { key: 'cn_date', label: 'Credit Note Date' },
+  { key: 'cn_amount', label: 'Credit Note Amount' },
+  { key: 'cn_remarks', label: 'Credit Note Remarks' },
   { key: 'payment_status', label: 'Payment Status' },
 ]
 
@@ -231,6 +235,10 @@ export default function PasteExcelModal({ isOpen, onClose, onSuccess, knownProje
       if (lower.includes('invno') || lower.includes('invoiceno') || lower.includes('invoicenum')) return 'invoice_no'
       if (lower.includes('invdate') || lower.includes('invoicedate')) return 'invoice_date'
       if (lower.includes('invamt') || lower.includes('invamount') || lower.includes('invoiceamount')) return 'invoice_amount'
+      if (lower.includes('cnno') || lower.includes('creditnoteno') || lower.includes('creditnote#')) return 'cn_no'
+      if (lower.includes('cndate') || lower.includes('creditnotedate')) return 'cn_date'
+      if (lower.includes('cnamt') || lower.includes('cnamount') || lower.includes('creditnoteamt')) return 'cn_amount'
+      if (lower.includes('cnremark') || lower.includes('cnreason')) return 'cn_remarks'
       if (lower.includes('pay') || lower.includes('status')) return 'payment_status'
       if (lower.includes('remark') || lower.includes('comment') || lower.includes('note')) return 'qaqc_remarks'
       return 'ignore'
@@ -327,6 +335,10 @@ export default function PasteExcelModal({ isOpen, onClose, onSuccess, knownProje
       invoice_no: item.invoice_no?.trim() || null,
       invoice_date: normalizeDate(item.invoice_date),
       invoice_amount: item.invoice_amount ? Number(String(item.invoice_amount).replace(/[^0-9.]/g, '')) : null,
+      cn_no: item.cn_no?.trim() || null,
+      cn_date: normalizeDate(item.cn_date),
+      cn_amount: item.cn_amount ? Number(String(item.cn_amount).replace(/[^0-9.]/g, '')) : null,
+      cn_remarks: item.cn_remarks?.trim() || null,
       payment_status: ['Paid', 'Partially Paid', 'Void'].includes(item.payment_status) ? item.payment_status : 'Pending',
     }
   })

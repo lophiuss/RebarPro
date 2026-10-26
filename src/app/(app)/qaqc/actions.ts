@@ -20,6 +20,10 @@ export type QaqcTestInput = {
   invoice_no?: string | null
   invoice_date?: string | null
   invoice_amount?: number | null
+  cn_no?: string | null
+  cn_date?: string | null
+  cn_amount?: number | null
+  cn_remarks?: string | null
   payment_status?: 'Pending' | 'Paid' | 'Partially Paid' | 'Void'
   payment_date?: string | null
   account_remarks?: string | null
@@ -92,6 +96,10 @@ export async function createQaqcTest(input: QaqcTestInput) {
       invoice_no: input.invoice_no?.trim() || null,
       invoice_date: input.invoice_date || null,
       invoice_amount: input.invoice_amount ?? null,
+      cn_no: input.cn_no?.trim() || null,
+      cn_date: input.cn_date || null,
+      cn_amount: input.cn_amount ?? null,
+      cn_remarks: input.cn_remarks?.trim() || null,
       payment_status: input.payment_status || 'Pending',
       payment_date: input.payment_date || null,
       account_remarks: input.account_remarks?.trim() || null,
@@ -159,6 +167,10 @@ export async function bulkCreateQaqcTests(items: QaqcTestInput[]) {
       invoice_no: item.invoice_no?.trim() || null,
       invoice_date: item.invoice_date || null,
       invoice_amount: item.invoice_amount ?? null,
+      cn_no: item.cn_no?.trim() || null,
+      cn_date: item.cn_date || null,
+      cn_amount: item.cn_amount ?? null,
+      cn_remarks: item.cn_remarks?.trim() || null,
       payment_status: item.payment_status || 'Pending',
       payment_date: item.payment_date || null,
       account_remarks: item.account_remarks?.trim() || null,
@@ -195,6 +207,7 @@ export async function updateQaqcTest(id: number, patch: Partial<QaqcTestInput>) 
     'project', 'supplier', 'marking', 'test_type', 'date_cast', 'date_test',
     'report_no', 'email_date', 'qaqc_remarks', 'po_no', 'po_date', 'po_amount',
     'purchaser_remarks', 'invoice_no', 'invoice_date', 'invoice_amount',
+    'cn_no', 'cn_date', 'cn_amount', 'cn_remarks',
     'payment_status', 'payment_date', 'account_remarks',
   ]
 

@@ -84,6 +84,7 @@ export default function AccessControlPage() {
   const [activeDept, setActiveDept] = useState<Department | null>(null)
   const [overview, setOverview] = useState(false)
   const [ovQuery, setOvQuery] = useState('')
+  const [deptQuery, setDeptQuery] = useState('')
 
   const [showAddPerson, setShowAddPerson] = useState(false)
   const [newEmail, setNewEmail] = useState('')
@@ -518,6 +519,11 @@ Type DELETE to confirm.`)
       {currentDept && !overview && (() => {
         const dept = currentDept
         const deptPeople = profiles.filter(p => accessFor(p.id, dept))
+        const q = deptQuery.trim().toLowerCase()
+        const filteredDeptPeople = deptPeople.filter(p => {
+          if (!q) return true
+          return (p.full_name || '').toLowerCase().includes(q) || (p.email || '').toLowerCase().includes(q)
+        })
         // Sorted by name (listPeople() itself sorts by email, which made
         // this dropdown's order look arbitrary relative to the names shown)
         // — several people share a first name only (e.g. two "Anim"s), so
@@ -583,8 +589,29 @@ Type DELETE to confirm.`)
 
             {/* People with access to this department */}
             <div className="bg-white border rounded-xl shadow-sm overflow-x-auto mb-10">
-              <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
-                <h2 className="text-sm font-bold text-slate-700">{DEPT_LABEL[dept]} — {deptPeople.length} {deptPeople.length === 1 ? 'person' : 'people'}</h2>
+              <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between gap-3 flex-wrap">
+                <h2 className="text-sm font-bold text-slate-700">
+                  {DEPT_LABEL[dept]} — {filteredDeptPeople.length} {filteredDeptPeople.length === 1 ? 'person' : 'people'}
+                  {q && ` (matching "${deptQuery}")`}
+                </h2>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={deptQuery}
+                    onChange={e => setDeptQuery(e.target.value)}
+                    placeholder={`Search name or email in ${DEPT_LABEL[dept]}...`}
+                    className="border rounded-lg pl-3 pr-7 py-1.5 text-xs w-64 bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                  />
+                  {deptQuery && (
+                    <button
+                      onClick={() => setDeptQuery('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs"
+                      title="Clear search"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               </div>
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
@@ -595,7 +622,14 @@ Type DELETE to confirm.`)
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
-                  {deptPeople.map(p => {
+                  {filteredDeptPeople.length === 0 && (
+                    <tr>
+                      <td colSpan={3} className="px-4 py-8 text-center text-gray-400">
+                        {q ? `No one matching "${deptQuery}" has access to ${DEPT_LABEL[dept]}.` : `No one has access to ${DEPT_LABEL[dept]} yet.`}
+                      </td>
+                    </tr>
+                  )}
+                  {filteredDeptPeople.map(p => {
                     const row = accessFor(p.id, dept)!
                     return (
                       <tr key={p.id} className="hover:bg-gray-50">

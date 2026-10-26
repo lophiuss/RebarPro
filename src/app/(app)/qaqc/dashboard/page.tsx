@@ -19,7 +19,7 @@ export default async function QaqcDashboardPage() {
   ] = await Promise.all([
     supabase
       .from('qaqc_tests')
-      .select('id, running_no, project, supplier, marking, test_type, date_cast, date_test, report_no, email_date, po_no, po_amount, invoice_no, invoice_amount, payment_status')
+      .select('id, running_no, project, supplier, marking, test_type, date_cast, date_test, report_no, email_date, po_no, po_amount, invoice_no, invoice_amount, cn_no, cn_amount, payment_status')
       .order('date_test', { ascending: false }),
     supabase
       .from('qaqc_targets')
