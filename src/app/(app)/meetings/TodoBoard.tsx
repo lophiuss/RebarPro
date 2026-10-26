@@ -6,6 +6,7 @@ import { setTodoStatus, addTodo, addPersonalTodo, setPersonalTodoStatus } from '
 import { act } from './act'
 import { useLocalPref } from './usePref'
 import Avatar from './Avatar'
+import PersonalTodoDialog from './PersonalTodoDialog'
 import { TODO_COLUMNS, ymd, type Person, type TodoStatus } from '@/lib/meetings'
 
 export type BoardTodo = {
@@ -51,6 +52,8 @@ export default function TodoBoard({
   const [adding, setAdding] = useState<TodoStatus | null>(null)
   const [draft, setDraft] = useState('')
   const [draftMeeting, setDraftMeeting] = useState('')
+  // Personal to-dos open in a small edit dialog (meeting ones use onOpen).
+  const [editing, setEditing] = useState<BoardTodo | null>(null)
   // A new card shows at once; the saved one replaces it when the page refreshes.
   const [, startTransition] = useTransition()
   const [shownTodos, addShown] = useOptimistic(todos, (cur: BoardTodo[], add: BoardTodo) => [add, ...cur])
@@ -165,7 +168,7 @@ export default function TodoBoard({
                     onDragEnd={() => { setDragId(null); setOverCol(null) }}
                     className={`rounded-md border bg-white shadow-sm px-2 py-1.5 ${t.pending ? 'opacity-60' : 'cursor-grab active:cursor-grabbing'} ${dragId === t.id ? 'opacity-40' : ''}`}
                   >
-                    <button onClick={() => { if (!t.pending) onOpen(t) }} className={`block w-full text-left text-[13px] leading-snug font-medium hover:text-blue-700 ${statusOf(t) === 'done' ? 'line-through text-gray-500' : ''}`}>
+                    <button onClick={() => { if (t.pending) return; if (t.personal) setEditing(t); else onOpen(t) }} className={`block w-full text-left text-[13px] leading-snug font-medium hover:text-blue-700 ${statusOf(t) === 'done' ? 'line-through text-gray-500' : ''}`}>
                       {t.title}
                       {t.details && <FileText className="inline-block w-3.5 h-3.5 ml-1.5 text-gray-500 align-[-2px]" aria-label="Has details" />}
                     </button>
@@ -187,6 +190,7 @@ export default function TodoBoard({
         )
       })}
     </div>
+    {editing && <PersonalTodoDialog key={editing.id} todo={editing} onClose={() => setEditing(null)} />}
     </div>
   )
 }

@@ -1053,6 +1053,19 @@ export async function setPersonalTodoStatus(id: string, status: TodoStatus) {
   refresh()
 }
 
+export async function updatePersonalTodo(id: string, patch: { title: string; due_date: string | null; status: TodoStatus }) {
+  const { supabase } = await requireMeetingsAccess()
+  const t = text(patch.title, 300)
+  if (!['todo', 'in_progress', 'blocked', 'done'].includes(patch.status)) throw new Error('Unknown status')
+  const due = patch.due_date && /^\d{4}-\d{2}-\d{2}$/.test(patch.due_date) ? patch.due_date : null
+  const { data: cur } = await supabase.from('mtg_personal_todos').select('done_at').eq('id', id).maybeSingle()
+  // Keep the original completion time if it stays done
+  const done_at = patch.status === 'done' ? (cur?.done_at ?? new Date().toISOString()) : null
+  const { error } = await supabase.from('mtg_personal_todos').update({ title: t, due_date: due, status: patch.status, done_at }).eq('id', id)
+  if (error) throw error
+  refresh()
+}
+
 export async function deletePersonalTodo(id: string) {
   const { supabase } = await requireMeetingsAccess()
   const { error } = await supabase.from('mtg_personal_todos').delete().eq('id', id)
