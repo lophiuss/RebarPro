@@ -9,7 +9,7 @@ import {
   ArrowLeftRight, ClipboardList, AlertTriangle, Factory, DoorClosed, KeyRound,
   Radio, Siren, ClipboardEdit, User, Sparkles, Wrench, CalendarClock,
   PackageSearch, Inbox, History, HelpCircle, Navigation, Hammer,
-  Users, Lock, FileBarChart, Clock, BedDouble, FileText, Upload, Target, Receipt, DollarSign, LayoutDashboard, CalendarDays, ListChecks, Network, MessagesSquare, UserCheck, LifeBuoy, PanelLeftClose, PanelLeftOpen, PenTool, UserPlus
+  Users, Lock, FileBarChart, Clock, BedDouble, FileText, Upload, Target, Receipt, DollarSign, LayoutDashboard, CalendarDays, ListChecks, Network, MessagesSquare, UserCheck, LifeBuoy, PanelLeftClose, PanelLeftOpen, PenTool, UserPlus, LayoutGrid, ArrowRight
 } from 'lucide-react'
 
 export type Department = 'rebar' | 'cement' | 'security' | 'maintenance' | 'mould' | 'plantpro' | 'meetings' | 'qaqc'
@@ -184,6 +184,8 @@ export default function AppNavigation({ userEmail, fullName, departments, navPer
   const pathname = usePathname()
   const firstName = (fullName || userEmail.split('@')[0]).split(' ')[0]
 
+  const isPortal = pathname === '/'
+
   const activeDept: Department | null = pathname.startsWith('/cement')
     ? 'cement'
     : pathname.startsWith('/rebar')
@@ -200,6 +202,8 @@ export default function AppNavigation({ userEmail, fullName, departments, navPer
     ? 'meetings'
     : pathname.startsWith('/qaqc')
     ? 'qaqc'
+    : isPortal
+    ? null
     : departments[0]?.department ?? null
 
   const activeRole = departments.find(d => d.department === activeDept)?.role
@@ -217,7 +221,7 @@ export default function AppNavigation({ userEmail, fullName, departments, navPer
   const closeSidebar = () => setIsOpen(false)
 
   const hasMultipleDepartments = departments.length > 1
-  const ActiveIcon = activeDept ? DEPARTMENT_ICON[activeDept] : Building2
+  const ActiveIcon = isPortal ? LayoutGrid : (activeDept ? DEPARTMENT_ICON[activeDept] : Building2)
 
   // Shared Sub-nav contents
   const renderSubNavContent = (onLinkClick?: () => void) => (
@@ -226,11 +230,11 @@ export default function AppNavigation({ userEmail, fullName, departments, navPer
       <div className="p-4 border-b border-slate-800/80 flex items-center justify-between">
         <div className="min-w-0 pr-2">
           <div className="flex items-center gap-2">
-            <span className="p-1 rounded-md bg-blue-600/20 text-blue-400">
+            <span className="p-1.5 rounded-lg bg-blue-600/20 text-blue-400">
               <ActiveIcon className="w-4 h-4" />
             </span>
             <h1 className="text-sm font-bold text-white tracking-wide truncate">
-              {activeDept ? DEPARTMENT_LABEL[activeDept] : 'AlphaVision'}
+              {isPortal ? 'App Launcher' : (activeDept ? DEPARTMENT_LABEL[activeDept] : 'AlphaVision')}
             </h1>
           </div>
           <p className="text-xs text-slate-400 mt-1 truncate">
@@ -249,59 +253,99 @@ export default function AppNavigation({ userEmail, fullName, departments, navPer
 
       {/* Navigation Links */}
       <nav className="flex-1 px-3 py-3 space-y-1 overflow-y-auto">
-        <div className="px-2 pb-1 text-[10px] font-semibold tracking-wider text-slate-400 uppercase">
-          Menu
-        </div>
-        {navItems.map(item => {
-          const Icon = item.icon
-          const isActive = pathname === item.href
-          return (
+        {isPortal ? (
+          <>
+            <div className="px-2 pb-1 text-[10px] font-semibold tracking-wider text-slate-400 uppercase">
+              Portal Overview
+            </div>
             <Link
-              key={item.href}
-              href={item.href}
+              href="/"
               onClick={onLinkClick}
-              className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition ${
-                isActive
-                  ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/20'
-                  : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
-              }`}
+              className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white shadow-sm shadow-blue-600/20"
             >
-              <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
-              <span className="truncate">{item.label}</span>
+              <LayoutGrid className="w-4 h-4 shrink-0 text-white" />
+              <span className="truncate">All Modules Portal</span>
             </Link>
-          )
-        })}
 
-        <div className="pt-2 my-2 border-t border-slate-800/70" />
+            <div className="pt-3 my-2 border-t border-slate-800/70" />
+            <div className="px-2 pb-1 text-[10px] font-semibold tracking-wider text-slate-400 uppercase">
+              Switch Department
+            </div>
+            {departments.map(d => {
+              const Icon = DEPARTMENT_ICON[d.department] || Building2
+              return (
+                <Link
+                  key={d.department}
+                  href={DEPARTMENT_HOME[d.department]}
+                  onClick={onLinkClick}
+                  className="flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium text-slate-300 hover:bg-slate-800/80 hover:text-white transition group"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Icon className="w-4 h-4 shrink-0 text-slate-400 group-hover:text-blue-400 transition-colors" />
+                    <span className="truncate">{DEPARTMENT_LABEL[d.department]}</span>
+                  </div>
+                  <ArrowRight className="w-3.5 h-3.5 text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                </Link>
+              )
+            })}
+          </>
+        ) : (
+          <>
+            <div className="px-2 pb-1 text-[10px] font-semibold tracking-wider text-slate-400 uppercase">
+              Menu
+            </div>
+            {navItems.map(item => {
+              const Icon = item.icon
+              const isActive = pathname === item.href
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={onLinkClick}
+                  className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                    isActive
+                      ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/20'
+                      : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
+                  }`}
+                >
+                  <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                  <span className="truncate">{item.label}</span>
+                </Link>
+              )
+            })}
 
-        {canSeeSettings && (
-          <Link
-            href={settingsHref}
-            onClick={onLinkClick}
-            className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition ${
-              pathname === settingsHref
-                ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/20'
-                : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
-            }`}
-          >
-            <Settings className={`w-4 h-4 shrink-0 ${pathname === settingsHref ? 'text-white' : 'text-slate-400'}`} />
-            <span className="truncate">Settings</span>
-          </Link>
-        )}
+            <div className="pt-2 my-2 border-t border-slate-800/70" />
 
-        {activeDept === 'maintenance' && (
-          <Link
-            href="/maintenance/help"
-            onClick={onLinkClick}
-            className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition ${
-              pathname === '/maintenance/help'
-                ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/20'
-                : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
-            }`}
-          >
-            <HelpCircle className={`w-4 h-4 shrink-0 ${pathname === '/maintenance/help' ? 'text-white' : 'text-slate-400'}`} />
-            <span className="truncate">User Manual</span>
-          </Link>
+            {canSeeSettings && (
+              <Link
+                href={settingsHref}
+                onClick={onLinkClick}
+                className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                  pathname === settingsHref
+                    ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/20'
+                    : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
+                }`}
+              >
+                <Settings className={`w-4 h-4 shrink-0 ${pathname === settingsHref ? 'text-white' : 'text-slate-400'}`} />
+                <span className="truncate">Settings</span>
+              </Link>
+            )}
+
+            {activeDept === 'maintenance' && (
+              <Link
+                href="/maintenance/help"
+                onClick={onLinkClick}
+                className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                  pathname === '/maintenance/help'
+                    ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/20'
+                    : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
+                }`}
+              >
+                <HelpCircle className={`w-4 h-4 shrink-0 ${pathname === '/maintenance/help' ? 'text-white' : 'text-slate-400'}`} />
+                <span className="truncate">User Manual</span>
+              </Link>
+            )}
+          </>
         )}
 
         {canSeeAccessControl && (
@@ -414,9 +458,18 @@ export default function AppNavigation({ userEmail, fullName, departments, navPer
         {/* Mobile Slim Rail */}
         {hasMultipleDepartments && (
           <div className="w-16 bg-slate-950 flex flex-col items-center py-3 border-r border-slate-800/80">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white mb-3 shadow-sm shrink-0">
-              <Building2 className="w-5 h-5" />
-            </div>
+            <Link
+              href="/"
+              onClick={closeSidebar}
+              className={`w-10 h-10 rounded-xl flex items-center justify-center text-white mb-3 shadow-sm shrink-0 transition ${
+                isPortal
+                  ? 'bg-blue-600 shadow-blue-500/30 ring-2 ring-blue-400/60'
+                  : 'bg-gradient-to-br from-blue-600 to-indigo-700 hover:scale-105'
+              }`}
+              title="App Launcher · Portal"
+            >
+              <LayoutGrid className="w-5 h-5" />
+            </Link>
             <div className="w-8 h-px bg-slate-800/80 mb-2 shrink-0" />
             <div className="flex-1 w-full flex flex-col items-center gap-2 overflow-y-auto px-1.5">
               {departments.map(d => {
@@ -457,15 +510,27 @@ export default function AppNavigation({ userEmail, fullName, departments, navPer
         {/* Desktop Slim Rail (App Rail) */}
         {hasMultipleDepartments && (
           <aside className="w-16 bg-slate-950 border-r border-slate-800/80 flex flex-col items-center py-4 z-20 select-none">
-            {/* Logo / Brand Icon */}
-            <div className="mb-3">
+            {/* Logo / App Launcher Icon */}
+            <div className="relative group mb-3">
               <Link
-                href={activeDept ? DEPARTMENT_HOME[activeDept] : '/'}
-                className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-blue-500/20 hover:scale-105 transition-transform"
-                title="AlphaVision"
+                href="/"
+                className={`relative w-10 h-10 rounded-xl flex items-center justify-center transition-all duration-200 ${
+                  isPortal
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30 ring-2 ring-blue-400/60'
+                    : 'bg-gradient-to-br from-blue-600 to-indigo-700 text-white shadow-md shadow-blue-500/20 hover:scale-105 hover:from-blue-500 hover:to-indigo-600'
+                }`}
+                aria-label="App Launcher · Portal"
               >
-                <Building2 className="w-5 h-5" />
+                <LayoutGrid className="w-5 h-5" />
+                {isPortal && (
+                  <span className="absolute -left-2.5 w-1 h-5 bg-blue-400 rounded-r-full" />
+                )}
               </Link>
+
+              {/* Tooltip on mouse hover */}
+              <div className="pointer-events-none absolute left-full ml-3 top-1/2 -translate-y-1/2 px-2.5 py-1.5 bg-slate-900 text-slate-100 text-xs font-semibold rounded-lg shadow-xl border border-slate-700/80 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-150 z-50 flex items-center gap-1.5">
+                <span>App Launcher · Main Portal</span>
+              </div>
             </div>
 
             <div className="w-8 h-px bg-slate-800/80 mb-3" />
