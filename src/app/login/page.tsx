@@ -1,6 +1,6 @@
 import { login, signup } from './actions'
 import { Button } from '@/components/ui/button'
-import { Factory, Boxes, ShieldCheck, Wrench, Navigation, CalendarCheck, Sparkles } from 'lucide-react'
+import { Factory, Boxes, ShieldCheck, Wrench, Navigation, CalendarCheck, Sparkles, ClipboardCheck, LayoutGrid, Users } from 'lucide-react'
 
 export default async function LoginPage({
   searchParams,
@@ -12,92 +12,109 @@ export default async function LoginPage({
 
   return (
     <div className="min-h-screen w-full flex bg-slate-950">
-      {/* Branding panel */}
+      {/* Branding / Landing panel */}
       <div className="hidden lg:flex lg:w-1/2 relative flex-col justify-between p-12 bg-gradient-to-br from-slate-900 via-slate-950 to-blue-950 overflow-hidden">
-        <div className="absolute -top-24 -right-24 w-96 h-96 bg-blue-600/20 rounded-full blur-3xl" />
-        <div className="absolute bottom-0 -left-16 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl" />
+        <div className="absolute -top-24 -right-24 w-96 h-96 bg-blue-600/20 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-0 -left-16 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
 
         <div className="relative flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center shadow-lg shadow-blue-600/30">
-            <Factory className="w-5 h-5 text-white" />
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-600/30">
+            <LayoutGrid className="w-5 h-5 text-white" />
           </div>
           <span className="text-xl font-bold text-white tracking-tight">AlphaVision</span>
         </div>
 
-        <div className="relative">
-          <h1 className="text-4xl xl:text-5xl font-bold text-white leading-tight mb-6">
-            One platform for<br />your entire operation.
+        <div className="relative my-auto py-8">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-semibold mb-4">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span>Industrial Precast & Operations Platform</span>
+          </div>
+
+          <h1 className="text-3xl xl:text-4xl font-bold text-white leading-tight mb-4 tracking-tight">
+            One unified operating system<br />for your entire plant.
           </h1>
-          <p className="text-slate-400 text-lg max-w-md">
-            Rebar stock, cement batching, equipment maintenance, site security, mould and workforce records, plus weekly team meetings — real-time balances, work orders, patrols, KPIs and reporting, all in one place.
+          <p className="text-slate-400 text-sm xl:text-base max-w-lg leading-relaxed">
+            Rebar inventories, batching silos, machine maintenance, site security, precast moulds, worker hostels &amp; timesheets, executive meetings, and QAQC cube testing — fully integrated with real-time command dashboards.
           </p>
 
-          <div className="mt-10 space-y-4">
+          <div className="mt-8 space-y-3.5 max-w-lg">
             <div className="flex items-center gap-3 text-slate-300">
               <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center flex-shrink-0">
-                <Boxes className="w-4 h-4 text-blue-400" />
+                <Boxes className="w-4 h-4 text-amber-400" />
               </div>
-              <span className="text-sm">Live stock, silo balances &amp; weighbridge workflows</span>
+              <span className="text-xs xl:text-sm"><strong>Rebar &amp; BPlant</strong>: Live inventory, silo balances &amp; weighbridge workflows</span>
             </div>
+
             <div className="flex items-center gap-3 text-slate-300">
               <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center flex-shrink-0">
-                <Wrench className="w-4 h-4 text-orange-400" />
+                <Wrench className="w-4 h-4 text-cyan-400" />
               </div>
-              <span className="text-sm">Work orders, PM schedules &amp; checklists for every asset</span>
+              <span className="text-xs xl:text-sm"><strong>Maintenance &amp; Moulds</strong>: Work orders, PM checklists, mould steel weight &amp; costs</span>
             </div>
+
             <div className="flex items-center gap-3 text-slate-300">
               <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center flex-shrink-0">
-                <Navigation className="w-4 h-4 text-cyan-400" />
+                <ClipboardCheck className="w-4 h-4 text-rose-400" />
               </div>
-              <span className="text-sm">Gate entries, guard shifts &amp; GPS patrol checkpoints</span>
+              <span className="text-xs xl:text-sm"><strong>QAQC Quality &amp; Billing</strong>: Cube compressive tests, lab reports, PO &amp; invoice matching</span>
             </div>
+
             <div className="flex items-center gap-3 text-slate-300">
               <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center flex-shrink-0">
-                <CalendarCheck className="w-4 h-4 text-violet-400" />
+                <Users className="w-4 h-4 text-purple-400" />
               </div>
-              <span className="text-sm">Weekly meetings with live agendas, to-dos, issues, KPIs &amp; quarterly priorities</span>
+              <span className="text-xs xl:text-sm"><strong>HR &amp; Hostels (PlantPro)</strong>: Overtime allocations, attendance timesheets &amp; bed matrix</span>
             </div>
+
             <div className="flex items-center gap-3 text-slate-300">
               <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center flex-shrink-0">
-                <Sparkles className="w-4 h-4 text-amber-400" />
+                <Navigation className="w-4 h-4 text-emerald-400" />
               </div>
-              <span className="text-sm">AI Helper that answers from your live data</span>
+              <span className="text-xs xl:text-sm"><strong>Security &amp; Clocking</strong>: Visitor/delivery checkpoints, guard logs &amp; GPS patrols</span>
             </div>
+
             <div className="flex items-center gap-3 text-slate-300">
               <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center flex-shrink-0">
-                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <CalendarCheck className="w-4 h-4 text-blue-400" />
               </div>
-              <span className="text-sm">One login, department-scoped access for every user</span>
+              <span className="text-xs xl:text-sm"><strong>Meetings &amp; Strategy</strong>: Weekly agendas, action to-dos, KPIs, OKRs &amp; org chart</span>
+            </div>
+
+            <div className="flex items-center gap-3 text-slate-300">
+              <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center flex-shrink-0">
+                <Sparkles className="w-4 h-4 text-amber-300" />
+              </div>
+              <span className="text-xs xl:text-sm"><strong>AI Helper &amp; Command Center</strong>: Real-time plant pulse with live Gemini database queries</span>
             </div>
           </div>
         </div>
 
-        <p className="relative text-xs text-slate-600">© {new Date().getFullYear()} AlphaVision</p>
+        <p className="relative text-xs text-slate-600">© {new Date().getFullYear()} AlphaVision Enterprise Management System</p>
       </div>
 
-      {/* Form panel */}
+      {/* Login form panel */}
       <div className="flex-1 flex items-center justify-center bg-gray-50 px-6 py-12">
         <div className="w-full max-w-sm">
           <div className="lg:hidden flex items-center gap-2.5 justify-center mb-8">
-            <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center">
-              <Factory className="w-5 h-5 text-white" />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-md">
+              <LayoutGrid className="w-5 h-5 text-white" />
             </div>
             <span className="text-xl font-bold text-slate-900 tracking-tight">AlphaVision</span>
           </div>
 
-          <h2 className="text-2xl font-bold text-slate-900 mb-1">Welcome back</h2>
-          <p className="text-sm text-gray-500 mb-8">Sign in to continue to your dashboard.</p>
+          <h2 className="text-2xl font-bold text-slate-900 mb-1 tracking-tight">Welcome back</h2>
+          <p className="text-sm text-gray-500 mb-8">Sign in with your corporate email to access your workspace.</p>
 
           <form className="flex flex-col gap-4">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1.5" htmlFor="email">
-                Email
+                Corporate Email
               </label>
               <input
-                className="w-full rounded-lg border border-gray-300 px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition"
+                className="w-full rounded-lg border border-gray-300 px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition text-slate-900"
                 name="email"
                 type="email"
-                placeholder="you@example.com"
+                placeholder="you@company.com"
                 required
               />
             </div>
@@ -106,7 +123,7 @@ export default async function LoginPage({
                 Password
               </label>
               <input
-                className="w-full rounded-lg border border-gray-300 px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition"
+                className="w-full rounded-lg border border-gray-300 px-3.5 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 transition text-slate-900"
                 type="password"
                 name="password"
                 placeholder="••••••••"
@@ -114,10 +131,10 @@ export default async function LoginPage({
               />
             </div>
 
-            <Button formAction={login} className="w-full h-10 mt-2" type="submit">
+            <Button formAction={login} className="w-full h-10 mt-2 bg-blue-600 hover:bg-blue-500 text-white font-medium shadow-sm transition" type="submit">
               Sign In
             </Button>
-            <Button formAction={signup} variant="outline" className="w-full h-10" type="submit">
+            <Button formAction={signup} variant="outline" className="w-full h-10 border-gray-300 text-slate-700 hover:bg-gray-100 transition" type="submit">
               Sign Up
             </Button>
 

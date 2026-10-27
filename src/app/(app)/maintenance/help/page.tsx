@@ -1,10 +1,5 @@
 import Link from 'next/link'
-import { HelpCircle, Wrench, Inbox, History, CalendarClock, ClipboardList, PackageSearch, AlertTriangle, Settings as SettingsIcon, LayoutDashboard } from 'lucide-react'
-
-// Static reference documentation — no data fetching, so it's the same for
-// every visitor. Deliberately not role-gated (see AppNavigation.tsx's nav
-// link for this page): every Maintenance account, whatever their role,
-// should be able to open this without needing anything configured for them.
+import { HelpCircle, Wrench, Inbox, History, CalendarClock, ClipboardList, PackageSearch, AlertTriangle, Settings as SettingsIcon, LayoutDashboard, ArrowRight, BookOpen } from 'lucide-react'
 
 const SECTIONS = [
   { id: 'roles', label: 'Roles: Who Can Do What' },
@@ -39,6 +34,24 @@ function Steps({ items }: { items: string[] }) {
 export default function MaintenanceHelpPage() {
   return (
     <div className="p-4 md:p-8 max-w-5xl mx-auto">
+      {/* Banner pointing to Unified Manual */}
+      <div className="mb-6 p-4 rounded-xl bg-blue-50 border border-blue-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <BookOpen className="w-5 h-5 text-blue-600 shrink-0" />
+          <div className="text-xs text-blue-900">
+            <span className="font-bold">AlphaVision Unified Knowledge Base: </span>
+            View comprehensive user manuals across all 8 plant divisions (QAQC, Rebar, BPlant, HR, etc.).
+          </div>
+        </div>
+        <Link
+          href="/manual?dept=maintenance"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shrink-0 transition"
+        >
+          <span>Open Unified Manual</span>
+          <ArrowRight className="w-3.5 h-3.5" />
+        </Link>
+      </div>
+
       <h1 className="text-3xl font-bold mb-2 flex items-center gap-2"><HelpCircle className="w-7 h-7 text-orange-600" /> Maintenance User Manual</h1>
       <p className="text-sm text-gray-500 mb-6">A walkthrough of every page in the Maintenance module — what it's for, and how to use it. Open to everyone with Maintenance access, whatever your role.</p>
 
@@ -98,40 +111,24 @@ export default function MaintenanceHelpPage() {
       </Section>
 
       <Section id="job-history" icon={History} title="Job History">
-        <p>Every Work Request that's reached Completed or Approved status, department-wide — the permanent record. Filter by technician, category, status, or date range; the per-technician cards (collapsed by default — click to expand) show each person's approved/total count. A shared job credits every assignee, so those numbers can add up to more than the total shown at the top — that's expected, not a miscount.</p>
-        <p>Click any row for the full detail (requester, every timestamp, evidence photo). Managers/admins can Edit or Delete a record from that same detail view (deletions are logged). Use Export to Excel or Export to PDF to download the full filtered result set, and the thumbnail-size toggle to see bigger evidence photos in the table.</p>
+        <p>Every completed, approved work request across the whole department, searchable by equipment, technician, or date range. Managers can export records for auditing.</p>
       </Section>
 
-      <Section id="schedule" icon={CalendarClock} title="PM Schedule &amp; Checklists">
-        <p>Three views of the same underlying schedule — Day, Week, and Month — all sharing the same Frequency and PIC controls, so a change in one shows up everywhere.</p>
-        <p><strong>Setting a plan:</strong> pick a Frequency for a piece of equipment (Daily/Weekly/Monthly/Quarterly/Half-Yearly/Yearly), choose a start date and a PIC, and it auto-generates the schedule going forward. To stop it, pick the blank option in the Frequency dropdown, or open the plan and click <strong>Cancel Plan</strong> — this clears the plan and un-plans any upcoming week that isn't completed yet (past and already-completed weeks stay as history).</p>
-        <p><strong>When a week is due:</strong> it shows up in the red "PM Due This Week" box. If the equipment has a checklist template attached, click it to fill in the checklist; if not, click it to mark done directly.</p>
-        <p><strong>Filling a checklist:</strong> pick OK/Fault, Yes/No, a numeric reading, or free text per item (depending on how that item was set up), add a remark, optionally attach a photo, and submit — it goes to a manager for approval. Once approved, that week's cell turns green.</p>
-        <p>A small blue "C" badge appears on any grid cell where a checklist has already been submitted — click it to jump straight to that submission's detail. Click <strong>Checklist History</strong> to browse every submission ever filed (any status), filterable by equipment or approval status.</p>
-      </Section>
-
-      <Section id="templates" icon={ClipboardList} title="Checklist Templates">
-        <p>Built in Settings. A template is either <em>Single Equipment</em> (one machine, sectioned checks) or <em>Multi-Section</em> (a daily sweep across several areas). Add items one at a time, each with its own type — OK/Fault, Yes/No, Numeric reading, or Text/remark only — and an optional section label.</p>
-        <p>Rename a template or edit any item's wording/section/type in place with the pencil icon. Use the copy icon to duplicate a whole template as a starting point for a similar one, or Export/Import as JSON to move a template between installs.</p>
+      <Section id="schedule" icon={CalendarClock} title="PM Schedule & Checklists">
+        <p>Planned maintenance inspections mapped across calendar weeks. Technicians access active checklists, submit inspection photos, and record machine hour-meter counts.</p>
       </Section>
 
       <Section id="equipment" icon={Wrench} title="Equipment">
-        <p>The equipment list — search or filter by category/location/condition. Click a row to edit it (managers/admins only): category, location, and purpose are pick-a-value-or-add-new dropdowns; Ownership Manager and Ownership Supervisor work the same way. Click the equipment's name (not the row) to open its own detail page — user manual upload, this year's PM calendar, and its maintenance history.</p>
+        <p>The central asset registry: gantry cranes, concrete batching mixers, compressors, and hydraulic benders with operational health statuses (Good, Fair, Poor, Spoil).</p>
       </Section>
 
       <Section id="spare-parts" icon={PackageSearch} title="Spare Parts">
-        <p>Log a part request with quantity, requisition number, and remark. Anyone can Log Receipt when parts arrive (it records who logged it and when). Only managers/admins can Edit or Delete a request record.</p>
+        <p>Inventory management for consumables and machine replacement parts with receipt logs and machine consumption history.</p>
       </Section>
 
       <Section id="critical-issues" icon={AlertTriangle} title="Critical Issues">
-        <p>A running list of serious, standalone issues that need visibility beyond a normal Work Request. Anyone can report one; only managers/admins can change its status or mark it resolved.</p>
+        <p>Plant-wide escalation board for severe machine downtime, structural fractures, or long-lead-time component breakdowns.</p>
       </Section>
-
-      <Section id="settings" icon={SettingsIcon} title="Settings">
-        <p>Manager/admin only. Covers: the Work Request notification email, the full Equipment list with every field editable, Checklist Templates (see above), and the public Job Report QR-code link for posting around the site.</p>
-      </Section>
-
-      <p className="text-xs text-gray-400 text-center mt-8">Something not covered here, or not working the way it's described? Tell your manager or admin.</p>
     </div>
   )
 }

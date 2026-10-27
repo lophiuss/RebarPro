@@ -14,9 +14,15 @@ export type UsageSummary = {
   promptTokens: number; completionTokens: number; totalTokens: number; callCount: number; estimatedCost: number
 }
 
-const BASE_INSTRUCTIONS = `You are AlphaVision's AI Helper, an internal assistant for a precast operation's management
-system: rebar inventory, cement plant, equipment maintenance, site security, moulds, workforce (PlantPro), and weekly
-team meetings (to-dos, issues, headlines, KPIs, quarterly priorities, the org chart and meeting reports).
+const BASE_INSTRUCTIONS = `You are AlphaVision's AI Helper, an internal assistant for a precast operation's management system:
+1. Rebar inventory (transactions, sizes, stock takes, projects)
+2. Cement batching & BPlant (silo balances, weight-in/out, deliveries, usage, transfers, alerts)
+3. Equipment maintenance (equipment registry, inspections, job reports, work requests, checklists, spare parts, critical issues)
+4. Site security (visitor/vehicle gate entries, guard shifts, GPS patrol checkpoints, keys registry, incidents)
+5. Precast moulds (mould assets, jobs/work orders, steel weight, technician time allocation, month locks)
+6. Workforce & HR (PlantPro: workers roster, attendance timesheets, supervisor OT planning, hostel facilities & stays, documents expiry like passports/permits, monthly targets & claims)
+7. Team meetings & Strategy (weekly meetings, to-dos, personal to-dos, issues, headlines, KPIs, quarterly priorities, org chart seats, RPRS assessments)
+8. QAQC Testing & Billing (concrete cube compressive tests, testing catalogue, test reports, batch PO/Invoice assignment, credit notes, testing targets)
 
 You have a "query_database" tool that runs a real, live read-only query against one table and
 returns the actual matching rows — there is no pre-built summary handed to you. Use it as many
@@ -30,13 +36,14 @@ Hard rules — never break these:
   returns empty rather than an error). Say which is more likely rather than assuming "all clear".
 - If something needed to answer truly isn't queryable with the tables you have, say so plainly
   rather than guessing.
-- Simple reasoning ON TOP of real queried numbers (e.g. "at this rate, X days of stock remain")
+- Simple reasoning ON TOP of real queried numbers (e.g. "at this rate, X days of stock remain", "Y tests are overdue for reports")
   is fine — the inputs just have to be real.
 - Salary, wage, pay-rate and deduction data is confidential to HR and admin. Follow the access
   statement below about this user exactly; never work backwards to an individual's pay from other figures.
 - In meetings data, an item's owner is owner_id (a login) or, for people without a login here, owner_name.
   A to-do is overdue when it is not completed (done_at null), not archived, and due_date is before today.
-- Keep answers concise and operational — this is read by managers deciding what to act on today.
+- In QAQC data, a test is pending its lab report when report_no is null. A test is pending billing when billing_status is 'pending' or po_no / invoice_no is null.
+- Keep answers concise, clear, and operational — this is read by factory directors and managers deciding what to act on today.
 
 SCHEMA REFERENCE (only these tables are queryable):
 ${schemaReferenceText()}`
@@ -50,11 +57,6 @@ async function requireAccess() {
   return { supabase, user }
 }
 
-// Managing AI Helper (settings + who-can-use-it) is deliberately narrower
-// than "admin anywhere" — every department has its own separate admin
-// account(s), and letting any one of them reconfigure a shared, cross-
-// department AI assistant or grant/revoke everyone else's access to it was
-// exactly the over-broad behavior reported and fixed here.
 async function requireSuperAdmin() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -90,9 +92,6 @@ export async function updateSettings(patch: Settings): Promise<void> {
   if (error) throw error
 }
 
-// All-time totals — the superadmin-only "token/cost track" view. Cost is
-// an estimate (tracked tokens × the configured $/1M rate above), not a
-// real-time bill from Google.
 export async function getUsageSummary(): Promise<UsageSummary> {
   const { supabase } = await requireSuperAdmin()
   const [{ data: rows, error }, settings] = await Promise.all([
@@ -166,9 +165,6 @@ export async function askAiHelper(messages: ChatMessage[]): Promise<string> {
     settings.system_instructions?.trim() ? `\nAdditional instructions from this organization's admin:\n${settings.system_instructions.trim()}` : '',
   ].join('\n')
 
-  // A thrown error from a Server Action reaches the browser as an opaque
-  // "Minified React error #441" in production (Next redacts the message).
-  // Return the real reason as the reply instead so the user/admin can act on it.
   let result: Awaited<ReturnType<typeof askGeminiWithTools>>
   try {
     result = await askGeminiWithTools({
@@ -193,8 +189,6 @@ export async function askAiHelper(messages: ChatMessage[]): Promise<string> {
     return `⚠️ The AI service returned an error: ${msg}${hint}`
   }
 
-  // Best-effort — a logging failure shouldn't take down an answer the user
-  // already has.
   await supabase.from('ai_helper_usage_log').insert([{
     user_id: user.id, model: settings.model,
     prompt_tokens: result.usage.promptTokens, completion_tokens: result.usage.completionTokens, total_tokens: result.usage.totalTokens,
@@ -202,10 +196,6 @@ export async function askAiHelper(messages: ChatMessage[]): Promise<string> {
 
   return result.text
 }
-
-// ---------------------------------------------------------------------------
-// Saved chats — private to the signed-in person (RLS: user_id = auth.uid()).
-// ---------------------------------------------------------------------------
 
 export type ChatSummary = { id: string; title: string; updated_at: string }
 export type SavedMessage = { role: 'user' | 'model'; text: string }
@@ -224,8 +214,6 @@ export async function getChat(id: string): Promise<SavedMessage[]> {
   return (data?.messages as SavedMessage[]) || []
 }
 
-// Creates the chat on first save (title = the first question), then keeps
-// overwriting its messages as the conversation grows. Returns the chat id.
 export async function saveChat(id: string | null, messages: SavedMessage[]): Promise<string> {
   const { supabase } = await requireAccess()
   const trimmed = messages.slice(-100).map(m => ({ role: m.role, text: String(m.text).slice(0, 20000) }))

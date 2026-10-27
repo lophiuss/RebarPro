@@ -24,14 +24,14 @@ const MODEL_OPTIONS = [
 ]
 
 const SUGGESTED_PROMPTS = [
-  'Who should we follow up with today, and why?',
-  'Which department is at risk right now, and why?',
-  'Who hasn’t done their job today?',
-  'Generate a summary for yesterday.',
-  'Give me a material forecast based on recent usage.',
+  'Which QAQC cube tests are still awaiting lab test reports or unbilled?',
+  'Any pending equipment maintenance work requests or unresolved issues?',
+  'Which workers have work permits or passports expiring soon?',
+  'What is the weighbridge cement intake volume and silo status today?',
   'Which meeting to-dos are overdue, grouped by owner?',
-  'Which KPIs missed their goal in the latest period?',
-  'Summarise the open issues across all meetings.',
+  'Who should we follow up with today, and why?',
+  'Which department is at operational risk right now, and why?',
+  'Summarise open issues and pending supervisor approvals across all divisions.',
 ]
 
 export default function AiHelperPage() {

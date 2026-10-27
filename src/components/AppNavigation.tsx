@@ -331,20 +331,18 @@ export default function AppNavigation({ userEmail, fullName, departments, navPer
               </Link>
             )}
 
-            {activeDept === 'maintenance' && (
-              <Link
-                href="/maintenance/help"
-                onClick={onLinkClick}
-                className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition ${
-                  pathname === '/maintenance/help'
-                    ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/20'
-                    : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
-                }`}
-              >
-                <HelpCircle className={`w-4 h-4 shrink-0 ${pathname === '/maintenance/help' ? 'text-white' : 'text-slate-400'}`} />
-                <span className="truncate">User Manual</span>
-              </Link>
-            )}
+            <Link
+              href={activeDept ? `/manual?dept=${activeDept}` : '/manual'}
+              onClick={onLinkClick}
+              className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition ${
+                pathname.startsWith('/manual')
+                  ? 'bg-blue-600 text-white shadow-sm shadow-blue-600/20'
+                  : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
+              }`}
+            >
+              <HelpCircle className={`w-4 h-4 shrink-0 ${pathname.startsWith('/manual') ? 'text-white' : 'text-slate-400'}`} />
+              <span className="truncate">User Manual</span>
+            </Link>
           </>
         )}
 
