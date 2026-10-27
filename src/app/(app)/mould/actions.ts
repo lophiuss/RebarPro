@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { getSignedInUser } from '@/lib/supabase/user'
 import { revalidatePath } from 'next/cache'
 
 // Mirrors maintenance/actions.ts's requireMaintenanceAccess. RLS on every
@@ -12,7 +13,7 @@ import { revalidatePath } from 'next/cache'
 // additional guard, not a replacement for RLS.
 async function requireMouldAccess() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSignedInUser(supabase)
   if (!user) throw new Error('Not signed in')
   const { data: hasAccess } = await supabase.rpc('has_dept_access', { dept: 'mould' })
   if (!hasAccess) throw new Error('Not authorized')
@@ -140,9 +141,6 @@ export async function createMouldJob(input: {
 // Completing a job is the one place added_steel_kg becomes money (Q11: book
 // on completion, not when weighed) — the standard rate is snapshotted here
 // so a later rate change never rewrites this job's cost (Q26).
-// added_steel_kg > 0 is also the objective test (Q22) that separates a real
-// modification from routine mould work, but that test lives in how the job
-// was categorised at creation (job_type), not re-derived here.
 export async function completeMouldJob(jobId: number, input: {
   completed_on: string
   added_steel_kg?: number
@@ -181,8 +179,6 @@ export async function completeMouldJob(jobId: number, input: {
   }).eq('id', jobId)
   if (error) throw error
 
-  // The mould's own steel weight only grows on a real modification/
-  // fabrication, never on maintenance/decommission (Q8/Q19).
   if (addedSteel > 0 && (job.job_type === 'fabrication' || job.job_type === 'change')) {
     const { data: mould } = await supabase.from('mould_assets').select('steel_weight_kg').eq('id', job.mould_id).single()
     await supabase.from('mould_assets')
@@ -196,9 +192,7 @@ export async function completeMouldJob(jobId: number, input: {
 }
 
 // ---------------------------------------------------------------------------
-// Time entries — the supervisor's daily allocation (Q24). One row per
-// worker per day per target; cost_target and the rate are derived/snapshotted
-// server-side, never trusted from the client.
+// Time entries — the supervisor's daily allocation (Q24).
 // ---------------------------------------------------------------------------
 
 export async function addTimeEntry(input: {
@@ -251,17 +245,11 @@ export async function addTimeEntry(input: {
 
 export async function deleteTimeEntry(id: number) {
   const { supabase } = await requireMouldAccess()
-  // The lock trigger rejects this outright if work_date falls in a locked
-  // period — the error surfaces to the caller as-is.
   const { error } = await supabase.from('mould_time_entries').delete().eq('id', id)
   if (error) throw error
   revalidatePath('/mould/allocation')
 }
 
-// Q30: supervisor's allocated hours are scaled to match the timecard total
-// for that worker/day, not overwritten. Ratio-scales every entry for the
-// given worker+date by the same factor so the allocation split (which job/
-// project got what share) is preserved.
 export async function reconcileDayToTimecard(workerId: number, workDate: string, timecardHours: number) {
   const { supabase } = await requireMouldAccess()
 
@@ -288,8 +276,7 @@ export async function reconcileDayToTimecard(workerId: number, workDate: string,
 }
 
 // ---------------------------------------------------------------------------
-// Month lock (Q33: admin only, deviating from other actions' has_dept_access-
-// only gate — this is the one place a wrong click has month-end consequences).
+// Month lock
 // ---------------------------------------------------------------------------
 
 export async function lockMonth(period: string) {
@@ -314,8 +301,7 @@ export async function unlockMonth(period: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Settings (Q26: admin only — a wrong standard rate silently skews every
-// job costed after it).
+// Settings
 // ---------------------------------------------------------------------------
 
 export async function updateMouldSettings(input: {

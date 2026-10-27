@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { getSignedInUser } from '@/lib/supabase/user'
+import { getSignedInUser, getCurrentUserAccess } from '@/lib/supabase/user'
 import { redirect } from 'next/navigation'
 import AppNavigation from '@/components/AppNavigation'
 
@@ -15,14 +15,7 @@ export default async function AppLayout({
     redirect('/login')
   }
 
-  const [{ data: access }, { data: navPerms }, { data: profile }, { data: canUseAiHelper }] = await Promise.all([
-    supabase.from('user_department_access').select('department, role').eq('user_id', user.id),
-    supabase.from('department_nav_permissions').select('department, role, nav_key'),
-    supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle(),
-    supabase.rpc('can_use_ai_helper'),
-  ])
-
-  const departments = access ?? []
+  const { departments, navPermissions, fullName, canUseAiHelper } = await getCurrentUserAccess(supabase, user.id)
 
   if (departments.length === 0) {
     return (
@@ -30,7 +23,7 @@ export default async function AppLayout({
         <div className="max-w-md text-center border rounded-xl bg-white shadow-sm p-8">
           <h1 className="text-xl font-bold text-slate-800 mb-2">No access assigned yet</h1>
           <p className="text-sm text-gray-500 mb-6">
-            Your account ({user.email}) isn&apos;t assigned to the Rebar or Cement department yet.
+            Your account ({user.email}) isn&apos;t assigned to any department yet.
             Ask an admin to grant access.
           </p>
           <form action="/auth/signout" method="post">
@@ -44,7 +37,7 @@ export default async function AppLayout({
   }
 
   return (
-    <AppNavigation userEmail={user.email || ''} fullName={profile?.full_name ?? null} departments={departments} navPermissions={navPerms ?? []} canUseAiHelper={!!canUseAiHelper}>
+    <AppNavigation userEmail={user.email || ''} fullName={fullName} departments={departments} navPermissions={navPermissions} canUseAiHelper={canUseAiHelper}>
       {children}
     </AppNavigation>
   )

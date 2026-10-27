@@ -1,6 +1,6 @@
 'use server'
 
-import { requireQaqcAccess } from './guard'
+import { requireQaqcAccess, requireQaqcRole } from './guard'
 import { revalidatePath } from 'next/cache'
 
 export type QaqcTestInput = {
@@ -32,32 +32,40 @@ export type QaqcTestInput = {
 }
 
 async function generateNextRunningNo(supabase: any, year: number): Promise<string> {
-  // Try Postgres RPC first
-  try {
-    const { data, error } = await supabase.rpc('qaqc_next_running_no', { p_year: year })
-    if (!error && data) return data as string
-  } catch {
-    // Fall back to table query
-  }
-
-  // Fallback: Query the latest running number for this year
+  // Check both the atomic RPC counter and actual max running_no in qaqc_tests
+  // so bulk imports and single inserts never collide
   const prefix = `QAQC-${year}-`
-  const { data: latest } = await supabase
-    .from('qaqc_tests')
-    .select('running_no')
-    .like('running_no', `${prefix}%`)
-    .order('running_no', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+  const [{ data: rpcNo }, { data: latest }] = await Promise.all([
+    supabase.rpc('qaqc_next_running_no', { p_year: year }).then((r: any) => r, () => ({ data: null })),
+    supabase
+      .from('qaqc_tests')
+      .select('running_no')
+      .like('running_no', `${prefix}%`)
+      .order('running_no', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ])
 
-  let nextSeq = 1
+  let tableMaxSeq = 0
   if (latest?.running_no) {
     const parts = latest.running_no.split('-')
     const lastNum = parseInt(parts[parts.length - 1], 10)
-    if (!isNaN(lastNum)) nextSeq = lastNum + 1
+    if (!isNaN(lastNum)) tableMaxSeq = lastNum
   }
 
-  return `${prefix}${String(nextSeq).padStart(4, '0')}`
+  let rpcSeq = 0
+  if (typeof rpcNo === 'string' && rpcNo.startsWith(prefix)) {
+    const parts = rpcNo.split('-')
+    const num = parseInt(parts[parts.length - 1], 10)
+    if (!isNaN(num)) rpcSeq = num
+  }
+
+  const finalSeq = Math.max(rpcSeq, tableMaxSeq + 1, 1)
+  if (finalSeq > rpcSeq) {
+    await supabase.from('qaqc_counters').upsert({ year, last_seq: finalSeq }, { onConflict: 'year' })
+  }
+
+  return `${prefix}${String(finalSeq).padStart(4, '0')}`
 }
 
 export async function createQaqcTest(input: QaqcTestInput) {
@@ -69,13 +77,13 @@ export async function createQaqcTest(input: QaqcTestInput) {
   // Auto-register new test type if provided
   if (input.test_type?.trim()) {
     const trimmed = input.test_type.trim()
-    supabase.from('qaqc_test_types').insert({ name: trimmed }).maybeSingle().then(() => {})
+    supabase.from('qaqc_test_types').upsert({ name: trimmed }, { onConflict: 'name', ignoreDuplicates: true }).then(() => {})
   }
 
   // Auto-register new supplier if provided
   if (input.supplier?.trim()) {
     const trimmed = input.supplier.trim()
-    supabase.from('qaqc_suppliers').insert({ name: trimmed }).maybeSingle().then(() => {})
+    supabase.from('qaqc_suppliers').upsert({ name: trimmed }, { onConflict: 'name', ignoreDuplicates: true }).then(() => {})
   }
 
   const { data, error } = await supabase
@@ -124,24 +132,32 @@ export async function bulkCreateQaqcTests(items: QaqcTestInput[]) {
   if (!items.length) return []
 
   const currentYear = new Date().getFullYear()
-  // Determine year for each or group by year
   const prefix = `QAQC-${currentYear}-`
 
-  // Get current highest number for current year
-  const { data: latest } = await supabase
-    .from('qaqc_tests')
-    .select('running_no')
-    .like('running_no', `${prefix}%`)
-    .order('running_no', { ascending: false })
-    .limit(1)
-    .maybeSingle()
+  // Get current highest number from both qaqc_tests and qaqc_counters
+  const [{ data: latest }, { data: counterRow }] = await Promise.all([
+    supabase
+      .from('qaqc_tests')
+      .select('running_no')
+      .like('running_no', `${prefix}%`)
+      .order('running_no', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from('qaqc_counters')
+      .select('last_seq')
+      .eq('year', currentYear)
+      .maybeSingle(),
+  ])
 
-  let nextSeq = 1
+  let maxTableSeq = 0
   if (latest?.running_no) {
     const parts = latest.running_no.split('-')
     const lastNum = parseInt(parts[parts.length - 1], 10)
-    if (!isNaN(lastNum)) nextSeq = lastNum + 1
+    if (!isNaN(lastNum)) maxTableSeq = lastNum
   }
+  const maxCounterSeq = Number(counterRow?.last_seq) || 0
+  const nextSeq = Math.max(maxTableSeq, maxCounterSeq) + 1
 
   // Also extract test types and suppliers to auto-register
   const uniqueTestTypes = new Set<string>()
@@ -183,6 +199,10 @@ export async function bulkCreateQaqcTests(items: QaqcTestInput[]) {
       created_by: user.id,
     }
   })
+
+  // Keep qaqc_counters synchronized so subsequent single creates never collide
+  const newLastSeq = nextSeq + items.length - 1
+  await supabase.from('qaqc_counters').upsert({ year: currentYear, last_seq: newLastSeq }, { onConflict: 'year' })
 
   // Save new test types & suppliers in background
   if (uniqueTestTypes.size > 0) {
@@ -238,7 +258,7 @@ export async function updateQaqcTest(id: number, patch: Partial<QaqcTestInput>) 
 }
 
 export async function deleteQaqcTest(id: number) {
-  const { supabase } = await requireQaqcAccess()
+  const { supabase } = await requireQaqcRole(['qaqc', 'manager', 'admin'])
   const { error } = await supabase.from('qaqc_tests').delete().eq('id', id)
   if (error) throw error
 
@@ -251,7 +271,7 @@ export async function deleteQaqcTest(id: number) {
 // ---------------------------------------------------------------------------
 
 export async function createQaqcTestType(name: string, category = 'General', standard_cost = 0) {
-  const { supabase } = await requireQaqcAccess()
+  const { supabase } = await requireQaqcRole(['qaqc', 'purchaser', 'manager', 'admin'])
   const { error } = await supabase.from('qaqc_test_types').insert({
     name: name.trim(),
     category: category.trim() || 'General',
@@ -264,7 +284,7 @@ export async function createQaqcTestType(name: string, category = 'General', sta
 }
 
 export async function updateQaqcTestType(id: number, patch: { name?: string; category?: string; standard_cost?: number; status?: 'Active' | 'Inactive' }) {
-  const { supabase } = await requireQaqcAccess()
+  const { supabase } = await requireQaqcRole(['qaqc', 'purchaser', 'manager', 'admin'])
   const { error } = await supabase.from('qaqc_test_types').update(patch).eq('id', id)
   if (error) throw error
   revalidatePath('/qaqc/settings')
@@ -272,7 +292,7 @@ export async function updateQaqcTestType(id: number, patch: { name?: string; cat
 }
 
 export async function deleteQaqcTestType(id: number) {
-  const { supabase } = await requireQaqcAccess()
+  const { supabase } = await requireQaqcRole(['manager', 'admin'])
   const { error } = await supabase.from('qaqc_test_types').delete().eq('id', id)
   if (error) throw error
   revalidatePath('/qaqc/settings')
@@ -280,7 +300,7 @@ export async function deleteQaqcTestType(id: number) {
 }
 
 export async function createQaqcSupplier(name: string, contact_person = '', phone = '', email = '') {
-  const { supabase } = await requireQaqcAccess()
+  const { supabase } = await requireQaqcRole(['qaqc', 'purchaser', 'manager', 'admin'])
   const { error } = await supabase.from('qaqc_suppliers').insert({
     name: name.trim(),
     contact_person: contact_person.trim() || null,
@@ -294,7 +314,7 @@ export async function createQaqcSupplier(name: string, contact_person = '', phon
 }
 
 export async function updateQaqcSupplier(id: number, patch: { name?: string; contact_person?: string; phone?: string; email?: string; status?: 'Active' | 'Inactive' }) {
-  const { supabase } = await requireQaqcAccess()
+  const { supabase } = await requireQaqcRole(['qaqc', 'purchaser', 'manager', 'admin'])
   const { error } = await supabase.from('qaqc_suppliers').update(patch).eq('id', id)
   if (error) throw error
   revalidatePath('/qaqc/settings')
@@ -302,7 +322,7 @@ export async function updateQaqcSupplier(id: number, patch: { name?: string; con
 }
 
 export async function deleteQaqcSupplier(id: number) {
-  const { supabase } = await requireQaqcAccess()
+  const { supabase } = await requireQaqcRole(['manager', 'admin'])
   const { error } = await supabase.from('qaqc_suppliers').delete().eq('id', id)
   if (error) throw error
   revalidatePath('/qaqc/settings')
@@ -314,7 +334,7 @@ export async function deleteQaqcSupplier(id: number) {
 // ---------------------------------------------------------------------------
 
 export async function upsertQaqcTarget(project: string, month: string, test_count_target: number, spend_target: number) {
-  const { supabase } = await requireQaqcAccess()
+  const { supabase } = await requireQaqcRole(['qaqc', 'manager', 'admin'])
   const { error } = await supabase.from('qaqc_targets').upsert(
     {
       project: project.trim(),
@@ -339,7 +359,7 @@ export async function batchAssignQaqcPo(
     purchaser_remarks?: string | null
   }
 ) {
-  const { supabase } = await requireQaqcAccess()
+  const { supabase } = await requireQaqcRole(['purchaser', 'manager', 'admin'])
   if (!ids.length) return { ok: true, count: 0 }
 
   const poNo = poData.po_no.trim()
@@ -396,7 +416,7 @@ export async function batchAssignQaqcInvoice(
     account_remarks?: string | null
   }
 ) {
-  const { supabase } = await requireQaqcAccess()
+  const { supabase } = await requireQaqcRole(['account', 'manager', 'admin'])
   if (!ids.length) return { ok: true, count: 0 }
 
   const invNo = invData.invoice_no.trim()

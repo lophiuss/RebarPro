@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { getSignedInUser } from '@/lib/supabase/user'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { askGeminiWithTools, type ChatMessage, type Effort } from '@/lib/gemini'
 import { schemaReferenceText, queryDatabaseToolDeclaration, executeQueryDatabase } from '@/lib/ai-helper-tools'
@@ -42,7 +43,7 @@ Hard rules — never break these:
   statement below about this user exactly; never work backwards to an individual's pay from other figures.
 - In meetings data, an item's owner is owner_id (a login) or, for people without a login here, owner_name.
   A to-do is overdue when it is not completed (done_at null), not archived, and due_date is before today.
-- In QAQC data, a test is pending its lab report when report_no is null. A test is pending billing when billing_status is 'pending' or po_no / invoice_no is null.
+- In QAQC data, a test is pending its lab report when report_no is null. A test is pending billing/payment when payment_status is 'Pending' or po_no / invoice_no is null.
 - Keep answers concise, clear, and operational — this is read by factory directors and managers deciding what to act on today.
 
 SCHEMA REFERENCE (only these tables are queryable):
@@ -50,7 +51,7 @@ ${schemaReferenceText()}`
 
 async function requireAccess() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSignedInUser(supabase)
   if (!user) throw new Error('Not signed in')
   const { data: allowed } = await supabase.rpc('can_use_ai_helper')
   if (!allowed) throw new Error('Not authorized to use AI Helper')
@@ -59,7 +60,7 @@ async function requireAccess() {
 
 async function requireSuperAdmin() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSignedInUser(supabase)
   if (!user) throw new Error('Not signed in')
   const { data: isSuperAdmin } = await supabase.rpc('is_super_admin')
   if (!isSuperAdmin) throw new Error('Not authorized — restricted to the app super admin')
@@ -68,7 +69,7 @@ async function requireSuperAdmin() {
 
 export async function amISuperAdmin(): Promise<boolean> {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSignedInUser(supabase)
   if (!user) return false
   const { data } = await supabase.rpc('is_super_admin')
   return !!data
@@ -140,8 +141,9 @@ export async function grantAccess(userId: string): Promise<void> {
 
 export async function revokeAccess(userId: string): Promise<void> {
   const { supabase } = await requireSuperAdmin()
-  const { error } = await supabase.from('ai_helper_access').delete().eq('user_id', userId)
-  if (error) throw error
+  const { error } = await supabase.from('ai_helper_chats').delete().eq('user_id', userId) // optional cleanup if needed
+  const { error: accessErr } = await supabase.from('ai_helper_access').delete().eq('user_id', userId)
+  if (accessErr) throw accessErr
 }
 
 export async function askAiHelper(messages: ChatMessage[]): Promise<string> {
@@ -155,9 +157,11 @@ export async function askAiHelper(messages: ChatMessage[]): Promise<string> {
   const { data: canSeeWagesRaw } = await supabase.rpc('plantpro_can_see_wages')
   const canSeeWages = !!canSeeWagesRaw
 
+  const todayMyt = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' })
+
   const systemInstruction = [
     BASE_INSTRUCTIONS,
-    `\nToday's date is ${new Date().toISOString().split('T')[0]}.`,
+    `\nToday's date is ${todayMyt}.`,
     `This user has access to these departments: ${myDepartments.join(', ') || '(none)'}.`,
     canSeeWages
       ? `This user is HR/admin and MAY see salary/wage data. Still treat it as confidential: only state what was directly asked, and don't volunteer individual salaries.`

@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { getSignedInUser } from '@/lib/supabase/user'
 import { revalidatePath } from 'next/cache'
 import { daysStayedInMonth, computeProration, dayBefore } from '@/lib/plantpro-hostel'
 import { uploadToDrive, deleteFromDrive } from '@/lib/google-drive'
@@ -11,7 +12,7 @@ import { normalizeName, normalizeAddress } from '@/lib/plantpro-import/matching'
 // Mirrors mould/actions.ts's requireMouldAccess/requireMouldRole pattern.
 async function requirePlantproAccess() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSignedInUser(supabase)
   if (!user) throw new Error('Not signed in')
   const { data: hasAccess } = await supabase.rpc('has_dept_access', { dept: 'plantpro' })
   if (!hasAccess) throw new Error('Not authorized')
@@ -481,7 +482,7 @@ async function logWorkerMovement(
   after: { supervisor_id: number | null; line: string | null },
 ) {
   if (!before || (before.supervisor_id === after.supervisor_id && before.line === after.line)) return
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSignedInUser(supabase)
   await supabase.from('plantpro_worker_movements').insert([{
     worker_id: workerId, effective_date: effectiveDate,
     from_supervisor_id: before.supervisor_id, to_supervisor_id: after.supervisor_id,

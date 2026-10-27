@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { getSignedInUser } from '@/lib/supabase/user'
+import { getSignedInUser, getCurrentUserAccess } from '@/lib/supabase/user'
 import { DEPARTMENT_HOME, type Department } from '@/components/AppNavigation'
 import PortalClient from './PortalClient'
 
@@ -32,12 +32,9 @@ export default async function HomePage() {
     redirect('/login')
   }
 
-  const [{ data: access }, { data: profile }] = await Promise.all([
-    supabase.from('user_department_access').select('department, role').eq('user_id', user.id),
-    supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle(),
-  ])
-
-  const departments = (access ?? []) as { department: Department; role: string }[]
+  // Uses React cache() so this is served directly from memory if already fetched by AppLayout
+  const { departments: rawDepts, fullName } = await getCurrentUserAccess(supabase, user.id)
+  const departments = (rawDepts ?? []) as { department: Department; role: string }[]
 
   // 方案 C: 智能角色路由 (Role-based Smart Routing)
   // 如果用户只被分配了 1 个部门权限，直接直达该部门首页，无需多余点击
@@ -47,15 +44,14 @@ export default async function HomePage() {
   }
 
   const deptSet = new Set(departments.map(d => d.department))
-  const todayStr = new Date().toISOString().split('T')[0]
-  const todayStart = `${todayStr}T00:00:00.000Z`
+  // Use Malaysia local date (UTC+8) so 00:00-08:00 MYT queries today's actual records
+  const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuala_Lumpur' })
+  const todayStart = `${todayStr}T00:00:00+08:00`
 
   // 方案 A: 企业指挥舱指标与待办事项查询 (安全并发，按权限加载)
-  const queries: Promise<any>[] = []
-
-  // 1. Cement weight-in today
+  // 1. Cement weight-in today (exclude archived rows)
   const cementPromise = deptSet.has('cement')
-    ? supabase.from('cement_weight_in').select('id', { count: 'exact', head: true }).gte('created_at', todayStart)
+    ? supabase.from('cement_weight_in').select('id', { count: 'exact', head: true }).eq('weigh_date', todayStr).is('archived_at', null)
     : Promise.resolve({ count: null })
 
   // 2. Maintenance pending work requests
@@ -70,12 +66,12 @@ export default async function HomePage() {
 
   // 4. Security entries today
   const securityPromise = deptSet.has('security')
-    ? supabase.from('security_entries').select('id', { count: 'exact', head: true }).gte('created_at', todayStart)
+    ? supabase.from('security_entries').select('id', { count: 'exact', head: true }).gte('time_in', todayStart)
     : Promise.resolve({ count: null })
 
-  // 5. PlantPro OT extra requests pending
+  // 5. PlantPro OT extra requests pending (status check constraint is capital 'Pending')
   const otPromise = deptSet.has('plantpro')
-    ? supabase.from('plantpro_ot_extra_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending')
+    ? supabase.from('plantpro_ot_extra_requests').select('id', { count: 'exact', head: true }).eq('status', 'Pending')
     : Promise.resolve({ count: null })
 
   // 6. Meetings my personal pending todos
@@ -153,7 +149,7 @@ export default async function HomePage() {
   return (
     <PortalClient
       userEmail={user.email || ''}
-      fullName={profile?.full_name ?? null}
+      fullName={fullName}
       departments={departments}
       kpis={kpis}
       actionItems={actionItems}

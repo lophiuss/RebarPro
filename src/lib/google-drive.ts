@@ -137,9 +137,24 @@ export async function uploadToDrive(buffer: Buffer, subfolder: DriveSubfolder, f
 
 // Streams a file's bytes back out, for the photo proxy route. Returns the
 // content type Drive has on record plus a Node Readable of the bytes.
-export async function streamFromDrive(fileId: string): Promise<{ stream: NodeJS.ReadableStream; mimeType: string }> {
+// If allowedSubfolders is provided, it validates that the file is located within
+// one of the allowed subfolder IDs to prevent IDOR / cross-department file leaks.
+export async function streamFromDrive(
+  fileId: string,
+  allowedSubfolders?: DriveSubfolder[]
+): Promise<{ stream: NodeJS.ReadableStream; mimeType: string }> {
   const drive = getDriveClient()
-  const meta = await drive.files.get({ fileId, fields: 'mimeType' })
+  const meta = await drive.files.get({ fileId, fields: 'mimeType, parents' })
+
+  if (allowedSubfolders && allowedSubfolders.length > 0) {
+    const parentFolderIds = await Promise.all(allowedSubfolders.map(sub => getOrCreateSubfolder(sub)))
+    const fileParents = meta.data.parents || []
+    const isAllowed = fileParents.some(p => parentFolderIds.includes(p))
+    if (!isAllowed) {
+      throw new Error('Unauthorized file access: file does not belong to authorized subfolder')
+    }
+  }
+
   const res = await drive.files.get({ fileId, alt: 'media' }, { responseType: 'stream' })
   return { stream: res.data as unknown as NodeJS.ReadableStream, mimeType: meta.data.mimeType || 'application/octet-stream' }
 }

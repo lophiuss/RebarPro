@@ -30,7 +30,7 @@ const ALLOWED_TABLES: Record<string, string> = {
   security_panic_logs: 'triggered_by, remark, created_at',
   security_keys: 'key_name, key_no',
   security_key_logs: 'key_id, issued_to, issued_by, time_issued, time_returned, status',
-  security_clocking_records: 'Security guard GPS patrol clock-ins — id, guard_name, checkpoint_id, latitude, longitude, clocked_at',
+  security_clocking_records: 'Security guard GPS patrol clock-ins — id, checkpoint_id, checkpoint_name, guard_name, clocked_at, latitude, longitude, distance_meters, remark, created_at',
   shoutouts: 'department, to_name, message, from_name, created_at',
   profiles: 'id, full_name — no emails or credentials are stored here',
   maintenance_equipment: 'equip_code, name, category, brand, location, condition (good|fair|poor|spoil), manager, supervisor, pic_day, pic_night, target_repair_hours, is_active',
@@ -54,7 +54,7 @@ const ALLOWED_TABLES: Record<string, string> = {
   plantpro_timesheet_days: 'HR-recorded attendance — worker_id, month (YYYY-MM), day (DD), basic, ot (hours)',
   plantpro_ot_months: 'Supervisor OT planning header — worker_id, month (YYYY-MM), mode, remark',
   plantpro_ot_days: 'Supervisor-PLANNED daily hours — ot_month_id, day (DD), basic, ot',
-  plantpro_ot_extra_requests: 'Ad-hoc overtime requests submitted by supervisors — id, worker_id, work_date, hours, reason, status (pending|approved|rejected), supervisor_name, approved_by, created_at',
+  plantpro_ot_extra_requests: 'Ad-hoc overtime requests submitted by supervisors — id, month (YYYY-MM), work_date, worker_id, supervisor_id, hours, reason, allocations, status (Pending|Approved|Rejected), requested_by, requested_at, decided_by, decided_at, decision_note',
   plantpro_hostels: 'Hostel facilities — id, name, status, address, owner_name, owner_contact, rental_per_month, deposit_withheld',
   plantpro_hostel_stays: 'worker_id, hostel_id, move_in_date, move_out_date (null = still staying)',
   plantpro_documents: 'Worker/hostel document tracking — owner_type (WORKER|HOSTEL), worker_id, hostel_id, document_type_id, file_name, issue_date, expiry_date, remarks',
@@ -79,10 +79,10 @@ const ALLOWED_TABLES: Record<string, string> = {
   mtg_seat_people: 'seat_id, user_id — who sits in a seat',
   mtg_seat_contacts: 'seat_id, contact_id — imported seat holders without a login',
   mtg_rprs: 'Right Person Right Seat assessments — person_id, assessor_id, core_values, gwc, created_at',
-  qaqc_tests: 'QAQC cube compressive and materials test records — id, running_no, project, supplier, marking, test_type, date_cast, date_test, report_no (null = pending lab report), email_date, po_no, po_date, invoice_no, invoice_date, credit_note_no, billing_status (pending|matched|billed|disputed), unit_price, quantity, qty_unit, total_amount, qaqc_remarks',
-  qaqc_targets: 'Monthly QAQC testing targets — id, target_month (YYYY-MM), min_tests_required, pass_rate_target_pct, remarks',
-  qaqc_test_types: 'Testing catalogue — id, name (e.g. 7-day cube, 28-day cube, core test), default_price, unit, is_active',
-  qaqc_suppliers: 'Testing laboratories & third-party providers — id, name, contact_person, phone, email, is_active',
+  qaqc_tests: 'QAQC cube compressive and materials test records — id, running_no, project, supplier, marking, test_type, qty, unit, date_cast, date_test, report_no (null = pending lab report), email_date, qaqc_remarks, po_no, po_date, po_amount, purchaser_remarks, invoice_no, invoice_date, invoice_amount, cn_no, cn_date, cn_amount, cn_remarks, payment_status (Pending|Paid|Partially Paid|Void), payment_date, account_remarks',
+  qaqc_targets: 'Monthly QAQC testing targets — id, project, month (YYYY-MM), test_count_target, spend_target',
+  qaqc_test_types: 'Testing catalogue — id, name (e.g. Cube Compression Test, Rebar Tensile Test), category, standard_cost, status (Active|Inactive), sort_order',
+  qaqc_suppliers: 'Testing laboratories & third-party providers — id, name, contact_person, phone, email, status (Active|Inactive)',
 }
 
 const ALLOWED_OPS = new Set(['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'like', 'ilike', 'in', 'is'])

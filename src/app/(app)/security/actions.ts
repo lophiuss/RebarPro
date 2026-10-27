@@ -1,11 +1,12 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { getSignedInUser } from '@/lib/supabase/user'
 import { uploadToDrive, type DriveSubfolder } from '@/lib/google-drive'
 
 async function requireSecurityAccess() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSignedInUser(supabase)
   if (!user) throw new Error('Not signed in — please log in again.')
   const { data: hasAccess } = await supabase.rpc('has_dept_access', { dept: 'security' })
   if (!hasAccess) throw new Error('Not authorized')
@@ -18,8 +19,8 @@ export type UploadResult = { ok: true; id: string } | { ok: false; error: string
 
 // Uploads a photo (already compressed client-side) to the security
 // department's Google Drive folder and returns the Drive file id to store
-// on the entries/incidents/layout row. Re-checks department access itself —
-// never trusts that only the security pages call this.
+// on the entries/incidents/layout row. Re-checks department access itself.
+// Photos are strictly capped at 200 KB per photo.
 export async function uploadSecurityPhoto(formData: FormData): Promise<UploadResult> {
   try {
     await requireSecurityAccess()
@@ -29,6 +30,11 @@ export async function uploadSecurityPhoto(formData: FormData): Promise<UploadRes
     if (!file) return { ok: false, error: 'No photo provided' }
     if (!subfolder || !['entries', 'incidents', 'layout', 'avatars', 'clocking'].includes(subfolder)) {
       return { ok: false, error: 'Invalid subfolder' }
+    }
+
+    const MAX_PHOTO_BYTES = 200 * 1024 // 200 KB limit per photo
+    if (file.size > MAX_PHOTO_BYTES) {
+      return { ok: false, error: `Photo exceeds the 200KB limit (${Math.round(file.size / 1024)}KB). Please try again.` }
     }
 
     const buffer = Buffer.from(await file.arrayBuffer())
