@@ -40,7 +40,7 @@ export default async function DirectReportsPage() {
 
   const [{ data: todos }, { data: goals }] = ids.length
     ? await Promise.all([
-        supabase.from('mtg_todos').select('id, owner_id, title, due_date, done_at').in('owner_id', ids).or(`done_at.is.null,done_at.gte.${sinceStr}`).order('due_date', { ascending: true, nullsFirst: false }),
+        supabase.from('mtg_todos').select('id, owner_id, title, due_date, done_at').in('owner_id', ids).is('archived_at', null).order('due_date', { ascending: true, nullsFirst: false }),
         supabase.from('mtg_goals').select('id, owner_id, title, status, due_date, completed_at, milestones').in('owner_id', ids),
       ])
     : [{ data: [] as any[] }, { data: [] as any[] }]
