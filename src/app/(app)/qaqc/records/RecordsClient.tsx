@@ -4,7 +4,8 @@ import React, { useState, useMemo } from 'react'
 import {
   Search, Plus, FileSpreadsheet, Download, Trash2, Edit3,
   Calendar, CheckCircle2, Clock, ArrowUpDown, Check, X,
-  Receipt, FileCheck, Layers, Sparkles
+  Receipt, FileCheck, Layers, Sparkles, ListCollapse,
+  ChevronDown, ChevronUp
 } from 'lucide-react'
 import PasteExcelModal, { downloadQaqcTemplate } from './PasteExcelModal'
 import TestFormModal from './TestFormModal'
@@ -84,6 +85,8 @@ export default function RecordsClient({
 
   // Saved cell animation tracker: key is `${rowId}-${field}`
   const [savedCell, setSavedCell] = useState<string | null>(null)
+  const [isCompact, setIsCompact] = useState(true)
+  const [showMetrics, setShowMetrics] = useState(true)
 
   const isSuper = userRole === 'admin' || userRole === 'manager'
   const canEditQaqc = isSuper || userRole === 'qaqc'
@@ -316,51 +319,65 @@ export default function RecordsClient({
   }
 
   return (
-    <div className="space-y-4">
-      {/* Top Banner & Metric Summary */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-[11px] font-semibold text-slate-500 uppercase block">Total Tests</span>
-          <span className="text-xl font-bold text-slate-800">{summary.totalCount}</span>
-        </div>
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-[11px] font-semibold text-slate-500 uppercase block">Awaiting PO</span>
-          <span className={`text-xl font-bold ${summary.awaitingPoCount > 0 ? 'text-amber-600' : 'text-slate-800'}`}>
-            {summary.awaitingPoCount}
-          </span>
-        </div>
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-[11px] font-semibold text-slate-500 uppercase block">Awaiting Invoice</span>
-          <span className={`text-xl font-bold ${summary.awaitingInvCount > 0 ? 'text-indigo-600' : 'text-slate-800'}`}>
-            {summary.awaitingInvCount}
-          </span>
-        </div>
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-[11px] font-semibold text-slate-500 uppercase block">Total PO Spend</span>
-          <span className="text-xl font-bold text-slate-800">{fmtRm(summary.totalPo)}</span>
-        </div>
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-[11px] font-semibold text-slate-500 uppercase block">Net Invoiced</span>
-          <span className="text-xl font-bold text-emerald-700">{fmtRm(summary.netInv)}</span>
-          {summary.totalCn > 0 && (
-            <span className="text-[10px] text-emerald-600 block">Gross {fmtRm(summary.rawInv)}</span>
-          )}
-        </div>
-        <div className="bg-white p-3.5 rounded-xl border border-emerald-100 bg-emerald-50/30 shadow-2xs">
-          <span className="text-[11px] font-semibold text-emerald-800 uppercase block">CN Adjustments</span>
-          <span className="text-xl font-bold text-emerald-800">
-            {summary.totalCn > 0 ? `-${fmtRm(summary.totalCn)}` : 'RM 0.00'}
-          </span>
-          <span className="text-[10px] text-slate-500 block">{summary.cnCount} credit notes</span>
-        </div>
-        <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-[11px] font-semibold text-slate-500 uppercase block">Total Paid</span>
-          <span className="text-xl font-bold text-emerald-600">{fmtRm(summary.totalPaid)}</span>
-        </div>
+    <div className="space-y-3">
+      {/* Top Banner & Metric Summary Header */}
+      <div className="flex items-center justify-between text-xs px-1">
+        <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">Financial & Test Summary</span>
+        <button
+          type="button"
+          onClick={() => setShowMetrics(!showMetrics)}
+          className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold inline-flex items-center gap-1 transition"
+        >
+          {showMetrics ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          {showMetrics ? 'Collapse Summary' : 'Show 7 Metric Cards'}
+        </button>
       </div>
 
+      {showMetrics && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2.5">
+          <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs">
+            <span className="text-[10px] font-semibold text-slate-500 uppercase block">Total Tests</span>
+            <span className="text-lg font-bold text-slate-800">{summary.totalCount}</span>
+          </div>
+          <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs">
+            <span className="text-[10px] font-semibold text-slate-500 uppercase block">Awaiting PO</span>
+            <span className={`text-lg font-bold ${summary.awaitingPoCount > 0 ? 'text-amber-600' : 'text-slate-800'}`}>
+              {summary.awaitingPoCount}
+            </span>
+          </div>
+          <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs">
+            <span className="text-[10px] font-semibold text-slate-500 uppercase block">Awaiting Invoice</span>
+            <span className={`text-lg font-bold ${summary.awaitingInvCount > 0 ? 'text-indigo-600' : 'text-slate-800'}`}>
+              {summary.awaitingInvCount}
+            </span>
+          </div>
+          <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs">
+            <span className="text-[10px] font-semibold text-slate-500 uppercase block">Total PO Spend</span>
+            <span className="text-lg font-bold text-slate-800">{fmtRm(summary.totalPo)}</span>
+          </div>
+          <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs">
+            <span className="text-[10px] font-semibold text-slate-500 uppercase block">Net Invoiced</span>
+            <span className="text-lg font-bold text-emerald-700">{fmtRm(summary.netInv)}</span>
+            {summary.totalCn > 0 && (
+              <span className="text-[9px] text-emerald-600 block">Gross {fmtRm(summary.rawInv)}</span>
+            )}
+          </div>
+          <div className="bg-white p-2.5 rounded-xl border border-emerald-100 bg-emerald-50/30 shadow-2xs">
+            <span className="text-[10px] font-semibold text-emerald-800 uppercase block">CN Adjustments</span>
+            <span className="text-lg font-bold text-emerald-800">
+              {summary.totalCn > 0 ? `-${fmtRm(summary.totalCn)}` : 'RM 0.00'}
+            </span>
+            <span className="text-[9px] text-slate-500 block">{summary.cnCount} credit notes</span>
+          </div>
+          <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs">
+            <span className="text-[10px] font-semibold text-slate-500 uppercase block">Total Paid</span>
+            <span className="text-lg font-bold text-emerald-600">{fmtRm(summary.totalPaid)}</span>
+          </div>
+        </div>
+      )}
+
       {/* Filter Tabs & Action Bar */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4 space-y-4">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-3.5 space-y-3">
         {/* Tabs & Buttons */}
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
           <div className="flex flex-wrap gap-1">
@@ -375,7 +392,7 @@ export default function RecordsClient({
               <button
                 key={t.key}
                 onClick={() => setTab(t.key as any)}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
                   tab === t.key
                     ? 'bg-slate-900 text-white shadow-xs'
                     : 'text-slate-600 hover:bg-slate-100'
@@ -386,10 +403,25 @@ export default function RecordsClient({
             ))}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* View Density Toggle Button */}
+            <button
+              type="button"
+              onClick={() => setIsCompact(!isCompact)}
+              className={`flex items-center gap-1.5 border text-xs font-semibold px-3 py-1.5 rounded-xl transition shadow-2xs ${
+                isCompact
+                  ? 'bg-slate-900 border-slate-900 text-white'
+                  : 'bg-white hover:bg-slate-50 border-slate-300 text-slate-700'
+              }`}
+              title={isCompact ? 'Compact view active (shows more lines). Click for comfortable view.' : 'Click to enable compact view (see more lines)'}
+            >
+              <ListCollapse className="w-3.5 h-3.5" />
+              <span>{isCompact ? 'Compact (More Lines)' : 'Comfortable View'}</span>
+            </button>
+
             <button
               onClick={downloadQaqcTemplate}
-              className="flex items-center gap-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold px-3 py-2 rounded-xl transition shadow-2xs"
+              className="flex items-center gap-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold px-3 py-1.5 rounded-xl transition shadow-2xs"
               title="Download Excel / CSV template for bulk importing"
             >
               <Download className="w-3.5 h-3.5 text-emerald-600" />
@@ -397,14 +429,14 @@ export default function RecordsClient({
             </button>
             <button
               onClick={() => setIsExcelModalOpen(true)}
-              className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-semibold px-3.5 py-2 rounded-xl transition shadow-2xs"
+              className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-semibold px-3 py-1.5 rounded-xl transition shadow-2xs"
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
               Paste from Excel
             </button>
             <button
               onClick={handleExportCsv}
-              className="flex items-center gap-1 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold px-3 py-2 rounded-xl transition shadow-2xs"
+              className="flex items-center gap-1 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold px-2.5 py-1.5 rounded-xl transition shadow-2xs"
               title="Export CSV"
             >
               <Download className="w-3.5 h-3.5 text-slate-500" />
@@ -412,7 +444,7 @@ export default function RecordsClient({
             </button>
             <button
               onClick={() => { setEditingRecord(null); setIsFormModalOpen(true) }}
-              className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-4 py-2 rounded-xl transition shadow-xs"
+              className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3.5 py-1.5 rounded-xl transition shadow-xs"
             >
               <Plus className="w-4 h-4" />
               New Test
@@ -497,12 +529,12 @@ export default function RecordsClient({
 
       {/* Main Ledger Table with FROZEN HEADER & SELECTION */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden relative">
-        <div className="overflow-auto max-h-[calc(100vh-14rem)] relative scrollbar-thin">
-          <table className="w-full text-xs text-left border-collapse min-w-[1600px]">
+        <div className={`overflow-auto relative scrollbar-thin ${showMetrics ? 'max-h-[calc(100vh-14rem)]' : 'max-h-[calc(100vh-8.5rem)]'}`}>
+          <table className={`w-full text-left border-collapse min-w-[1550px] ${isCompact ? 'text-[11px]' : 'text-xs'}`}>
             {/* Frozen sticky thead */}
             <thead className="sticky top-0 z-30 bg-slate-100 shadow-xs border-b border-slate-300">
-              <tr className="text-[11px] uppercase font-bold text-slate-700">
-                <th className="sticky top-0 bg-slate-100 z-30 py-3 px-3 w-10 text-center">
+              <tr className={`uppercase font-bold text-slate-700 ${isCompact ? 'text-[10px]' : 'text-[11px]'}`}>
+                <th className={`sticky top-0 bg-slate-100 z-30 w-8 text-center ${isCompact ? 'py-1.5 px-2' : 'py-3 px-3'}`}>
                   <input
                     type="checkbox"
                     checked={isAllSelected}
@@ -511,29 +543,29 @@ export default function RecordsClient({
                     className="rounded text-indigo-600 cursor-pointer"
                   />
                 </th>
-                <th className="sticky top-0 bg-slate-100 z-30 py-3 px-3 cursor-pointer hover:bg-slate-200 transition" onClick={() => handleSort('running_no')}>
+                <th className={`sticky top-0 bg-slate-100 z-30 cursor-pointer hover:bg-slate-200 transition ${isCompact ? 'py-1.5 px-2' : 'py-3 px-3'}`} onClick={() => handleSort('running_no')}>
                   Running No <ArrowUpDown className="w-3 h-3 inline ml-0.5 opacity-50" />
                 </th>
-                <th className="sticky top-0 bg-slate-100 z-30 py-3 px-3 cursor-pointer hover:bg-slate-200 transition" onClick={() => handleSort('project')}>
+                <th className={`sticky top-0 bg-slate-100 z-30 cursor-pointer hover:bg-slate-200 transition ${isCompact ? 'py-1.5 px-2' : 'py-3 px-3'}`} onClick={() => handleSort('project')}>
                   Project <ArrowUpDown className="w-3 h-3 inline ml-0.5 opacity-50" />
                 </th>
-                <th className="sticky top-0 bg-slate-100 z-30 py-3 px-3">Supplier / Lab</th>
-                <th className="sticky top-0 bg-slate-100 z-30 py-3 px-3">Marking</th>
-                <th className="sticky top-0 bg-slate-100 z-30 py-3 px-3 cursor-pointer hover:bg-slate-200 transition" onClick={() => handleSort('test_type')}>
+                <th className={`sticky top-0 bg-slate-100 z-30 ${isCompact ? 'py-1.5 px-2' : 'py-3 px-3'}`}>Supplier / Lab</th>
+                <th className={`sticky top-0 bg-slate-100 z-30 ${isCompact ? 'py-1.5 px-2' : 'py-3 px-3'}`}>Marking</th>
+                <th className={`sticky top-0 bg-slate-100 z-30 cursor-pointer hover:bg-slate-200 transition ${isCompact ? 'py-1.5 px-2' : 'py-3 px-3'}`} onClick={() => handleSort('test_type')}>
                   Test Type & Qty <ArrowUpDown className="w-3 h-3 inline ml-0.5 opacity-50" />
                 </th>
-                <th className="sticky top-0 bg-slate-100 z-30 py-3 px-3 cursor-pointer hover:bg-slate-200 transition" onClick={() => handleSort('date_test')}>
+                <th className={`sticky top-0 bg-slate-100 z-30 cursor-pointer hover:bg-slate-200 transition ${isCompact ? 'py-1.5 px-2' : 'py-3 px-3'}`} onClick={() => handleSort('date_test')}>
                   Tested Date <ArrowUpDown className="w-3 h-3 inline ml-0.5 opacity-50" />
                 </th>
-                <th className="sticky top-0 bg-slate-100 z-30 py-3 px-3">Report / Email</th>
-                <th className="sticky top-0 bg-amber-50 z-30 py-3 px-3 border-l border-amber-200">
+                <th className={`sticky top-0 bg-slate-100 z-30 ${isCompact ? 'py-1.5 px-2' : 'py-3 px-3'}`}>Report / Email</th>
+                <th className={`sticky top-0 bg-amber-50 z-30 border-l border-amber-200 ${isCompact ? 'py-1.5 px-2' : 'py-3 px-3'}`}>
                   Purchaser PO
                 </th>
-                <th className="sticky top-0 bg-emerald-50 z-30 py-3 px-3 border-l border-emerald-200">
+                <th className={`sticky top-0 bg-emerald-50 z-30 border-l border-emerald-200 ${isCompact ? 'py-1.5 px-2' : 'py-3 px-3'}`}>
                   Invoice & CN Adjustments
                 </th>
-                <th className="sticky top-0 bg-emerald-50 z-30 py-3 px-3">Status</th>
-                <th className="sticky top-0 bg-slate-100 z-30 py-3 px-3 text-right">Actions</th>
+                <th className={`sticky top-0 bg-emerald-50 z-30 ${isCompact ? 'py-1.5 px-2' : 'py-3 px-3'}`}>Status</th>
+                <th className={`sticky top-0 bg-slate-100 z-30 text-right ${isCompact ? 'py-1.5 px-2' : 'py-3 px-3'}`}>Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -557,6 +589,7 @@ export default function RecordsClient({
                   // Multi-test coverage indicator
                   const poCoverage = row.po_no ? poCoverageMap.get(row.po_no) : null
                   const invCoverage = row.invoice_no ? invCoverageMap.get(row.invoice_no) : null
+                  const cellCls = isCompact ? 'py-1 px-2' : 'py-2.5 px-3'
 
                   return (
                     <tr
@@ -565,7 +598,7 @@ export default function RecordsClient({
                       onDoubleClick={() => { setEditingRecord(row); setIsFormModalOpen(true) }}
                     >
                       {/* Checkbox */}
-                      <td className="py-2.5 px-3 text-center w-10">
+                      <td className={`${cellCls} text-center w-8`}>
                         <input
                           type="checkbox"
                           checked={isChecked}
@@ -575,22 +608,22 @@ export default function RecordsClient({
                       </td>
 
                       {/* Running Number */}
-                      <td className="py-2.5 px-3 font-mono font-bold text-slate-900 whitespace-nowrap">
-                        <span className="bg-slate-100 px-2 py-0.5 rounded text-slate-800">{row.running_no}</span>
+                      <td className={`${cellCls} font-mono font-bold text-slate-900 whitespace-nowrap`}>
+                        <span className={`bg-slate-100 rounded text-slate-800 ${isCompact ? 'px-1.5 py-0.2 text-[10.5px]' : 'px-2 py-0.5 text-xs'}`}>{row.running_no}</span>
                       </td>
 
                       {/* Project */}
-                      <td className="py-2.5 px-3 font-semibold text-slate-800 whitespace-nowrap">
+                      <td className={`${cellCls} font-semibold text-slate-800 whitespace-nowrap max-w-[130px] truncate`} title={row.project}>
                         {row.project}
                       </td>
 
                       {/* Supplier */}
-                      <td className="py-2.5 px-3 text-slate-700 max-w-[140px] truncate" title={row.supplier}>
+                      <td className={`${cellCls} text-slate-700 max-w-[130px] truncate`} title={row.supplier}>
                         {row.supplier}
                       </td>
 
                       {/* Marking (Inline editable by QAQC) */}
-                      <td className="py-2.5 px-3 min-w-[120px]">
+                      <td className={`${cellCls} min-w-[100px]`}>
                         {canEditQaqc ? (
                           <div className="relative flex items-center">
                             <input
@@ -599,63 +632,65 @@ export default function RecordsClient({
                               onBlur={e => handleInlineSave(row.id, 'marking', e.target.value)}
                               onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
                               placeholder="-"
-                              className="w-full bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-1.5 py-0.5 text-xs text-slate-700 transition"
+                              className={`w-full bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-1 text-slate-700 transition ${isCompact ? 'py-0 text-[11px]' : 'py-0.5 text-xs'}`}
                             />
                             {savedCell === `${row.id}-marking` && (
                               <Check className="w-3 h-3 text-emerald-600 absolute right-1" />
                             )}
                           </div>
                         ) : (
-                          <span className="text-slate-600 px-1.5">{row.marking || '-'}</span>
+                          <span className="text-slate-600 px-1">{row.marking || '-'}</span>
                         )}
                       </td>
 
                       {/* Test Type & Qty/Unit (Inline editable by QAQC) */}
-                      <td className="py-2.5 px-3 min-w-[180px]">
-                        <span className="font-medium text-slate-800 block truncate max-w-[180px]" title={row.test_type}>
-                          {row.test_type}
-                        </span>
-                        <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-0.5">
-                          {canEditQaqc ? (
-                            <div className="flex items-center gap-1">
-                              <input
-                                type="number"
-                                min="0"
-                                step="any"
-                                defaultValue={row.qty ?? 1}
-                                onBlur={e => handleInlineSave(row.id, 'qty', e.target.value)}
-                                onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
-                                className="w-12 text-center bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-1 py-0.2 font-semibold text-slate-700 text-[11px]"
-                                title="Quantity"
-                              />
-                              <input
-                                type="text"
-                                defaultValue={row.unit || 'nos'}
-                                onBlur={e => handleInlineSave(row.id, 'unit', e.target.value)}
-                                onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
-                                className="w-14 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-1 py-0.2 text-slate-500 text-[11px]"
-                                title="Unit (e.g. cubes, nos, sets)"
-                              />
-                              {savedCell === `${row.id}-qty` && <Check className="w-2.5 h-2.5 text-emerald-600" />}
-                            </div>
-                          ) : (
-                            <span>{row.qty ?? 1} {row.unit || 'nos'}</span>
-                          )}
-                          {row.date_cast && (
-                            <span className="text-[10px] text-slate-400">· Cast: {row.date_cast}</span>
-                          )}
+                      <td className={`${cellCls} min-w-[160px]`}>
+                        <div className="flex flex-col justify-center leading-tight">
+                          <span className="font-medium text-slate-800 truncate max-w-[170px]" title={row.test_type}>
+                            {row.test_type}
+                          </span>
+                          <div className={`flex items-center gap-1 text-slate-500 ${isCompact ? 'text-[10px] mt-0' : 'text-[11px] mt-0.5'}`}>
+                            {canEditQaqc ? (
+                              <div className="flex items-center gap-0.5">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="any"
+                                  defaultValue={row.qty ?? 1}
+                                  onBlur={e => handleInlineSave(row.id, 'qty', e.target.value)}
+                                  onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
+                                  className={`w-10 text-center bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-0.5 font-semibold text-slate-700 ${isCompact ? 'py-0 text-[10px]' : 'py-0.2 text-[11px]'}`}
+                                  title="Quantity"
+                                />
+                                <input
+                                  type="text"
+                                  defaultValue={row.unit || 'nos'}
+                                  onBlur={e => handleInlineSave(row.id, 'unit', e.target.value)}
+                                  onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
+                                  className={`w-12 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-0.5 text-slate-500 ${isCompact ? 'py-0 text-[10px]' : 'py-0.2 text-[11px]'}`}
+                                  title="Unit (e.g. cubes, nos, sets)"
+                                />
+                                {savedCell === `${row.id}-qty` && <Check className="w-2.5 h-2.5 text-emerald-600" />}
+                              </div>
+                            ) : (
+                              <span>{row.qty ?? 1} {row.unit || 'nos'}</span>
+                            )}
+                            {row.date_cast && (
+                              <span className="text-[9.5px] text-slate-400">· Cast: {row.date_cast}</span>
+                            )}
+                          </div>
                         </div>
                       </td>
 
                       {/* Date Tested */}
-                      <td className="py-2.5 px-3 whitespace-nowrap text-slate-600">
+                      <td className={`${cellCls} whitespace-nowrap text-slate-600`}>
                         {row.date_test}
                       </td>
 
                       {/* Report & Email (Inline editable) */}
-                      <td className="py-2.5 px-3 whitespace-nowrap min-w-[140px]">
+                      <td className={`${cellCls} whitespace-nowrap min-w-[130px]`}>
                         {canEditQaqc ? (
-                          <div className="space-y-0.5">
+                          <div className="flex flex-col justify-center leading-tight">
                             <div className="relative flex items-center">
                               <input
                                 type="text"
@@ -663,10 +698,10 @@ export default function RecordsClient({
                                 onBlur={e => handleInlineSave(row.id, 'report_no', e.target.value)}
                                 onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
                                 placeholder="Report no..."
-                                className="w-full font-mono bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-1.5 py-0.5 text-xs text-slate-800 transition"
+                                className={`w-full font-mono bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-1 text-slate-800 transition ${isCompact ? 'py-0 text-[10.5px]' : 'py-0.5 text-xs'}`}
                               />
                               {savedCell === `${row.id}-report_no` && (
-                                <Check className="w-3 h-3 text-emerald-600 absolute right-1" />
+                                <Check className="w-2.5 h-2.5 text-emerald-600 absolute right-0.5" />
                               )}
                             </div>
                             <div className="relative flex items-center">
@@ -674,11 +709,11 @@ export default function RecordsClient({
                                 type="date"
                                 defaultValue={row.email_date || ''}
                                 onBlur={e => handleInlineSave(row.id, 'email_date', e.target.value)}
-                                className="text-[10px] bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-1 text-slate-500 cursor-pointer"
+                                className="text-[10px] bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-0.5 text-slate-400 cursor-pointer"
                                 title="Email date"
                               />
                               {savedCell === `${row.id}-email_date` && (
-                                <Check className="w-2.5 h-2.5 text-emerald-600 ml-1" />
+                                <Check className="w-2 h-2 text-emerald-600 ml-0.5" />
                               )}
                             </div>
                           </div>
@@ -695,10 +730,10 @@ export default function RecordsClient({
                       </td>
 
                       {/* PO Details (Purchaser - Direct editable & Multi-test Indicator) */}
-                      <td className="py-2.5 px-3 bg-amber-50/20 border-l border-amber-100 whitespace-nowrap min-w-[160px]">
+                      <td className={`${cellCls} bg-amber-50/20 border-l border-amber-100 whitespace-nowrap min-w-[150px]`}>
                         {canEditPurchaser ? (
-                          <div className="space-y-0.5">
-                            <div className="relative flex items-center">
+                          <div className="flex flex-col justify-center leading-tight">
+                            <div className="flex items-center gap-1">
                               <input
                                 type="text"
                                 defaultValue={row.po_no || ''}
@@ -706,35 +741,33 @@ export default function RecordsClient({
                                 onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
                                 placeholder="PO Number..."
                                 list="records-po-datalist"
-                                className="w-full font-mono font-bold text-amber-900 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-amber-300 focus:border-amber-500 rounded px-1.5 py-0.5 text-xs transition"
+                                className={`w-full font-mono font-bold text-amber-900 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-amber-300 focus:border-amber-500 rounded px-1 transition ${isCompact ? 'py-0 text-[11px]' : 'py-0.5 text-xs'}`}
                               />
                               {savedCell === `${row.id}-po_no` && (
-                                <Check className="w-3 h-3 text-emerald-600 absolute right-1" />
+                                <Check className="w-2.5 h-2.5 text-emerald-600 shrink-0" />
                               )}
-                            </div>
-                            <div className="flex items-center justify-between gap-1">
-                              <div className="relative flex items-center">
-                                <span className="text-[11px] text-slate-400 mr-0.5">RM</span>
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  defaultValue={row.po_amount !== null && row.po_amount !== undefined ? row.po_amount : ''}
-                                  onBlur={e => handleInlineSave(row.id, 'po_amount', e.target.value)}
-                                  onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
-                                  placeholder="0.00"
-                                  className="w-20 text-[11px] font-semibold text-slate-700 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-amber-300 focus:border-amber-500 rounded px-1 py-0.5 transition"
-                                />
-                                {savedCell === `${row.id}-po_amount` && (
-                                  <Check className="w-2.5 h-2.5 text-emerald-600 ml-1" />
-                                )}
-                              </div>
                               {poCoverage && poCoverage.count > 1 && (
                                 <span
-                                  className="text-[10px] font-bold text-amber-800 bg-amber-100/90 px-1.5 py-0.5 rounded shadow-2xs"
+                                  className="text-[9px] font-bold text-amber-800 bg-amber-100/90 px-1 py-0.2 rounded shrink-0 shadow-2xs"
                                   title={`PO covers ${poCoverage.count} tests. Combined PO total: RM ${poCoverage.total.toFixed(2)}`}
                                 >
-                                  covers {poCoverage.count}
+                                  ×{poCoverage.count}
                                 </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-0.5 text-[11px]">
+                              <span className="text-[10px] text-slate-400">RM</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                defaultValue={row.po_amount !== null && row.po_amount !== undefined ? row.po_amount : ''}
+                                onBlur={e => handleInlineSave(row.id, 'po_amount', e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
+                                placeholder="0.00"
+                                className={`w-20 font-semibold text-slate-700 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-amber-300 focus:border-amber-500 rounded px-1 transition ${isCompact ? 'py-0 text-[10px]' : 'py-0.5 text-[11px]'}`}
+                              />
+                              {savedCell === `${row.id}-po_amount` && (
+                                <Check className="w-2 h-2 text-emerald-600 ml-0.5 shrink-0" />
                               )}
                             </div>
                           </div>
@@ -745,7 +778,7 @@ export default function RecordsClient({
                                 <div className="flex items-center gap-1.5">
                                   <span className="font-mono font-bold text-amber-900">{row.po_no}</span>
                                   {poCoverage && poCoverage.count > 1 && (
-                                    <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-1 rounded">
+                                    <span className="text-[9px] font-bold text-amber-800 bg-amber-100 px-1 rounded">
                                       {poCoverage.count} tests
                                     </span>
                                   )}
@@ -753,7 +786,7 @@ export default function RecordsClient({
                                 <div className="text-[11px] font-semibold text-slate-700">{fmtRm(row.po_amount)}</div>
                               </>
                             ) : (
-                              <span className="text-[11px] text-amber-600 bg-amber-100/60 px-2 py-0.5 rounded">
+                              <span className="text-[10px] text-amber-600 bg-amber-100/60 px-1.5 py-0.2 rounded">
                                 Pending PO
                               </span>
                             )}
@@ -762,53 +795,49 @@ export default function RecordsClient({
                       </td>
 
                       {/* Invoice & Credit Note Details (Account - Direct editable & Multi-test Indicator) */}
-                      <td className="py-2.5 px-3 bg-emerald-50/20 border-l border-emerald-100 whitespace-nowrap min-w-[220px]">
+                      <td className={`${cellCls} bg-emerald-50/20 border-l border-emerald-100 whitespace-nowrap min-w-[200px]`}>
                         {canEditAccount ? (
-                          <div className="space-y-1">
+                          <div className={`flex flex-col justify-center leading-tight ${isCompact ? 'gap-0.5' : 'gap-1'}`}>
                             {/* Invoice No & Amount */}
-                            <div className="flex items-center gap-1.5">
-                              <div className="relative flex-1">
-                                <input
-                                  type="text"
-                                  defaultValue={row.invoice_no || ''}
-                                  onBlur={e => handleInlineSave(row.id, 'invoice_no', e.target.value)}
-                                  onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
-                                  placeholder="Inv No..."
-                                  list="records-inv-datalist"
-                                  className="w-full font-mono font-bold text-emerald-950 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-emerald-300 focus:border-emerald-500 rounded px-1.5 py-0.5 text-xs transition"
-                                />
-                                {savedCell === `${row.id}-invoice_no` && (
-                                  <Check className="w-3 h-3 text-emerald-600 absolute right-1" />
-                                )}
-                              </div>
-                              <div className="relative flex items-center">
-                                <span className="text-[11px] text-slate-400 mr-0.5">RM</span>
-                                <input
-                                  type="number"
-                                  step="0.01"
-                                  defaultValue={row.invoice_amount !== null && row.invoice_amount !== undefined ? row.invoice_amount : ''}
-                                  onBlur={e => handleInlineSave(row.id, 'invoice_amount', e.target.value)}
-                                  onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
-                                  placeholder="0.00"
-                                  className="w-20 text-[11px] font-semibold text-slate-800 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-emerald-300 focus:border-emerald-500 rounded px-1 py-0.5 transition"
-                                />
-                                {savedCell === `${row.id}-invoice_amount` && (
-                                  <Check className="w-2.5 h-2.5 text-emerald-600 ml-1" />
-                                )}
-                              </div>
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="text"
+                                defaultValue={row.invoice_no || ''}
+                                onBlur={e => handleInlineSave(row.id, 'invoice_no', e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
+                                placeholder="Inv No..."
+                                list="records-inv-datalist"
+                                className={`flex-1 font-mono font-bold text-emerald-950 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-emerald-300 focus:border-emerald-500 rounded px-1 transition ${isCompact ? 'py-0 text-[11px]' : 'py-0.5 text-xs'}`}
+                              />
+                              {savedCell === `${row.id}-invoice_no` && (
+                                <Check className="w-2.5 h-2.5 text-emerald-600 shrink-0" />
+                              )}
+                              <span className="text-[10px] text-slate-400">RM</span>
+                              <input
+                                type="number"
+                                step="0.01"
+                                defaultValue={row.invoice_amount !== null && row.invoice_amount !== undefined ? row.invoice_amount : ''}
+                                onBlur={e => handleInlineSave(row.id, 'invoice_amount', e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
+                                placeholder="0.00"
+                                className={`w-18 font-semibold text-slate-800 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-emerald-300 focus:border-emerald-500 rounded px-1 transition ${isCompact ? 'py-0 text-[10px]' : 'py-0.5 text-[11px]'}`}
+                              />
+                              {savedCell === `${row.id}-invoice_amount` && (
+                                <Check className="w-2 h-2 text-emerald-600 shrink-0" />
+                              )}
                               {invCoverage && invCoverage.count > 1 && (
                                 <span
-                                  className="text-[10px] font-bold text-emerald-800 bg-emerald-100/90 px-1.5 py-0.5 rounded shadow-2xs"
-                                  title={`Invoice covers ${invCoverage.count} tests. Combined invoice total: RM ${invCoverage.total.toFixed(2)}`}
+                                  className="text-[9px] font-bold text-emerald-800 bg-emerald-100 px-1 py-0.2 rounded shrink-0"
+                                  title={`Invoice covers ${invCoverage.count} tests.`}
                                 >
-                                  covers {invCoverage.count}
+                                  ×{invCoverage.count}
                                 </span>
                               )}
                             </div>
 
                             {/* Credit Note (CN) Adjustment */}
-                            <div className="flex items-center gap-1.5 bg-white/70 p-1 rounded border border-emerald-200/70 text-[11px]">
-                              <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-tight">CN:</span>
+                            <div className={`flex items-center gap-1 bg-white/70 rounded border border-emerald-200/70 ${isCompact ? 'px-1 py-0 text-[10px]' : 'px-1.5 py-0.5 text-[11px]'}`}>
+                              <span className="font-bold text-emerald-800 uppercase tracking-tight text-[9px]">CN:</span>
                               <input
                                 type="text"
                                 defaultValue={row.cn_no || ''}
@@ -816,9 +845,9 @@ export default function RecordsClient({
                                 onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
                                 placeholder="CN No"
                                 title="Credit Note Number"
-                                className="w-16 font-mono text-[10px] bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-emerald-300 rounded px-1 py-0.5"
+                                className={`w-14 font-mono bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-emerald-300 rounded px-0.5 ${isCompact ? 'py-0 text-[9px]' : 'py-0.5 text-[10px]'}`}
                               />
-                              <span className="text-[10px] text-slate-400">-RM</span>
+                              <span className="text-[9px] text-slate-400">-RM</span>
                               <input
                                 type="number"
                                 step="0.01"
@@ -827,10 +856,10 @@ export default function RecordsClient({
                                 onKeyDown={e => e.key === 'Enter' && (e.target as HTMLElement).blur()}
                                 placeholder="0.00"
                                 title="Credit Note Amount"
-                                className="w-16 font-semibold text-[10px] text-emerald-700 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-emerald-300 rounded px-1 py-0.5"
+                                className={`w-14 font-semibold text-emerald-700 bg-transparent hover:bg-white focus:bg-white border border-transparent hover:border-emerald-300 rounded px-0.5 ${isCompact ? 'py-0 text-[9px]' : 'py-0.5 text-[10px]'}`}
                               />
                               {netInv !== null && cnAmt > 0 && (
-                                <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/70 px-1 rounded ml-auto" title="Net Billed Amount">
+                                <span className="text-[9px] font-bold text-emerald-800 bg-emerald-100/80 px-1 rounded ml-auto" title="Net Billed Amount">
                                   Net {fmtRm(netInv)}
                                 </span>
                               )}
@@ -843,20 +872,20 @@ export default function RecordsClient({
                                 <div className="flex items-center gap-1.5">
                                   <span className="font-mono font-bold text-emerald-900">{row.invoice_no}</span>
                                   {invCoverage && invCoverage.count > 1 && (
-                                    <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-1 rounded">
+                                    <span className="text-[9px] font-bold text-emerald-800 bg-emerald-100 px-1 rounded">
                                       {invCoverage.count} tests
                                     </span>
                                   )}
                                   <span className="text-[11px] font-semibold text-slate-700">{fmtRm(row.invoice_amount)}</span>
                                 </div>
                                 {hasCn && (
-                                  <div className="text-[10px] font-medium text-emerald-800 bg-emerald-100/60 px-1.5 py-0.5 rounded inline-block">
+                                  <div className="text-[9.5px] font-medium text-emerald-800 bg-emerald-100/60 px-1 py-0.2 rounded inline-block">
                                     CN: -{fmtRm(row.cn_amount)} ({row.cn_no || 'CN'}) → <strong>Net {fmtRm(netInv)}</strong>
                                   </div>
                                 )}
                               </div>
                             ) : (
-                              <span className="text-[11px] text-slate-400">
+                              <span className="text-[10px] text-slate-400">
                                 {hasPo ? 'Pending invoice' : '-'}
                               </span>
                             )}
@@ -865,13 +894,15 @@ export default function RecordsClient({
                       </td>
 
                       {/* Payment Status (Direct Selectable Dropdown) */}
-                      <td className="py-2.5 px-3 bg-emerald-50/20 whitespace-nowrap">
+                      <td className={`${cellCls} bg-emerald-50/20 whitespace-nowrap`}>
                         {canEditAccount ? (
                           <div className="relative inline-flex items-center">
                             <select
                               value={row.payment_status}
                               onChange={e => handleInlineSave(row.id, 'payment_status', e.target.value)}
-                              className={`text-[11px] font-bold rounded-lg px-2 py-1 border transition cursor-pointer ${
+                              className={`font-bold rounded border transition cursor-pointer ${
+                                isCompact ? 'text-[10px] px-1.5 py-0.5' : 'text-[11px] px-2 py-1'
+                              } ${
                                 row.payment_status === 'Paid'
                                   ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
                                   : row.payment_status === 'Pending'
@@ -887,28 +918,28 @@ export default function RecordsClient({
                               <option value="Void">⚪ Void</option>
                             </select>
                             {savedCell === `${row.id}-payment_status` && (
-                              <Check className="w-3 h-3 text-emerald-600 ml-1 inline animate-in fade-in" />
+                              <Check className="w-2.5 h-2.5 text-emerald-600 ml-0.5 inline animate-in fade-in" />
                             )}
                           </div>
                         ) : (
                           <div>
                             {row.payment_status === 'Paid' && (
-                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-full">
+                              <span className="inline-flex items-center gap-1 text-[10.5px] font-bold text-emerald-700 bg-emerald-100/80 px-2 py-0.2 rounded-full">
                                 <CheckCircle2 className="w-3 h-3" /> Paid
                               </span>
                             )}
                             {row.payment_status === 'Pending' && (
-                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-100/80 px-2 py-0.5 rounded-full">
+                              <span className="inline-flex items-center gap-1 text-[10.5px] font-bold text-amber-700 bg-amber-100/80 px-2 py-0.2 rounded-full">
                                 <Clock className="w-3 h-3" /> Pending
                               </span>
                             )}
                             {row.payment_status === 'Partially Paid' && (
-                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 bg-indigo-100/80 px-2 py-0.5 rounded-full">
+                              <span className="inline-flex items-center gap-1 text-[10.5px] font-bold text-indigo-700 bg-indigo-100/80 px-2 py-0.2 rounded-full">
                                 Partial
                               </span>
                             )}
                             {row.payment_status === 'Void' && (
-                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-500 bg-slate-200 px-2 py-0.5 rounded-full">
+                              <span className="inline-flex items-center gap-1 text-[10.5px] font-bold text-slate-500 bg-slate-200 px-2 py-0.2 rounded-full">
                                 Void
                               </span>
                             )}
@@ -917,7 +948,7 @@ export default function RecordsClient({
                       </td>
 
                       {/* Actions */}
-                      <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                      <td className={`${cellCls} text-right whitespace-nowrap`}>
                         <button
                           onClick={e => { e.stopPropagation(); setEditingRecord(row); setIsFormModalOpen(true) }}
                           className="p-1 text-slate-400 hover:text-indigo-600 rounded hover:bg-slate-100 mr-1"

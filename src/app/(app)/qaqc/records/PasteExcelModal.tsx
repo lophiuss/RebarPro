@@ -757,14 +757,14 @@ export default function PasteExcelModal({
 
               {/* Column Mapping & Data Preview Table */}
               <div className="border rounded-xl overflow-hidden shadow-xs">
-                <div className="overflow-x-auto max-h-[46vh]">
+                <div className="overflow-x-auto max-h-[58vh]">
                   <table className="w-full text-xs text-left border-collapse">
                     <thead className="bg-slate-100 sticky top-0 z-10 border-b border-slate-200 shadow-xs">
                       <tr>
-                        <th className="p-2 text-slate-500 font-semibold w-8 text-center">#</th>
-                        <th className="p-2 text-slate-700 font-semibold min-w-[105px]">Status</th>
+                        <th className="py-1.5 px-2 text-slate-500 font-semibold w-8 text-center text-[11px]">#</th>
+                        <th className="py-1.5 px-2 text-slate-700 font-semibold min-w-[105px] text-[11px]">Status</th>
                         {columnMap.map((curField, idx) => (
-                          <th key={idx} className="p-2 min-w-[140px]">
+                          <th key={idx} className="py-1.5 px-2 min-w-[140px]">
                             <select
                               value={curField}
                               onChange={e => {
@@ -781,7 +781,7 @@ export default function PasteExcelModal({
                               ))}
                             </select>
                             {hasHeader && parsedRows[0] && (
-                              <div className="text-[10px] text-slate-500 mt-1 truncate" title={parsedRows[0][idx]}>
+                              <div className="text-[10px] text-slate-500 mt-0.5 truncate" title={parsedRows[0][idx]}>
                                 Header: &quot;{parsedRows[0][idx]}&quot;
                               </div>
                             )}
@@ -790,7 +790,7 @@ export default function PasteExcelModal({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {compiledItems.slice(0, 50).map((item, rowIdx) => {
+                      {compiledItems.slice(0, 100).map((item, rowIdx) => {
                         const rowValid = item.project && item.supplier && item.test_type && item.date_test
                         const match = rowMatches[rowIdx]
                         const isDup = !!match
@@ -810,11 +810,11 @@ export default function PasteExcelModal({
 
                         return (
                           <tr key={rowIdx} className={rowStyle}>
-                            <td className="p-2 text-center text-slate-400 font-mono text-[11px]">{rowIdx + 1}</td>
-                            <td className="p-2 whitespace-nowrap">
+                            <td className="py-1 px-2 text-center text-slate-400 font-mono text-[10.5px]">{rowIdx + 1}</td>
+                            <td className="py-1 px-2 whitespace-nowrap">
                               {match ? (
                                 <div className="flex flex-col gap-0.5">
-                                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9.5px] font-bold ${
                                     duplicateMode === 'skip'
                                       ? 'bg-slate-200 text-slate-600 line-through'
                                       : duplicateMode === 'update'
@@ -824,14 +824,14 @@ export default function PasteExcelModal({
                                     {duplicateMode === 'skip' ? '⚡ SKIP' : duplicateMode === 'update' ? '🔄 UPDATE' : '➕ DUPLICATE'}
                                   </span>
                                   <span
-                                    className="text-[10px] text-slate-500 font-mono truncate max-w-[120px]"
+                                    className="text-[9.5px] text-slate-500 font-mono truncate max-w-[120px]"
                                     title={`Existing: ${match.existingRecord.running_no} (${match.matchReason})`}
                                   >
                                     {match.existingRecord.running_no}
                                   </span>
                                 </div>
                               ) : (
-                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9.5px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
                                   🟢 NEW
                                 </span>
                               )}
@@ -839,7 +839,7 @@ export default function PasteExcelModal({
                             {columnMap.map((field, colIdx) => {
                               const rawVal = dataRows[rowIdx]?.[colIdx] ?? ''
                               return (
-                                <td key={colIdx} className="p-2 truncate max-w-[200px]" title={rawVal}>
+                                <td key={colIdx} className="py-1 px-2 truncate max-w-[200px]" title={rawVal}>
                                   {field === 'ignore' ? (
                                     <span className="text-slate-300 line-through">{rawVal}</span>
                                   ) : (
@@ -856,9 +856,9 @@ export default function PasteExcelModal({
                     </tbody>
                   </table>
                 </div>
-                {compiledItems.length > 50 && (
+                {compiledItems.length > 100 && (
                   <div className="p-2 text-center text-xs text-slate-500 bg-slate-50 border-t">
-                    Showing first 50 of {compiledItems.length} rows. All {compiledItems.length} will be processed.
+                    Showing first 100 of {compiledItems.length} rows. All {compiledItems.length} will be processed.
                   </div>
                 )}
               </div>
