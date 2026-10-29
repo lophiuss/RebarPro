@@ -1,11 +1,20 @@
 'use client'
 
-import React, { useState, useRef } from 'react'
+import React, { useState, useRef, useMemo } from 'react'
 import {
   X, ClipboardPaste, Check, AlertCircle, FileSpreadsheet,
-  ArrowRight, Download, Copy, UploadCloud, Sparkles
+  ArrowRight, Download, Copy, UploadCloud, Sparkles,
+  AlertTriangle, ShieldCheck, RefreshCw, Zap, CheckCircle2,
+  HelpCircle
 } from 'lucide-react'
-import { bulkCreateQaqcTests, type QaqcTestInput } from '../actions'
+import {
+  bulkImportQaqcTests,
+  type DuplicateHandlingMode,
+  type BulkImportItem,
+  type BulkImportResult,
+  type QaqcTestInput
+} from '../actions'
+import type { QaqcTestRecord } from './RecordsClient'
 
 interface Props {
   isOpen: boolean
@@ -14,6 +23,12 @@ interface Props {
   knownProjects: string[]
   knownSuppliers: string[]
   knownTestTypes: string[]
+  existingTests?: QaqcTestRecord[]
+}
+
+interface DuplicateMatch {
+  existingRecord: QaqcTestRecord
+  matchReason: string
 }
 
 export const TEMPLATE_COLUMNS = [
@@ -94,6 +109,7 @@ export function downloadQaqcTemplate() {
 
 const FIELD_OPTIONS = [
   { key: 'ignore', label: '-- Ignore Column --' },
+  { key: 'running_no', label: 'Running No (e.g. QAQC-2026-0001)' },
   { key: 'project', label: 'Project *' },
   { key: 'supplier', label: 'Supplier / Lab *' },
   { key: 'marking', label: 'Marking / Element' },
@@ -179,7 +195,15 @@ function parseCsvLine(text: string): string[] {
   return result
 }
 
-export default function PasteExcelModal({ isOpen, onClose, onSuccess, knownProjects, knownSuppliers, knownTestTypes }: Props) {
+export default function PasteExcelModal({
+  isOpen,
+  onClose,
+  onSuccess,
+  knownProjects,
+  knownSuppliers,
+  knownTestTypes,
+  existingTests = []
+}: Props) {
   const [rawText, setRawText] = useState('')
   const [hasHeader, setHasHeader] = useState(true)
   const [columnMap, setColumnMap] = useState<string[]>([])
@@ -191,6 +215,9 @@ export default function PasteExcelModal({ isOpen, onClose, onSuccess, knownProje
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [copiedHeader, setCopiedHeader] = useState(false)
   const [isDragging, setIsDragging] = useState(false)
+  const [duplicateMode, setDuplicateMode] = useState<DuplicateHandlingMode>('skip')
+  const [showConfirmModal, setShowConfirmModal] = useState(false)
+  const [importResult, setImportResult] = useState<BulkImportResult | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -225,6 +252,7 @@ export default function PasteExcelModal({ isOpen, onClose, onSuccess, knownProje
     const firstRow = grid[0]
     const detected: string[] = firstRow.map(h => {
       const lower = h.toLowerCase().replace(/[^a-z0-9]/g, '')
+      if (lower.includes('running') || lower.includes('qaqcno') || lower.includes('runno')) return 'running_no'
       if (lower.includes('proj')) return 'project'
       if (lower.includes('supp') || lower.includes('lab') || lower.includes('vendor')) return 'supplier'
       if (lower.includes('mark') || lower.includes('heat') || lower.includes('elem') || lower.includes('sample')) return 'marking'
@@ -311,7 +339,7 @@ export default function PasteExcelModal({ isOpen, onClose, onSuccess, knownProje
   const dataRows = hasHeader ? parsedRows.slice(1) : parsedRows
 
   // Construct valid QaqcTestInput items
-  const compiledItems: QaqcTestInput[] = dataRows.map(row => {
+  const compiledItems: (QaqcTestInput & { running_no?: string | null })[] = dataRows.map(row => {
     const item: Record<string, any> = {}
     row.forEach((val, colIdx) => {
       const field = columnMap[colIdx]
@@ -326,6 +354,7 @@ export default function PasteExcelModal({ isOpen, onClose, onSuccess, knownProje
     const finalDateTest = normalizeDate(item.date_test) || new Date().toISOString().slice(0, 10)
 
     return {
+      running_no: item.running_no?.trim() || null,
       project: finalProject,
       supplier: finalSupplier,
       marking: item.marking?.trim() || null,
@@ -351,23 +380,102 @@ export default function PasteExcelModal({ isOpen, onClose, onSuccess, knownProje
     }
   })
 
+  // Duplicate detection against existing database tests
+  const rowMatches = useMemo<(DuplicateMatch | null)[]>(() => {
+    if (!existingTests || existingTests.length === 0) {
+      return compiledItems.map(() => null)
+    }
+
+    return compiledItems.map(item => {
+      // 1. By Running No (if provided in sheet)
+      if (item.running_no && item.running_no.trim()) {
+        const rNo = item.running_no.trim().toLowerCase()
+        const found = existingTests.find(t => t.running_no && t.running_no.toLowerCase() === rNo)
+        if (found) {
+          return { existingRecord: found, matchReason: `Running No (${found.running_no})` }
+        }
+      }
+
+      // 2. By Report No (if report_no is provided)
+      if (item.report_no && item.report_no.trim().length >= 2) {
+        const rep = item.report_no.trim().toLowerCase()
+        const found = existingTests.find(t => t.report_no && t.report_no.trim().toLowerCase() === rep)
+        if (found) {
+          return { existingRecord: found, matchReason: `Report #${found.report_no}` }
+        }
+      }
+
+      // 3. By Composite: Project + Test Type + Date Tested + Marking
+      if (item.project && item.test_type && item.date_test) {
+        const proj = item.project.trim().toLowerCase()
+        const type = item.test_type.trim().toLowerCase()
+        const dTest = item.date_test.trim()
+        const mark = item.marking?.trim().toLowerCase() || ''
+
+        const found = existingTests.find(t => {
+          const tProj = t.project.trim().toLowerCase()
+          const tType = t.test_type.trim().toLowerCase()
+          const tDTest = t.date_test.trim()
+          const tMark = t.marking?.trim().toLowerCase() || ''
+
+          if (tProj !== proj || tType !== type || tDTest !== dTest) return false
+          if (mark || tMark) {
+            return mark === tMark
+          }
+          return true
+        })
+
+        if (found) {
+          const label = found.marking ? `Marking "${found.marking}"` : `Test on ${found.date_test}`
+          return { existingRecord: found, matchReason: `${label} (${found.running_no})` }
+        }
+      }
+
+      return null
+    })
+  }, [compiledItems, existingTests])
+
+  const duplicateCount = useMemo(() => rowMatches.filter(Boolean).length, [rowMatches])
+  const newCount = compiledItems.length - duplicateCount
+
+  const itemsWithExisting = useMemo<BulkImportItem[]>(() => {
+    return compiledItems.map((item, idx) => ({
+      ...item,
+      existingId: rowMatches[idx]?.existingRecord.id,
+    }))
+  }, [compiledItems, rowMatches])
+
   const isValid = compiledItems.length > 0 && compiledItems.every(r => r.project && r.supplier && r.test_type && r.date_test)
 
-  const handleImport = async () => {
+  const handleImportClick = () => {
     if (!isValid) {
       setErrorMsg('Please ensure Project, Supplier, and Test Type are provided for each row (or set fallback defaults below).')
       return
     }
+    setErrorMsg(null)
+    // If duplicates exist, prompt double-check confirmation first
+    if (duplicateCount > 0) {
+      setShowConfirmModal(true)
+    } else {
+      executeImport()
+    }
+  }
+
+  const executeImport = async () => {
+    if (!isValid) return
     setSaving(true)
     setErrorMsg(null)
     try {
-      await bulkCreateQaqcTests(compiledItems)
-      onSuccess()
-      onClose()
+      const res = await bulkImportQaqcTests(itemsWithExisting, duplicateMode)
+      setImportResult(res)
+      setTimeout(() => {
+        onSuccess()
+        onClose()
+      }, 1500)
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to import records')
-    } finally {
       setSaving(false)
+      setShowConfirmModal(false)
     }
   }
 
@@ -545,13 +653,116 @@ export default function PasteExcelModal({ isOpen, onClose, onSuccess, knownProje
                 </div>
               </div>
 
+              {/* Duplicate Detection Alert & Mode Selector */}
+              {duplicateCount > 0 ? (
+                <div className="bg-amber-50/90 border-2 border-amber-300 rounded-2xl p-4 space-y-3.5 shadow-2xs">
+                  <div className="flex items-start gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                      <AlertTriangle className="w-5 h-5" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-sm font-bold text-amber-950">
+                          {duplicateCount} Existing Record{duplicateCount === 1 ? '' : 's'} Detected
+                        </h3>
+                        <span className="text-[11px] font-semibold bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full">
+                          {newCount} New · {duplicateCount} Existing
+                        </span>
+                      </div>
+                      <p className="text-xs text-amber-900/80 mt-0.5">
+                        These records match tests already in the system (by Report No or Project + Marking + Date). How would you like to handle them?
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* 3 Choices */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 pt-0.5">
+                    {/* Mode 1: Skip */}
+                    <label className={`flex items-start gap-2.5 p-3 rounded-xl border-2 cursor-pointer transition select-none ${
+                      duplicateMode === 'skip'
+                        ? 'bg-white border-emerald-500 shadow-xs ring-1 ring-emerald-500'
+                        : 'bg-white/60 border-amber-200 hover:bg-white hover:border-amber-300'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="dup_mode"
+                        checked={duplicateMode === 'skip'}
+                        onChange={() => setDuplicateMode('skip')}
+                        className="mt-0.5 text-emerald-600 focus:ring-emerald-500"
+                      />
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5 flex-wrap">
+                          <span>⚡ Skip Duplicates</span>
+                          <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded">Recommended</span>
+                        </div>
+                        <p className="text-[11px] text-slate-600 mt-1 leading-snug">
+                          Import only <strong>{newCount} new</strong> records. Leave existing {duplicateCount} records completely untouched.
+                        </p>
+                      </div>
+                    </label>
+
+                    {/* Mode 2: Update */}
+                    <label className={`flex items-start gap-2.5 p-3 rounded-xl border-2 cursor-pointer transition select-none ${
+                      duplicateMode === 'update'
+                        ? 'bg-white border-blue-500 shadow-xs ring-1 ring-blue-500'
+                        : 'bg-white/60 border-amber-200 hover:bg-white hover:border-amber-300'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="dup_mode"
+                        checked={duplicateMode === 'update'}
+                        onChange={() => setDuplicateMode('update')}
+                        className="mt-0.5 text-blue-600 focus:ring-blue-500"
+                      />
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                          <span>🔄 Update Existing</span>
+                        </div>
+                        <p className="text-[11px] text-slate-600 mt-1 leading-snug">
+                          Update the <strong>{duplicateCount} existing</strong> records with new details. <em>(Preserves existing POs & Invoices).</em>
+                        </p>
+                      </div>
+                    </label>
+
+                    {/* Mode 3: Insert All */}
+                    <label className={`flex items-start gap-2.5 p-3 rounded-xl border-2 cursor-pointer transition select-none ${
+                      duplicateMode === 'insert_all'
+                        ? 'bg-white border-purple-500 shadow-xs ring-1 ring-purple-500'
+                        : 'bg-white/60 border-amber-200 hover:bg-white hover:border-amber-300'
+                    }`}>
+                      <input
+                        type="radio"
+                        name="dup_mode"
+                        checked={duplicateMode === 'insert_all'}
+                        onChange={() => setDuplicateMode('insert_all')}
+                        className="mt-0.5 text-purple-600 focus:ring-purple-500"
+                      />
+                      <div className="min-w-0">
+                        <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                          <span>➕ Import All as New</span>
+                        </div>
+                        <p className="text-[11px] text-slate-600 mt-1 leading-snug">
+                          Force import all <strong>{compiledItems.length}</strong> rows as new records with new running numbers.
+                        </p>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3 flex items-center gap-2.5 text-xs text-emerald-800">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span><strong>Zero duplicates detected:</strong> All {compiledItems.length} rows are brand new records and ready to import.</span>
+                </div>
+              )}
+
               {/* Column Mapping & Data Preview Table */}
               <div className="border rounded-xl overflow-hidden shadow-xs">
                 <div className="overflow-x-auto max-h-[46vh]">
                   <table className="w-full text-xs text-left border-collapse">
                     <thead className="bg-slate-100 sticky top-0 z-10 border-b border-slate-200 shadow-xs">
                       <tr>
-                        <th className="p-2 text-slate-500 font-semibold w-10 text-center">#</th>
+                        <th className="p-2 text-slate-500 font-semibold w-8 text-center">#</th>
+                        <th className="p-2 text-slate-700 font-semibold min-w-[105px]">Status</th>
                         {columnMap.map((curField, idx) => (
                           <th key={idx} className="p-2 min-w-[140px]">
                             <select
@@ -579,11 +790,52 @@ export default function PasteExcelModal({ isOpen, onClose, onSuccess, knownProje
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {compiledItems.slice(0, 30).map((item, rowIdx) => {
+                      {compiledItems.slice(0, 50).map((item, rowIdx) => {
                         const rowValid = item.project && item.supplier && item.test_type && item.date_test
+                        const match = rowMatches[rowIdx]
+                        const isDup = !!match
+
+                        let rowStyle = 'hover:bg-slate-50 transition'
+                        if (!rowValid) {
+                          rowStyle = 'bg-red-50/40'
+                        } else if (isDup) {
+                          if (duplicateMode === 'skip') {
+                            rowStyle = 'bg-slate-50/80 opacity-60 text-slate-400'
+                          } else if (duplicateMode === 'update') {
+                            rowStyle = 'bg-blue-50/50'
+                          } else {
+                            rowStyle = 'bg-amber-50/40'
+                          }
+                        }
+
                         return (
-                          <tr key={rowIdx} className={`hover:bg-slate-50 ${!rowValid ? 'bg-red-50/40' : ''}`}>
+                          <tr key={rowIdx} className={rowStyle}>
                             <td className="p-2 text-center text-slate-400 font-mono text-[11px]">{rowIdx + 1}</td>
+                            <td className="p-2 whitespace-nowrap">
+                              {match ? (
+                                <div className="flex flex-col gap-0.5">
+                                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                    duplicateMode === 'skip'
+                                      ? 'bg-slate-200 text-slate-600 line-through'
+                                      : duplicateMode === 'update'
+                                      ? 'bg-blue-100 text-blue-800 border border-blue-300'
+                                      : 'bg-amber-100 text-amber-800 border border-amber-300'
+                                  }`}>
+                                    {duplicateMode === 'skip' ? '⚡ SKIP' : duplicateMode === 'update' ? '🔄 UPDATE' : '➕ DUPLICATE'}
+                                  </span>
+                                  <span
+                                    className="text-[10px] text-slate-500 font-mono truncate max-w-[120px]"
+                                    title={`Existing: ${match.existingRecord.running_no} (${match.matchReason})`}
+                                  >
+                                    {match.existingRecord.running_no}
+                                  </span>
+                                </div>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                  🟢 NEW
+                                </span>
+                              )}
+                            </td>
                             {columnMap.map((field, colIdx) => {
                               const rawVal = dataRows[rowIdx]?.[colIdx] ?? ''
                               return (
@@ -591,7 +843,7 @@ export default function PasteExcelModal({ isOpen, onClose, onSuccess, knownProje
                                   {field === 'ignore' ? (
                                     <span className="text-slate-300 line-through">{rawVal}</span>
                                   ) : (
-                                    <span className={!rawVal && ['project', 'supplier', 'test_type'].includes(field) ? 'text-red-500 font-semibold italic' : 'text-slate-800'}>
+                                    <span className={!rawVal && ['project', 'supplier', 'test_type'].includes(field) ? 'text-red-500 font-semibold italic' : ''}>
                                       {rawVal || (item as any)[field] || '-'}
                                     </span>
                                   )}
@@ -604,9 +856,9 @@ export default function PasteExcelModal({ isOpen, onClose, onSuccess, knownProje
                     </tbody>
                   </table>
                 </div>
-                {compiledItems.length > 30 && (
+                {compiledItems.length > 50 && (
                   <div className="p-2 text-center text-xs text-slate-500 bg-slate-50 border-t">
-                    Showing first 30 of {compiledItems.length} rows. All {compiledItems.length} will be imported.
+                    Showing first 50 of {compiledItems.length} rows. All {compiledItems.length} will be processed.
                   </div>
                 )}
               </div>
@@ -634,15 +886,164 @@ export default function PasteExcelModal({ isOpen, onClose, onSuccess, knownProje
             <button
               type="button"
               disabled={saving || !isValid}
-              onClick={handleImport}
-              className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white px-6 py-2.5 rounded-xl font-semibold text-sm shadow-md transition"
+              onClick={handleImportClick}
+              className={`flex items-center gap-2 disabled:opacity-50 text-white px-6 py-2.5 rounded-xl font-semibold text-sm shadow-md transition ${
+                duplicateCount > 0 && duplicateMode === 'update'
+                  ? 'bg-blue-600 hover:bg-blue-700'
+                  : duplicateCount > 0 && duplicateMode === 'insert_all'
+                  ? 'bg-purple-600 hover:bg-purple-700'
+                  : 'bg-emerald-600 hover:bg-emerald-700'
+              }`}
             >
-              {saving ? 'Importing…' : `Import ${compiledItems.length} Test Record${compiledItems.length === 1 ? '' : 's'}`}
+              {saving
+                ? 'Processing…'
+                : duplicateCount > 0 && duplicateMode === 'skip'
+                ? `Import ${newCount} New Record${newCount === 1 ? '' : 's'} (Skip ${duplicateCount})`
+                : duplicateCount > 0 && duplicateMode === 'update'
+                ? `Import ${newCount} New & Update ${duplicateCount} Existing`
+                : duplicateCount > 0 && duplicateMode === 'insert_all'
+                ? `Import All ${compiledItems.length} Records as New`
+                : `Import ${compiledItems.length} Test Record${compiledItems.length === 1 ? '' : 's'}`
+              }
               <ArrowRight className="w-4 h-4" />
             </button>
           )}
         </div>
       </div>
+
+      {/* Double-Check Confirmation Modal */}
+      {showConfirmModal && (
+        <div className="fixed inset-0 z-60 bg-black/60 flex items-center justify-center p-4 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 border border-slate-200 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3">
+              <div className={`w-11 h-11 rounded-xl flex items-center justify-center shadow-xs shrink-0 ${
+                duplicateMode === 'skip'
+                  ? 'bg-emerald-100 text-emerald-700'
+                  : duplicateMode === 'update'
+                  ? 'bg-blue-100 text-blue-700'
+                  : 'bg-purple-100 text-purple-700'
+              }`}>
+                {duplicateMode === 'skip' ? <Zap className="w-5 h-5" /> : duplicateMode === 'update' ? <RefreshCw className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Confirm QAQC Batch Import</h3>
+                <p className="text-xs text-slate-500">Please review your duplicate handling choice</p>
+              </div>
+            </div>
+
+            <div className="bg-slate-50 border rounded-xl p-3.5 space-y-2 text-xs">
+              <div className="flex justify-between items-center py-1 border-b border-slate-200">
+                <span className="text-slate-600">Total rows pasted from Excel:</span>
+                <span className="font-bold text-slate-800 font-mono text-sm">{compiledItems.length}</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-200">
+                <span className="text-slate-600">Selected duplicate action:</span>
+                <span className={`font-bold uppercase text-[10px] px-2 py-0.5 rounded font-mono ${
+                  duplicateMode === 'skip' ? 'bg-emerald-100 text-emerald-800' : duplicateMode === 'update' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'
+                }`}>
+                  {duplicateMode === 'skip' ? '⚡ Skip Duplicates' : duplicateMode === 'update' ? '🔄 Update Existing' : '➕ Import All as New'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center py-1">
+                <span className="text-emerald-700 font-medium">New records to be created:</span>
+                <span className="font-bold text-emerald-800 font-mono text-sm">+{duplicateMode === 'insert_all' ? compiledItems.length : newCount}</span>
+              </div>
+              {duplicateCount > 0 && (
+                <div className="flex justify-between items-center py-1">
+                  <span className={duplicateMode === 'skip' ? 'text-slate-400 line-through' : 'text-blue-700 font-medium'}>
+                    Existing records {duplicateMode === 'skip' ? 'skipped' : duplicateMode === 'update' ? 'to update' : 'to duplicate'}:
+                  </span>
+                  <span className={`font-bold font-mono text-sm ${duplicateMode === 'skip' ? 'text-slate-400' : 'text-blue-800'}`}>
+                    {duplicateCount}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {duplicateMode === 'skip' && (
+              <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl p-3 text-xs flex items-start gap-2.5">
+                <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <span><strong>Safe & clean:</strong> Existing tests in your database will not be touched or modified. Only brand-new tests will be created.</span>
+              </div>
+            )}
+
+            {duplicateMode === 'update' && (
+              <div className="bg-blue-50 border border-blue-200 text-blue-800 rounded-xl p-3 text-xs flex items-start gap-2.5">
+                <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                <span><strong>Smart Merge Protection:</strong> Existing PO Numbers, Invoices, and Payment statuses entered by Purchaser/Accounts will be safely preserved.</span>
+              </div>
+            )}
+
+            {duplicateMode === 'insert_all' && (
+              <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl p-3 text-xs flex items-start gap-2.5">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <span><strong>Notice:</strong> This will create duplicate test records in your database, each with a new running number.</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => setShowConfirmModal(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition"
+              >
+                Go Back & Review
+              </button>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={executeImport}
+                className={`px-5 py-2 rounded-xl text-xs font-bold text-white shadow-md flex items-center gap-1.5 transition ${
+                  duplicateMode === 'update'
+                    ? 'bg-blue-600 hover:bg-blue-700'
+                    : duplicateMode === 'insert_all'
+                    ? 'bg-purple-600 hover:bg-purple-700'
+                    : 'bg-emerald-600 hover:bg-emerald-700'
+                }`}
+              >
+                {saving ? 'Processing…' : 'Confirm & Proceed'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Completion Toast Modal */}
+      {importResult && (
+        <div className="fixed inset-0 z-70 bg-black/60 flex items-center justify-center p-4 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center space-y-3.5 border border-slate-200 animate-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center mx-auto shadow-xs">
+              <CheckCircle2 className="w-7 h-7" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-slate-800">Batch Import Successful!</h3>
+              <p className="text-xs text-slate-500 mt-0.5">QAQC Test records have been updated</p>
+            </div>
+            <div className="text-xs text-slate-700 space-y-1.5 bg-slate-50 p-3.5 rounded-xl border text-left font-medium">
+              {importResult.insertedCount > 0 && (
+                <div className="flex justify-between items-center text-emerald-700">
+                  <span>✓ Created new tests:</span>
+                  <span className="font-bold font-mono">+{importResult.insertedCount}</span>
+                </div>
+              )}
+              {importResult.updatedCount > 0 && (
+                <div className="flex justify-between items-center text-blue-700">
+                  <span>✓ Updated existing tests:</span>
+                  <span className="font-bold font-mono">{importResult.updatedCount}</span>
+                </div>
+              )}
+              {importResult.skippedCount > 0 && (
+                <div className="flex justify-between items-center text-slate-500">
+                  <span>⚡ Skipped duplicates:</span>
+                  <span className="font-bold font-mono">{importResult.skippedCount}</span>
+                </div>
+              )}
+            </div>
+            <p className="text-[11px] text-slate-400">Refreshing tracker data…</p>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

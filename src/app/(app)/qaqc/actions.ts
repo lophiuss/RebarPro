@@ -4,6 +4,7 @@ import { requireQaqcAccess, requireQaqcRole } from './guard'
 import { revalidatePath } from 'next/cache'
 
 export type QaqcTestInput = {
+  running_no?: string | null
   project: string
   supplier: string
   marking?: string | null
@@ -127,99 +128,193 @@ export async function createQaqcTest(input: QaqcTestInput) {
   return data
 }
 
-export async function bulkCreateQaqcTests(items: QaqcTestInput[]) {
+export type DuplicateHandlingMode = 'skip' | 'update' | 'insert_all'
+
+export type BulkImportItem = QaqcTestInput & {
+  existingId?: number
+  running_no?: string | null
+}
+
+export type BulkImportResult = {
+  insertedCount: number
+  updatedCount: number
+  skippedCount: number
+}
+
+export async function bulkImportQaqcTests(
+  items: BulkImportItem[],
+  duplicateMode: DuplicateHandlingMode
+): Promise<BulkImportResult> {
   const { supabase, user } = await requireQaqcAccess()
-  if (!items.length) return []
-
-  const currentYear = new Date().getFullYear()
-  const prefix = `QAQC-${currentYear}-`
-
-  // Get current highest number from both qaqc_tests and qaqc_counters
-  const [{ data: latest }, { data: counterRow }] = await Promise.all([
-    supabase
-      .from('qaqc_tests')
-      .select('running_no')
-      .like('running_no', `${prefix}%`)
-      .order('running_no', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    supabase
-      .from('qaqc_counters')
-      .select('last_seq')
-      .eq('year', currentYear)
-      .maybeSingle(),
-  ])
-
-  let maxTableSeq = 0
-  if (latest?.running_no) {
-    const parts = latest.running_no.split('-')
-    const lastNum = parseInt(parts[parts.length - 1], 10)
-    if (!isNaN(lastNum)) maxTableSeq = lastNum
+  if (!items.length) {
+    return { insertedCount: 0, updatedCount: 0, skippedCount: 0 }
   }
-  const maxCounterSeq = Number(counterRow?.last_seq) || 0
-  const nextSeq = Math.max(maxTableSeq, maxCounterSeq) + 1
 
-  // Also extract test types and suppliers to auto-register
-  const uniqueTestTypes = new Set<string>()
-  const uniqueSuppliers = new Set<string>()
+  const toInsert: BulkImportItem[] = []
+  const toUpdate: BulkImportItem[] = []
+  let skippedCount = 0
 
-  const rows = items.map((item, idx) => {
-    const seq = nextSeq + idx
-    const runningNo = `${prefix}${String(seq).padStart(4, '0')}`
-    if (item.test_type?.trim()) uniqueTestTypes.add(item.test_type.trim())
-    if (item.supplier?.trim()) uniqueSuppliers.add(item.supplier.trim())
-
-    return {
-      running_no: runningNo,
-      project: item.project.trim(),
-      supplier: item.supplier.trim(),
-      marking: item.marking?.trim() || null,
-      test_type: item.test_type.trim(),
-      qty: item.qty ?? 1,
-      unit: item.unit?.trim() || 'nos',
-      date_cast: item.date_cast || null,
-      date_test: item.date_test || new Date().toISOString().slice(0, 10),
-      report_no: item.report_no?.trim() || null,
-      email_date: item.email_date || null,
-      qaqc_remarks: item.qaqc_remarks?.trim() || null,
-      po_no: item.po_no?.trim() || null,
-      po_date: item.po_date || null,
-      po_amount: item.po_amount ?? null,
-      purchaser_remarks: item.purchaser_remarks?.trim() || null,
-      invoice_no: item.invoice_no?.trim() || null,
-      invoice_date: item.invoice_date || null,
-      invoice_amount: item.invoice_amount ?? null,
-      cn_no: item.cn_no?.trim() || null,
-      cn_date: item.cn_date || null,
-      cn_amount: item.cn_amount ?? null,
-      cn_remarks: item.cn_remarks?.trim() || null,
-      payment_status: item.payment_status || 'Pending',
-      payment_date: item.payment_date || null,
-      account_remarks: item.account_remarks?.trim() || null,
-      created_by: user.id,
+  for (const item of items) {
+    if (item.existingId) {
+      if (duplicateMode === 'skip') {
+        skippedCount++
+      } else if (duplicateMode === 'update') {
+        toUpdate.push(item)
+      } else {
+        // insert_all
+        toInsert.push(item)
+      }
+    } else {
+      toInsert.push(item)
     }
-  })
-
-  // Keep qaqc_counters synchronized so subsequent single creates never collide
-  const newLastSeq = nextSeq + items.length - 1
-  await supabase.from('qaqc_counters').upsert({ year: currentYear, last_seq: newLastSeq }, { onConflict: 'year' })
-
-  // Save new test types & suppliers in background
-  if (uniqueTestTypes.size > 0) {
-    const typeRows = Array.from(uniqueTestTypes).map(name => ({ name }))
-    supabase.from('qaqc_test_types').upsert(typeRows, { onConflict: 'name', ignoreDuplicates: true }).then(() => {})
-  }
-  if (uniqueSuppliers.size > 0) {
-    const supRows = Array.from(uniqueSuppliers).map(name => ({ name }))
-    supabase.from('qaqc_suppliers').upsert(supRows, { onConflict: 'name', ignoreDuplicates: true }).then(() => {})
   }
 
-  const { data, error } = await supabase.from('qaqc_tests').insert(rows).select()
-  if (error) throw error
+  // 1. Process Updates
+  if (toUpdate.length > 0) {
+    for (const item of toUpdate) {
+      const patch: Record<string, any> = {
+        updated_at: new Date().toISOString(),
+        project: item.project.trim(),
+        supplier: item.supplier.trim(),
+        test_type: item.test_type.trim(),
+        date_test: item.date_test,
+      }
+      if (item.marking !== undefined) patch.marking = item.marking?.trim() || null
+      if (item.qty !== undefined) patch.qty = item.qty ?? 1
+      if (item.unit !== undefined) patch.unit = item.unit?.trim() || 'nos'
+      if (item.date_cast !== undefined) patch.date_cast = item.date_cast || null
+      if (item.report_no !== undefined) patch.report_no = item.report_no?.trim() || null
+      if (item.email_date !== undefined) patch.email_date = item.email_date || null
+      if (item.qaqc_remarks !== undefined) patch.qaqc_remarks = item.qaqc_remarks?.trim() || null
+
+      // Cross-department safety: preserve existing PO & Invoice data unless explicitly provided in import
+      if (item.po_no?.trim()) patch.po_no = item.po_no.trim()
+      if (item.po_date) patch.po_date = item.po_date
+      if (item.po_amount !== null && item.po_amount !== undefined) patch.po_amount = item.po_amount
+      if (item.purchaser_remarks?.trim()) patch.purchaser_remarks = item.purchaser_remarks.trim()
+      if (item.invoice_no?.trim()) patch.invoice_no = item.invoice_no.trim()
+      if (item.invoice_date) patch.invoice_date = item.invoice_date
+      if (item.invoice_amount !== null && item.invoice_amount !== undefined) patch.invoice_amount = item.invoice_amount
+      if (item.cn_no?.trim()) patch.cn_no = item.cn_no.trim()
+      if (item.cn_date) patch.cn_date = item.cn_date
+      if (item.cn_amount !== null && item.cn_amount !== undefined) patch.cn_amount = item.cn_amount
+      if (item.cn_remarks?.trim()) patch.cn_remarks = item.cn_remarks.trim()
+      if (item.payment_status && ['Paid', 'Partially Paid', 'Void'].includes(item.payment_status)) {
+        patch.payment_status = item.payment_status
+      }
+      if (item.payment_date) patch.payment_date = item.payment_date
+      if (item.account_remarks?.trim()) patch.account_remarks = item.account_remarks.trim()
+
+      const { error: updErr } = await supabase
+        .from('qaqc_tests')
+        .update(patch)
+        .eq('id', item.existingId!)
+      if (updErr) throw updErr
+    }
+  }
+
+  // 2. Process Inserts
+  if (toInsert.length > 0) {
+    const currentYear = new Date().getFullYear()
+    const prefix = `QAQC-${currentYear}-`
+
+    // Get current highest number from both qaqc_tests and qaqc_counters
+    const [{ data: latest }, { data: counterRow }] = await Promise.all([
+      supabase
+        .from('qaqc_tests')
+        .select('running_no')
+        .like('running_no', `${prefix}%`)
+        .order('running_no', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from('qaqc_counters')
+        .select('last_seq')
+        .eq('year', currentYear)
+        .maybeSingle(),
+    ])
+
+    let maxTableSeq = 0
+    if (latest?.running_no) {
+      const parts = latest.running_no.split('-')
+      const lastNum = parseInt(parts[parts.length - 1], 10)
+      if (!isNaN(lastNum)) maxTableSeq = lastNum
+    }
+    const maxCounterSeq = Number(counterRow?.last_seq) || 0
+    const nextSeq = Math.max(maxTableSeq, maxCounterSeq) + 1
+
+    // Also extract test types and suppliers to auto-register
+    const uniqueTestTypes = new Set<string>()
+    const uniqueSuppliers = new Set<string>()
+
+    const rows = toInsert.map((item, idx) => {
+      const seq = nextSeq + idx
+      const runningNo = `${prefix}${String(seq).padStart(4, '0')}`
+      if (item.test_type?.trim()) uniqueTestTypes.add(item.test_type.trim())
+      if (item.supplier?.trim()) uniqueSuppliers.add(item.supplier.trim())
+
+      return {
+        running_no: runningNo,
+        project: item.project.trim(),
+        supplier: item.supplier.trim(),
+        marking: item.marking?.trim() || null,
+        test_type: item.test_type.trim(),
+        qty: item.qty ?? 1,
+        unit: item.unit?.trim() || 'nos',
+        date_cast: item.date_cast || null,
+        date_test: item.date_test || new Date().toISOString().slice(0, 10),
+        report_no: item.report_no?.trim() || null,
+        email_date: item.email_date || null,
+        qaqc_remarks: item.qaqc_remarks?.trim() || null,
+        po_no: item.po_no?.trim() || null,
+        po_date: item.po_date || null,
+        po_amount: item.po_amount ?? null,
+        purchaser_remarks: item.purchaser_remarks?.trim() || null,
+        invoice_no: item.invoice_no?.trim() || null,
+        invoice_date: item.invoice_date || null,
+        invoice_amount: item.invoice_amount ?? null,
+        cn_no: item.cn_no?.trim() || null,
+        cn_date: item.cn_date || null,
+        cn_amount: item.cn_amount ?? null,
+        cn_remarks: item.cn_remarks?.trim() || null,
+        payment_status: item.payment_status || 'Pending',
+        payment_date: item.payment_date || null,
+        account_remarks: item.account_remarks?.trim() || null,
+        created_by: user.id,
+      }
+    })
+
+    // Keep qaqc_counters synchronized
+    const newLastSeq = nextSeq + toInsert.length - 1
+    await supabase.from('qaqc_counters').upsert({ year: currentYear, last_seq: newLastSeq }, { onConflict: 'year' })
+
+    // Save new test types & suppliers in background
+    if (uniqueTestTypes.size > 0) {
+      const typeRows = Array.from(uniqueTestTypes).map(name => ({ name }))
+      supabase.from('qaqc_test_types').upsert(typeRows, { onConflict: 'name', ignoreDuplicates: true }).then(() => {})
+    }
+    if (uniqueSuppliers.size > 0) {
+      const supRows = Array.from(uniqueSuppliers).map(name => ({ name }))
+      supabase.from('qaqc_suppliers').upsert(supRows, { onConflict: 'name', ignoreDuplicates: true }).then(() => {})
+    }
+
+    const { error } = await supabase.from('qaqc_tests').insert(rows)
+    if (error) throw error
+  }
 
   revalidatePath('/qaqc/records')
   revalidatePath('/qaqc/dashboard')
-  return data
+
+  return {
+    insertedCount: toInsert.length,
+    updatedCount: toUpdate.length,
+    skippedCount,
+  }
+}
+
+export async function bulkCreateQaqcTests(items: QaqcTestInput[]) {
+  const res = await bulkImportQaqcTests(items, 'insert_all')
+  return res
 }
 
 export async function updateQaqcTest(id: number, patch: Partial<QaqcTestInput>) {

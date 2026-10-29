@@ -1026,6 +1026,7 @@ export default function RecordsClient({
           knownProjects={knownProjects}
           knownSuppliers={knownSuppliers}
           knownTestTypes={knownTestTypes}
+          existingTests={tests}
         />
       )}
 
