@@ -496,6 +496,7 @@ Type DELETE to confirm.`)
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase sticky top-0 bg-gray-50 z-10">Person</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase sticky top-0 bg-gray-50 z-10">Status</th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase sticky top-0 bg-gray-50 z-10">Last Login</th>
                   {myAdminDepts.map(d => <th key={d} className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase sticky top-0 bg-gray-50 z-10">{DEPT_LABEL[d]}</th>)}
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase sticky top-0 bg-gray-50 z-10">Manage</th>
                 </tr>
@@ -516,6 +517,20 @@ Type DELETE to confirm.`)
                           title={p.id === myId ? "You can't deactivate your own account" : p.is_active ? 'Set inactive: blocks sign-in' : 'Set active'}
                           className={`text-[11px] font-semibold px-2.5 py-1 rounded-full disabled:opacity-40 ${p.is_active ? 'bg-green-50 text-green-700 hover:bg-green-100' : 'bg-red-50 text-red-700 hover:bg-red-100'}`}
                         >{p.is_active ? 'Active' : 'Inactive'}</button>
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-xs">
+                        {p.last_sign_in_at ? (
+                          <div>
+                            <div className="font-medium text-slate-700">
+                              {new Date(p.last_sign_in_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                            </div>
+                            <div className="text-[11px] text-gray-400">
+                              {new Date(p.last_sign_in_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-gray-400 italic text-[11px]">Never signed in</span>
+                        )}
                       </td>
                       {myAdminDepts.map(d => (
                         <td key={d} className="px-3 py-2">
@@ -538,7 +553,7 @@ Type DELETE to confirm.`)
                     </tr>
                   )
                 })}
-                {rows.length === 0 && <tr><td colSpan={myAdminDepts.length + 3} className="px-4 py-8 text-center text-gray-400">Nobody matches.</td></tr>}
+                {rows.length === 0 && <tr><td colSpan={myAdminDepts.length + 4} className="px-4 py-8 text-center text-gray-400">Nobody matches.</td></tr>}
               </tbody>
             </table>
             </div>
@@ -676,7 +691,14 @@ Type DELETE to confirm.`)
                                 {p.full_name || '(no name)'}
                                 {!p.is_active && <span className="text-[10px] font-bold uppercase bg-red-100 text-red-700 rounded-full px-1.5 py-0.5 flex-shrink-0">Inactive</span>}
                               </div>
-                              <div className="text-xs text-gray-400 truncate">{p.email}</div>
+                              <div className="text-xs text-gray-400 truncate">
+                                {p.email}
+                                {p.last_sign_in_at ? (
+                                  <span className="ml-2 text-slate-500 font-medium">· Last login: {new Date(p.last_sign_in_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                                ) : (
+                                  <span className="ml-2 text-gray-400 italic">· Never logged in</span>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </td>

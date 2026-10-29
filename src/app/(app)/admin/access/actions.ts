@@ -6,7 +6,7 @@ import { getSignedInUser } from '@/lib/supabase/user'
 import { sendSecurityAlert } from '@/lib/security-alerts'
 import { requireMeetingsManager } from '../../meetings/guard'
 
-export type Person = { id: string; email: string; full_name: string | null; avatar_url: string | null; is_active: boolean }
+export type Person = { id: string; email: string; full_name: string | null; avatar_url: string | null; is_active: boolean; last_sign_in_at?: string | null }
 
 // Every server action here manages other people's accounts with the
 // service-role client, so every one of them must independently re-check this
@@ -102,6 +102,7 @@ export async function listPeople(): Promise<Person[]> {
       full_name: profileById.get(u.id)?.full_name ?? null,
       avatar_url: profileById.get(u.id)?.avatar_url ?? null,
       is_active: profileById.get(u.id)?.is_active ?? true,
+      last_sign_in_at: u.last_sign_in_at ?? null,
     }))
     .sort((a, b) => a.email.localeCompare(b.email))
 }
