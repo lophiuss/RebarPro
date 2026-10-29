@@ -3,14 +3,36 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { CalendarPlus, ArrowRight } from 'lucide-react'
+import {
+  CalendarPlus,
+  ArrowRight,
+  ListTodo,
+  Target,
+  Flag,
+  Clock,
+  AlertCircle,
+  CheckCircle2,
+  Circle,
+  ChevronDown,
+  ChevronRight,
+  Columns,
+  Layers,
+} from 'lucide-react'
 import { createQuarterlyAlignment } from './actions'
 import { act } from '../act'
 import { initials, ymd } from '@/lib/meetings'
 
 type Report = { id: string; name: string; seat: string; subtitle: string | null }
 type Todo = { id: string; owner_id: string; title: string; due_date: string | null; done_at: string | null }
-type Goal = { id: string; owner_id: string; title: string; status: string; completed_at: string | null; milestones: { title: string; done: boolean; done_at?: string | null }[] }
+type Goal = {
+  id: string
+  owner_id: string
+  title: string
+  status: string
+  due_date?: string | null
+  completed_at: string | null
+  milestones: { title: string; done: boolean; done_at?: string | null }[]
+}
 
 const RANGES = ['1W', '1M', '1Q', '6M', 'YTD', '1Y'] as const
 type Range = typeof RANGES[number]
@@ -89,6 +111,13 @@ function ReportCard({ report, todos, goals, qaMeetingId }: { report: Report; tod
   const [range, setRange] = useState<Range>('1Q')
   const [off, setOff] = useState<string[]>([])
   const [busy, setBusy] = useState(false)
+  const [activeTab, setActiveTab] = useState<'todos' | 'goals' | 'milestones'>('todos')
+  const [layoutMode, setLayoutMode] = useState<'tabs' | 'columns'>('tabs')
+  const [expandedGoals, setExpandedGoals] = useState<Record<string, boolean>>({})
+
+  function toggleGoalExpand(id: string) {
+    setExpandedGoals(prev => ({ ...prev, [id]: !prev[id] }))
+  }
 
   const now = useMemo(() => new Date(), [])
   const data = useMemo(() => {
@@ -113,6 +142,8 @@ function ReportCard({ report, todos, goals, qaMeetingId }: { report: Report; tod
   const openGoals = goals.filter(g => g.status !== 'done')
   const openMilestones = goals.flatMap(g => g.milestones.filter(m => !m.done).map(m => ({ goal: g.title, title: m.title })))
   const today = ymd(now)
+  const overdueTodosCount = openTodos.filter(t => t.due_date && t.due_date < today).length
+  const offTrackGoalsCount = openGoals.filter(g => g.status === 'off').length
 
   async function create() {
     setBusy(true)
@@ -174,30 +205,376 @@ function ReportCard({ report, todos, goals, qaMeetingId }: { report: Report; tod
         </div>
       </div>
 
-      <div className="grid sm:grid-cols-3 gap-3 mt-5 text-sm">
-        <details className="border rounded-lg px-3 py-2">
-          <summary className="cursor-pointer font-semibold">To-dos <span className="text-gray-500 font-normal">({openTodos.length} open)</span></summary>
-          <ul className="mt-2 space-y-1">
-            {openTodos.length === 0 && <li className="text-gray-500">None open</li>}
-            {openTodos.slice(0, 12).map(t => (
-              <li key={t.id} className="flex gap-2"><span className="flex-1 min-w-0 truncate">{t.title}</span><span className={`text-xs whitespace-nowrap ${t.due_date && t.due_date < today ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>{t.due_date}</span></li>
-            ))}
-          </ul>
-        </details>
-        <details className="border rounded-lg px-3 py-2">
-          <summary className="cursor-pointer font-semibold">Quarterly Priorities <span className="text-gray-500 font-normal">({openGoals.length} open)</span></summary>
-          <ul className="mt-2 space-y-1">
-            {openGoals.length === 0 && <li className="text-gray-500">None open</li>}
-            {openGoals.map(g => <li key={g.id} className="flex gap-2"><span className="flex-1 min-w-0 truncate">{g.title}</span><span className={`text-xs ${g.status === 'off' ? 'text-red-600' : 'text-green-700'}`}>{g.status === 'off' ? 'Off track' : 'On track'}</span></li>)}
-          </ul>
-        </details>
-        <details className="border rounded-lg px-3 py-2">
-          <summary className="cursor-pointer font-semibold">Milestones <span className="text-gray-500 font-normal">({openMilestones.length} open)</span></summary>
-          <ul className="mt-2 space-y-1">
-            {openMilestones.length === 0 && <li className="text-gray-500">None open</li>}
-            {openMilestones.slice(0, 12).map((m, i) => <li key={i} className="truncate" title={m.goal}>{m.title}</li>)}
-          </ul>
-        </details>
+      {/* Items Section: To-dos, Quarterly Priorities, Milestones */}
+      <div className="mt-6 pt-5 border-t border-slate-100">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          {/* Tab Switchers */}
+          <div className="inline-flex items-center p-1 bg-slate-100 rounded-lg text-xs font-semibold gap-1">
+            <button
+              type="button"
+              onClick={() => { setActiveTab('todos'); setLayoutMode('tabs') }}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all ${
+                layoutMode === 'tabs' && activeTab === 'todos'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <ListTodo className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+              <span>To-dos</span>
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                overdueTodosCount > 0 ? 'bg-rose-100 text-rose-700' : 'bg-slate-200/80 text-slate-700'
+              }`}>
+                {openTodos.length}
+              </span>
+              {overdueTodosCount > 0 && (
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" title={`${overdueTodosCount} overdue`} />
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => { setActiveTab('goals'); setLayoutMode('tabs') }}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all ${
+                layoutMode === 'tabs' && activeTab === 'goals'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Target className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+              <span>Quarter Priorities</span>
+              <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                offTrackGoalsCount > 0 ? 'bg-amber-100 text-amber-800' : 'bg-slate-200/80 text-slate-700'
+              }`}>
+                {openGoals.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => { setActiveTab('milestones'); setLayoutMode('tabs') }}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all ${
+                layoutMode === 'tabs' && activeTab === 'milestones'
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Flag className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+              <span>Milestones</span>
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-200/80 text-slate-700">
+                {openMilestones.length}
+              </span>
+            </button>
+          </div>
+
+          {/* Layout Mode Toggle: Tabs vs 3 Columns */}
+          <button
+            type="button"
+            onClick={() => setLayoutMode(layoutMode === 'tabs' ? 'columns' : 'tabs')}
+            className={`inline-flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border font-medium transition-colors ${
+              layoutMode === 'columns'
+                ? 'bg-slate-900 text-white border-slate-900'
+                : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+            }`}
+            title={layoutMode === 'tabs' ? 'Switch to side-by-side 3 columns view' : 'Switch to full tabbed view'}
+          >
+            {layoutMode === 'tabs' ? (
+              <>
+                <Columns className="w-3.5 h-3.5" />
+                <span>3 Columns</span>
+              </>
+            ) : (
+              <>
+                <Layers className="w-3.5 h-3.5" />
+                <span>Tab View</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Tabbed View: Generous spacing, full-width readability */}
+        {layoutMode === 'tabs' ? (
+          <div>
+            {activeTab === 'todos' && (
+              openTodos.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-7 text-center bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
+                  <CheckCircle2 className="w-7 h-7 text-emerald-500 mb-1.5 stroke-[1.5]" />
+                  <p className="text-sm font-medium text-slate-700">No open to-dos</p>
+                  <p className="text-xs text-slate-500 mt-0.5">All action items are done or none assigned.</p>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
+                  {openTodos.map(t => {
+                    const isOverdue = t.due_date && t.due_date < today
+                    const isToday = t.due_date && t.due_date === today
+                    return (
+                      <div
+                        key={t.id}
+                        className={`flex items-start justify-between gap-3 p-3 rounded-lg border transition-all ${
+                          isOverdue
+                            ? 'bg-rose-50/40 border-rose-200/90'
+                            : 'bg-white border-slate-200 hover:border-slate-300 hover:shadow-xs'
+                        }`}
+                      >
+                        <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                          <Circle className="w-4 h-4 text-slate-400 mt-0.5 shrink-0 stroke-[2]" />
+                          <p className="text-sm font-medium text-slate-800 break-words leading-relaxed">
+                            {t.title}
+                          </p>
+                        </div>
+                        {t.due_date && (
+                          <div className="shrink-0 pt-0.5">
+                            {isOverdue ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-100 text-rose-700 border border-rose-200">
+                                <AlertCircle className="w-3 h-3 shrink-0" />
+                                <span>Overdue: {t.due_date}</span>
+                              </span>
+                            ) : isToday ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+                                <Clock className="w-3 h-3 shrink-0" />
+                                <span>Due Today</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                                <Clock className="w-3 h-3 shrink-0 text-slate-400" />
+                                <span>{t.due_date}</span>
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            )}
+
+            {activeTab === 'goals' && (
+              openGoals.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-7 text-center bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
+                  <Target className="w-7 h-7 text-blue-500 mb-1.5 stroke-[1.5]" />
+                  <p className="text-sm font-medium text-slate-700">No open quarterly priorities</p>
+                  <p className="text-xs text-slate-500 mt-0.5">No active priorities for this quarter.</p>
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1">
+                  {openGoals.map(g => {
+                    const msList = g.milestones || []
+                    const totalMs = msList.length
+                    const doneMs = msList.filter(m => m.done).length
+                    const pct = totalMs > 0 ? Math.round((doneMs / totalMs) * 100) : 0
+                    const isExpanded = expandedGoals[g.id] ?? false
+                    const isOffTrack = g.status === 'off'
+
+                    return (
+                      <div key={g.id} className="p-3.5 rounded-lg border border-slate-200 bg-white hover:border-slate-300 transition-colors">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                            <Target className={`w-4 h-4 mt-0.5 shrink-0 ${isOffTrack ? 'text-rose-500' : 'text-blue-600'}`} />
+                            <div className="min-w-0 flex-1">
+                              <h4 className="text-sm font-semibold text-slate-900 break-words leading-relaxed">
+                                {g.title}
+                              </h4>
+                              {g.due_date && (
+                                <p className="text-xs text-slate-500 mt-1 flex items-center gap-1 font-medium">
+                                  <Clock className="w-3 h-3 text-slate-400" /> Target date: {g.due_date}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold shrink-0 ${
+                            isOffTrack ? 'bg-rose-100 text-rose-700 border border-rose-200' : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                          }`}>
+                            {isOffTrack ? 'Off track' : 'On track'}
+                          </span>
+                        </div>
+
+                        {totalMs > 0 && (
+                          <div className="mt-3 pt-2.5 border-t border-slate-100">
+                            <div className="flex items-center justify-between text-xs text-slate-600 mb-1.5 font-medium">
+                              <span>Milestones: <b className="text-slate-900">{doneMs}/{totalMs}</b> completed ({pct}%)</span>
+                              <button
+                                type="button"
+                                onClick={() => toggleGoalExpand(g.id)}
+                                className="inline-flex items-center gap-0.5 text-blue-600 hover:text-blue-700 text-xs font-semibold"
+                              >
+                                {isExpanded ? (
+                                  <>Hide checklist <ChevronDown className="w-3.5 h-3.5" /></>
+                                ) : (
+                                  <>View checklist <ChevronRight className="w-3.5 h-3.5" /></>
+                                )}
+                              </button>
+                            </div>
+                            <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all duration-300 ${isOffTrack ? 'bg-rose-500' : 'bg-blue-600'}`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+
+                            {isExpanded && (
+                              <ul className="mt-2.5 space-y-1.5 pl-2.5 border-l-2 border-slate-200">
+                                {msList.map((m, idx) => (
+                                  <li key={idx} className="flex items-start gap-2 text-xs">
+                                    {m.done ? (
+                                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 mt-0.5 shrink-0" />
+                                    ) : (
+                                      <Circle className="w-3.5 h-3.5 text-slate-400 mt-0.5 shrink-0" />
+                                    )}
+                                    <span className={`break-words ${m.done ? 'text-slate-400 line-through' : 'text-slate-700 font-medium'}`}>
+                                      {m.title}
+                                    </span>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            )}
+
+            {activeTab === 'milestones' && (
+              openMilestones.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-7 text-center bg-slate-50/60 rounded-xl border border-dashed border-slate-200">
+                  <Flag className="w-7 h-7 text-amber-500 mb-1.5 stroke-[1.5]" />
+                  <p className="text-sm font-medium text-slate-700">No open milestones</p>
+                  <p className="text-xs text-slate-500 mt-0.5">All priority milestones are achieved.</p>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
+                  {openMilestones.map((m, idx) => (
+                    <div key={idx} className="p-3 rounded-lg border border-slate-200 bg-white hover:border-slate-300 transition-colors flex items-start gap-2.5">
+                      <Flag className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-slate-800 break-words leading-relaxed">
+                          {m.title}
+                        </p>
+                        <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                            <Target className="w-3 h-3 text-blue-500 shrink-0" />
+                            <span className="truncate max-w-[280px]">Priority: {m.goal}</span>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
+            )}
+          </div>
+        ) : (
+          /* 3-Columns View with non-truncated word-wrapping cards */
+          <div className="grid sm:grid-cols-3 gap-3">
+            {/* Column 1: To-dos */}
+            <div className="border border-slate-200 rounded-lg p-3 bg-slate-50/50 flex flex-col min-h-[220px]">
+              <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-200 text-xs font-semibold text-slate-800">
+                <span className="flex items-center gap-1.5">
+                  <ListTodo className="w-3.5 h-3.5 text-emerald-600" />
+                  To-dos
+                </span>
+                <span className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                  overdueTodosCount > 0 ? 'bg-rose-100 text-rose-700' : 'bg-slate-200 text-slate-700'
+                }`}>
+                  {openTodos.length}
+                </span>
+              </div>
+              <div className="space-y-2 overflow-y-auto max-h-[260px] pr-0.5 flex-1 text-xs">
+                {openTodos.length === 0 ? (
+                  <p className="text-slate-400 italic text-center py-4">None open</p>
+                ) : (
+                  openTodos.map(t => {
+                    const isOverdue = t.due_date && t.due_date < today
+                    return (
+                      <div key={t.id} className="p-2 bg-white rounded border border-slate-200 shadow-2xs">
+                        <p className="font-medium text-slate-800 break-words leading-snug">{t.title}</p>
+                        {t.due_date && (
+                          <div className="mt-1">
+                            <span className={`inline-block text-[10px] px-1.5 py-0.5 rounded font-semibold ${
+                              isOverdue ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-600'
+                            }`}>
+                              {isOverdue ? `⚠️ ${t.due_date}` : t.due_date}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Column 2: Quarter Priorities */}
+            <div className="border border-slate-200 rounded-lg p-3 bg-slate-50/50 flex flex-col min-h-[220px]">
+              <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-200 text-xs font-semibold text-slate-800">
+                <span className="flex items-center gap-1.5">
+                  <Target className="w-3.5 h-3.5 text-blue-600" />
+                  Quarter Priorities
+                </span>
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-700">
+                  {openGoals.length}
+                </span>
+              </div>
+              <div className="space-y-2 overflow-y-auto max-h-[260px] pr-0.5 flex-1 text-xs">
+                {openGoals.length === 0 ? (
+                  <p className="text-slate-400 italic text-center py-4">None open</p>
+                ) : (
+                  openGoals.map(g => {
+                    const isOffTrack = g.status === 'off'
+                    const totalMs = g.milestones?.length || 0
+                    const doneMs = g.milestones?.filter(m => m.done).length || 0
+                    return (
+                      <div key={g.id} className="p-2 bg-white rounded border border-slate-200 shadow-2xs">
+                        <p className="font-semibold text-slate-900 break-words leading-snug">{g.title}</p>
+                        <div className="mt-1.5 flex items-center justify-between gap-1 flex-wrap">
+                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                            isOffTrack ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-800'
+                          }`}>
+                            {isOffTrack ? 'Off track' : 'On track'}
+                          </span>
+                          {totalMs > 0 && (
+                            <span className="text-[10px] text-slate-500 font-medium">
+                              {doneMs}/{totalMs} ms
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Column 3: Milestones */}
+            <div className="border border-slate-200 rounded-lg p-3 bg-slate-50/50 flex flex-col min-h-[220px]">
+              <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-200 text-xs font-semibold text-slate-800">
+                <span className="flex items-center gap-1.5">
+                  <Flag className="w-3.5 h-3.5 text-amber-500" />
+                  Milestones
+                </span>
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-200 text-slate-700">
+                  {openMilestones.length}
+                </span>
+              </div>
+              <div className="space-y-2 overflow-y-auto max-h-[260px] pr-0.5 flex-1 text-xs">
+                {openMilestones.length === 0 ? (
+                  <p className="text-slate-400 italic text-center py-4">None open</p>
+                ) : (
+                  openMilestones.map((m, i) => (
+                    <div key={i} className="p-2 bg-white rounded border border-slate-200 shadow-2xs">
+                      <p className="font-medium text-slate-800 break-words leading-snug">{m.title}</p>
+                      <p className="text-[10px] text-slate-500 mt-1 truncate" title={m.goal}>
+                        🎯 {m.goal}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </section>
   )
