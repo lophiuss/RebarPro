@@ -2,7 +2,8 @@
 
 import { useRef, useState } from 'react'
 import Link from 'next/link'
-import { Lightbulb, MessageSquareQuote, Shuffle, ArrowLeft, NotebookPen, Check, UserCheck, Users, Crown, Plus, ClipboardList, ChevronRight } from 'lucide-react'
+import { Lightbulb, MessageSquareQuote, Shuffle, ArrowLeft, NotebookPen, Check, UserCheck, Users, Crown, Plus, ClipboardList, ChevronRight, Zap, Volume2, VolumeX } from 'lucide-react'
+import { getRandomSuperhero, playHeroFanfare, SuperheroAnnouncementToast, type Superhero } from '@/components/SuperheroCheckin'
 import { setAttendanceBulk, saveIcebreakerNotes } from '../actions'
 import { AddAttendeeDialog } from './AddAttendee'
 import { useMeeting, useRun } from './context'
@@ -75,8 +76,50 @@ export function CheckIn({ lastFeedback, ice, onIce, notes, prep = [] }: { lastFe
       })
     }, 150)
   }
-  const toggle = (id: string) => setMany({ [id]: !isPresent(id) })
-  const markAll = (present: boolean) => setMany(Object.fromEntries(attendees.map(p => [p.id, present])))
+  // Superhero Ready-In effect
+  const [heroMode, setHeroMode] = useState(true)
+  const [soundEnabled, setSoundEnabled] = useState(true)
+  const [heroes, setHeroes] = useState<Record<string, Superhero>>({})
+  const [activeHeroToast, setActiveHeroToast] = useState<{ hero: Superhero; personName: string } | null>(null)
+
+  const toggle = (id: string) => {
+    const nextVal = !isPresent(id)
+    setMany({ [id]: nextVal })
+    if (nextVal && heroMode) {
+      const person = peopleById.get(id) || attendees.find(p => p.id === id)
+      const personName = person?.full_name || 'Team Hero'
+      let hero = heroes[id]
+      if (!hero) {
+        hero = getRandomSuperhero()
+        setHeroes(prev => ({ ...prev, [id]: hero }))
+      }
+      setActiveHeroToast({ hero, personName })
+      if (soundEnabled) {
+        playHeroFanfare()
+      }
+    }
+  }
+
+  const markAll = (present: boolean) => {
+    setMany(Object.fromEntries(attendees.map(p => [p.id, present])))
+    if (present && heroMode) {
+      const newHeroes = { ...heroes }
+      attendees.forEach(p => {
+        if (!newHeroes[p.id]) newHeroes[p.id] = getRandomSuperhero()
+      })
+      setHeroes(newHeroes)
+      if (soundEnabled) {
+        playHeroFanfare()
+      }
+      const randomPerson = attendees[Math.floor(Math.random() * attendees.length)]
+      if (randomPerson && newHeroes[randomPerson.id]) {
+        setActiveHeroToast({
+          hero: newHeroes[randomPerson.id],
+          personName: 'Team Heroes Assembled!'
+        })
+      }
+    }
+  }
   const hostId = liveRun?.leader_id ?? null
 
   // "+" tile: bring in someone who is not on the meeting's list (and tick them present if the meeting is running).
@@ -136,7 +179,33 @@ export function CheckIn({ lastFeedback, ice, onIce, notes, prep = [] }: { lastFe
             <div className="text-xs text-gray-500 mt-1">{pct}% present</div>
           </div>
           {liveRun && attendees.length > 0 && (
-            <div className="flex items-center gap-2 ml-auto">
+            <div className="flex items-center gap-2 ml-auto flex-wrap">
+              {/* Superhero Mode Toggle */}
+              <div className="flex items-center gap-1 bg-amber-50/80 border border-amber-200/90 rounded-lg p-1">
+                <button
+                  type="button"
+                  onClick={() => setHeroMode(!heroMode)}
+                  title={heroMode ? 'Superhero effect active: click to disable' : 'Click to enable superhero ready-in effect'}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition active:scale-95 ${
+                    heroMode
+                      ? 'bg-amber-500 text-white shadow-2xs'
+                      : 'bg-white text-gray-500 hover:bg-gray-100'
+                  }`}
+                >
+                  <Zap className={`w-3.5 h-3.5 ${heroMode ? 'fill-white' : 'text-gray-400'}`} />
+                  <span>Superhero {heroMode ? 'ON' : 'OFF'}</span>
+                </button>
+                {heroMode && (
+                  <button
+                    type="button"
+                    onClick={() => setSoundEnabled(!soundEnabled)}
+                    title={soundEnabled ? 'Fanfare sound ON' : 'Fanfare sound MUTED'}
+                    className="p-1 rounded-md hover:bg-white text-gray-600 transition"
+                  >
+                    {soundEnabled ? <Volume2 className="w-3.5 h-3.5 text-emerald-600" /> : <VolumeX className="w-3.5 h-3.5 text-gray-400" />}
+                  </button>
+                )}
+              </div>
               <button onClick={() => markAll(true)} disabled={presentCount === attendees.length} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 active:scale-95 transition disabled:opacity-40"><UserCheck className="w-4 h-4" /> Everyone is here</button>
               <button onClick={() => markAll(false)} disabled={presentCount === 0} className="px-3 py-2 rounded-lg border bg-white text-sm font-medium text-gray-600 hover:bg-gray-50 active:scale-95 transition disabled:opacity-40">Clear</button>
             </div>
@@ -174,6 +243,16 @@ export function CheckIn({ lastFeedback, ice, onIce, notes, prep = [] }: { lastFe
                     <span className="h-4 flex items-center gap-1 text-xs font-semibold">
                       {p.id === hostId ? <span className="inline-flex items-center gap-1 text-amber-600"><Crown className="w-3 h-3" /> Host</span> : p.id === myId ? <span className="text-blue-600">You</span> : null}
                     </span>
+                    {here && heroMode && heroes[p.id] && (
+                      <span
+                        className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full text-white shadow-2xs max-w-full truncate animate-in zoom-in-75 duration-200 mt-0.5"
+                        style={{ background: heroes[p.id].color }}
+                        title={`${heroes[p.id].heroName}: ${heroes[p.id].superpower}`}
+                      >
+                        <span>{heroes[p.id].emoji}</span>
+                        <span className="truncate">{heroes[p.id].heroName}</span>
+                      </span>
+                    )}
                   </button>
                 </li>
               )
@@ -292,6 +371,15 @@ export function CheckIn({ lastFeedback, ice, onIce, notes, prep = [] }: { lastFe
           </ul>
         )}
       </div>
+
+      {/* Superhero Announcement Toast */}
+      {activeHeroToast && (
+        <SuperheroAnnouncementToast
+          hero={activeHeroToast.hero}
+          personName={activeHeroToast.personName}
+          onClose={() => setActiveHeroToast(null)}
+        />
+      )}
     </div>
   )
 }

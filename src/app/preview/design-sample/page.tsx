@@ -34,7 +34,19 @@ import {
   Boxes,
   Truck,
   HardHat,
+  Zap,
+  Volume2,
+  VolumeX,
+  Crown,
+  Check,
 } from 'lucide-react'
+import {
+  SUPERHEROES,
+  type Superhero,
+  getRandomSuperhero,
+  playHeroFanfare,
+  SuperheroAnnouncementToast,
+} from '@/components/SuperheroCheckin'
 
 // KOMT Corporate Brand Design Tokens (Extracted directly from komt.com.my)
 const KOMT = {
@@ -54,14 +66,82 @@ const KOMT = {
   cardBg: '#FFFFFF',        // Pure white card surfaces
 }
 
-type SamplePage = 'command-centre' | 'bplant-ops' | 'direct-reports' | 'design-system'
+type SamplePage = 'superhero-demo' | 'command-centre' | 'bplant-ops' | 'direct-reports' | 'design-system'
 type ThemeMode = 'komt' | 'original'
 
 export default function DesignSamplePage() {
-  const [activePage, setActivePage] = useState<SamplePage>('command-centre')
+  const [activePage, setActivePage] = useState<SamplePage>('superhero-demo')
   const [themeMode, setThemeMode] = useState<ThemeMode>('komt')
   const [activeTabReports, setActiveTabReports] = useState<'todos' | 'goals' | 'milestones'>('todos')
   const [reportStatusFilter, setReportStatusFilter] = useState<'open' | 'done' | 'all'>('open')
+
+  // Superhero Demo State
+  const [heroAttendance, setHeroAttendance] = useState<Record<string, boolean>>({
+    'user-1': false,
+    'user-2': false,
+    'user-3': false,
+    'user-4': false,
+    'user-5': false,
+    'user-6': false,
+  })
+  const [assignedHeroes, setAssignedHeroes] = useState<Record<string, Superhero>>({})
+  const [activeHeroToast, setActiveHeroToast] = useState<{ hero: Superhero; personName: string } | null>(null)
+  const [soundEnabled, setSoundEnabled] = useState(true)
+
+  const DEMO_ATTENDEES = [
+    { id: 'user-1', name: 'David Then', role: 'Executive Director (Host)', avatar: 'DT' },
+    { id: 'user-2', name: 'Ahmad Khairul', role: 'Head of Precast Batching', avatar: 'AK' },
+    { id: 'user-3', name: 'Siti Aminah', role: 'Senior QA / Materials Lab', avatar: 'SA' },
+    { id: 'user-4', name: 'Tan Wei Ming', role: 'Rebar Fabrication Lead', avatar: 'TW' },
+    { id: 'user-5', name: 'Michael Wong', role: 'Plant Maintenance & Cranes', avatar: 'MW' },
+    { id: 'user-6', name: 'Rajesh Kumar', role: 'Security & Logistics', avatar: 'RK' },
+  ]
+
+  function handleCheckInClick(id: string, name: string) {
+    const isCurrentlyHere = heroAttendance[id]
+    if (!isCurrentlyHere) {
+      // Checking in! Random Superhero Ready-In Effect!
+      const hero = getRandomSuperhero()
+      setAssignedHeroes(prev => ({ ...prev, [id]: hero }))
+      setHeroAttendance(prev => ({ ...prev, [id]: true }))
+      setActiveHeroToast({ hero, personName: name })
+      if (soundEnabled) {
+        playHeroFanfare()
+      }
+    } else {
+      // Unchecking (toggle out)
+      setHeroAttendance(prev => ({ ...prev, [id]: false }))
+    }
+  }
+
+  function handleAssembleAll() {
+    const newAssigned: Record<string, Superhero> = { ...assignedHeroes }
+    const newAttendance: Record<string, boolean> = {}
+    DEMO_ATTENDEES.forEach(p => {
+      newAttendance[p.id] = true
+      if (!newAssigned[p.id]) {
+        newAssigned[p.id] = getRandomSuperhero()
+      }
+    })
+    setAssignedHeroes(newAssigned)
+    setHeroAttendance(newAttendance)
+    const randomPicked = newAssigned[DEMO_ATTENDEES[0].id] || getRandomSuperhero()
+    setActiveHeroToast({ hero: randomPicked, personName: 'ALL ATTENDEES' })
+    if (soundEnabled) {
+      playHeroFanfare()
+    }
+  }
+
+  function handleResetDemo() {
+    setHeroAttendance({
+      'user-1': false,
+      'user-2': false,
+      'user-3': false,
+      'user-4': false,
+      'user-5': false,
+      'user-6': false,
+    })
+  }
 
   const isKomt = themeMode === 'komt'
 
@@ -103,6 +183,17 @@ export default function DesignSamplePage() {
 
           {/* Sample Page Selector Tabs */}
           <div className="inline-flex items-center p-1 bg-slate-100 rounded-lg text-xs font-semibold gap-1">
+            <button
+              onClick={() => setActivePage('superhero-demo')}
+              className={`px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5 ${
+                activePage === 'superhero-demo'
+                  ? 'bg-amber-500 text-white shadow-xs font-extrabold'
+                  : 'text-amber-800 bg-amber-50 hover:bg-amber-100 font-bold border border-amber-200'
+              }`}
+            >
+              <Zap className="w-3.5 h-3.5 fill-current text-amber-300" />
+              <span>🦸 Superhero Check-in Demo</span>
+            </button>
             <button
               onClick={() => setActivePage('command-centre')}
               className={`px-3 py-1.5 rounded-md transition-all ${
@@ -216,6 +307,256 @@ export default function DesignSamplePage() {
 
       {/* MAIN SAMPLE CONTENT CONTAINER */}
       <main className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
+
+        {/* Superhero Announcement Toast Pop-up */}
+        {activeHeroToast && (
+          <SuperheroAnnouncementToast
+            hero={activeHeroToast.hero}
+            personName={activeHeroToast.personName}
+            onClose={() => setActiveHeroToast(null)}
+          />
+        )}
+
+        {/* ========================================================================= */}
+        {/* SUPERHERO CHECK-IN DEMO (会议签到“随机超级英雄” Ready-In 动效演示) */}
+        {/* ========================================================================= */}
+        {activePage === 'superhero-demo' && (
+          <div className="space-y-6">
+            {/* Superhero Banner Header */}
+            <div
+              className="rounded-2xl p-6 sm:p-8 text-white relative overflow-hidden shadow-lg border-2"
+              style={{
+                background: isKomt
+                  ? `linear-gradient(135deg, ${KOMT.primary} 0%, #173258 50%, #0d1e35 100%)`
+                  : 'linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)',
+                borderColor: isKomt ? KOMT.teal : '#6366F1',
+              }}
+            >
+              <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-[11px] font-black uppercase tracking-widest px-2.5 py-1 rounded-md bg-amber-400 text-slate-950 shadow-xs flex items-center gap-1">
+                      <Zap className="w-3.5 h-3.5 fill-current" /> Interactive Feature Demo
+                    </span>
+                    <span className="text-xs text-white/80 font-medium">
+                      Meeting Check-In Ready-In Effect
+                    </span>
+                  </div>
+                  <h2 className="text-2xl sm:text-3xl font-black tracking-tight text-white flex items-center gap-2.5">
+                    <span>🦸 Superhero Meeting Check-In Effect</span>
+                  </h2>
+                  <p className="text-sm text-white/80 mt-1 max-w-2xl leading-relaxed">
+                    Click any attendee below to check them in! Each check-in triggers a <b>random superhero persona</b>, arcade audio fanfare, celebratory comic-burst toast, and persistent hero status badge.
+                  </p>
+                </div>
+
+                {/* Sound & Controls Toolbar */}
+                <div className="bg-white/10 backdrop-blur-md rounded-xl p-3 border border-white/20 flex flex-col gap-2 shrink-0">
+                  <div className="flex items-center justify-between gap-3 text-xs">
+                    <span className="text-white/80 font-medium">Audio Fanfare:</span>
+                    <button
+                      type="button"
+                      onClick={() => setSoundEnabled(!soundEnabled)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors ${
+                        soundEnabled ? 'bg-amber-400 text-slate-900' : 'bg-white/20 text-white'
+                      }`}
+                    >
+                      {soundEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+                      <span>{soundEnabled ? 'Sound ON' : 'Muted'}</span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleAssembleAll}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold shadow-xs transition-transform active:scale-95 flex items-center gap-1"
+                    >
+                      <Zap className="w-3 h-3 fill-current" /> Assemble All!
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleResetDemo}
+                      className="px-3 py-1.5 rounded-lg bg-white/20 hover:bg-white/30 text-white text-xs font-semibold transition-colors"
+                    >
+                      Reset
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Attendance & Assembled Hero Progress Bar */}
+              <div className="mt-6 pt-5 border-t border-white/15 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="text-2xl font-black text-amber-300">
+                    {Object.values(heroAttendance).filter(Boolean).length} / {DEMO_ATTENDEES.length}
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-white uppercase tracking-wider">
+                      {Object.values(heroAttendance).filter(Boolean).length === DEMO_ATTENDEES.length
+                        ? '🎉 ALL HEROES ASSEMBLED & READY TO ROLL!'
+                        : 'Heroes Checked In & Armed for Meeting'}
+                    </div>
+                    <div className="text-[11px] text-white/70">
+                      {DEMO_ATTENDEES.length - Object.values(heroAttendance).filter(Boolean).length} awaiting check-in
+                    </div>
+                  </div>
+                </div>
+
+                <div className="w-full sm:max-w-xs bg-black/30 rounded-full h-3 p-0.5 overflow-hidden border border-white/20">
+                  <div
+                    className="h-full rounded-full transition-all duration-500 bg-gradient-to-r from-amber-400 to-emerald-400 shadow-sm"
+                    style={{
+                      width: `${(Object.values(heroAttendance).filter(Boolean).length / DEMO_ATTENDEES.length) * 100}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* INTERACTIVE ATTENDEE TILES GRID */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                  <Users className="w-4 h-4 text-blue-600" /> Meeting Attendees (Click a tile to check in)
+                </h3>
+                <span className="text-xs text-slate-500 italic">
+                  Tip: Click again to uncheck, or tap to get a new random hero!
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
+                {DEMO_ATTENDEES.map(p => {
+                  const isHere = heroAttendance[p.id]
+                  const hero = assignedHeroes[p.id]
+
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => handleCheckInClick(p.id, p.name)}
+                      className={`group relative rounded-2xl p-4 flex flex-col items-center text-center select-none transition-all duration-200 active:scale-95 text-left w-full border-2 ${
+                        isHere && hero
+                          ? 'bg-white shadow-md border-emerald-400 ring-2 ring-emerald-400/20'
+                          : 'border-dashed border-slate-300 bg-white hover:border-blue-400 hover:bg-blue-50/30'
+                      }`}
+                      style={{
+                        borderColor: isHere && hero ? hero.color : undefined,
+                      }}
+                    >
+                      {/* Avatar with Status badge */}
+                      <div className="relative mb-2.5">
+                        <div
+                          className={`w-14 h-14 rounded-2xl flex items-center justify-center text-lg font-black text-white shadow-sm transition-transform duration-200 group-hover:scale-105 ${
+                            isHere ? 'ring-4 ring-offset-2' : 'grayscale opacity-75 group-hover:grayscale-0'
+                          }`}
+                          style={{
+                            background: isHere && hero ? hero.color : (isKomt ? KOMT.primary : '#3B82F6'),
+                            boxShadow: isHere && hero ? `0 4px 14px ${hero.color}66` : undefined,
+                          }}
+                        >
+                          {isHere && hero ? hero.emoji : p.avatar}
+                        </div>
+
+                        {/* Checkmark overlay badge */}
+                        <div
+                          className={`absolute -bottom-1 -right-1 w-6 h-6 rounded-full border-2 border-white flex items-center justify-center transition-all ${
+                            isHere
+                              ? 'bg-emerald-600 text-white scale-100'
+                              : 'bg-slate-200 text-transparent scale-90 group-hover:bg-blue-200 group-hover:text-blue-700'
+                          }`}
+                        >
+                          <Check className="w-3.5 h-3.5 stroke-[3]" />
+                        </div>
+                      </div>
+
+                      {/* Person Name & Role */}
+                      <div className="text-xs font-bold text-slate-900 leading-snug line-clamp-1 break-words">
+                        {p.name}
+                      </div>
+                      <div className="text-[10px] text-slate-500 line-clamp-1 mb-2">
+                        {p.role}
+                      </div>
+
+                      {/* SUPERHERO BADGE (Displayed once checked in!) */}
+                      {isHere && hero ? (
+                        <div className="w-full mt-auto pt-2 border-t border-slate-100 flex flex-col items-center gap-1">
+                          <span
+                            className="w-full text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full text-white text-center shadow-2xs truncate"
+                            style={{ background: hero.color }}
+                            title={hero.heroName}
+                          >
+                            {hero.emoji} {hero.heroName}
+                          </span>
+                          <span
+                            className="text-[9px] font-extrabold uppercase px-1.5 py-0.2 rounded"
+                            style={{ background: `${hero.accentColor}22`, color: hero.color }}
+                          >
+                            READY!
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="w-full mt-auto pt-2 border-t border-dashed border-slate-200 text-[11px] font-medium text-slate-400 group-hover:text-blue-600 flex items-center justify-center gap-1">
+                          <Zap className="w-3 h-3" /> Tap to Check In
+                        </div>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* SUPERHERO ROSTER GALLERY (Preview All 12 Heroes) */}
+            <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-2xs">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center font-bold text-xs">
+                    12
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">
+                      Superhero Persona Roster Gallery
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Click any hero below to preview their sound fanfare, quote, and comic blast!
+                    </p>
+                  </div>
+                </div>
+                <span className="text-xs font-semibold text-slate-500">RebarPro Precast Universe</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {SUPERHEROES.map(h => (
+                  <button
+                    key={h.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveHeroToast({ hero: h, personName: 'HERO PREVIEW' })
+                      if (soundEnabled) playHeroFanfare()
+                    }}
+                    className="p-3 rounded-lg border border-slate-200 text-left hover:border-amber-400 hover:shadow-xs transition-all flex items-start gap-3 bg-slate-50/40 hover:bg-white"
+                  >
+                    <div
+                      className="w-10 h-10 rounded-xl flex items-center justify-center text-xl shrink-0 shadow-2xs"
+                      style={{ background: `${h.color}15`, border: `1px solid ${h.color}44` }}
+                    >
+                      {h.emoji}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-black text-slate-900 leading-snug flex items-center gap-1">
+                        <span className="truncate">{h.heroName}</span>
+                      </div>
+                      <div className="text-[10px] text-slate-500 truncate">{h.title}</div>
+                      <div className="text-[10px] font-semibold mt-1" style={{ color: h.color }}>
+                        {h.comicBurst}
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ========================================================================= */}
         {/* PAGE 1: EXECUTIVE COMMAND CENTRE & APP LAUNCHER (企业指挥舱 / 个人统一工作台) */}
