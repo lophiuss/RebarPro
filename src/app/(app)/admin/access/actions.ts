@@ -2,6 +2,8 @@
 
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
+import { getSignedInUser } from '@/lib/supabase/user'
+import { sendSecurityAlert } from '@/lib/security-alerts'
 import { requireMeetingsManager } from '../../meetings/guard'
 
 export type Person = { id: string; email: string; full_name: string | null; avatar_url: string | null; is_active: boolean }
@@ -11,7 +13,7 @@ export type Person = { id: string; email: string; full_name: string | null; avat
 // — never assume the page's own client-side gating was honored.
 async function requireDeptAdmin() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getSignedInUser(supabase)
   if (!user) throw new Error('Not signed in')
 
   const { data: adminRows } = await supabase
@@ -54,8 +56,25 @@ async function requireCanManage(targetId: string) {
 async function logAccountAction(admin: AdminClient, actorId: string, targetId: string, event: string, detail: Record<string, unknown> = {}) {
   const action = event === 'account.create' ? 'insert' : event === 'account.delete' ? 'delete' : 'update'
   const { error } = await admin.from('audit_log').insert({ table_name: 'account', record_id: targetId, action, new_data: { event, ...detail }, changed_by: actorId })
-  // A logging problem must never undo the action itself, but it must not be silent either.
   if (error) console.error('audit log failed:', error.message)
+
+  // Dispatch real-time security alert for critical account operations
+  if (
+    event.includes('admin') ||
+    event === 'super_admin.add' ||
+    event === 'super_admin.remove' ||
+    event === 'account.delete' ||
+    event === 'account.deactivate' ||
+    event === 'account.password_reset' ||
+    event === 'account.email_change'
+  ) {
+    sendSecurityAlert({
+      event_type: 'admin_role_change',
+      severity: 'HIGH',
+      path: '/admin/access',
+      details: { event, target_user_id: targetId, actor_id: actorId, ...detail },
+    }).catch(() => {})
+  }
 }
 
 // Combines the Auth user list (for email — this project's `profiles` table has
@@ -162,9 +181,7 @@ export async function createMeetingsPerson(email: string, password: string, full
 
 // Updates someone else's name/picture. profiles' own RLS only lets people
 // edit their own row, so this goes through the service-role client instead
-// of a plain client update. avatarUrl is a public URL already uploaded to
-// the 'avatars' storage bucket by the caller (that bucket's own RLS allows a
-// dept admin to upload into anyone's folder) — this just records it.
+// of a plain client update.
 export async function updatePersonProfile(userId: string, fullName: string, avatarUrl?: string | null): Promise<void> {
   await requireCanManage(userId)
   const admin = createAdminClient()
@@ -182,14 +199,10 @@ export async function resetPersonPassword(userId: string, newPassword: string): 
   await logAccountAction(admin, user.id, userId, 'account.password_reset')
 }
 
-// Permanently removes an account. Their department access, attendance, seats, notes and personal
-// to-dos go with it; anything they owned in Meetings (to-dos, issues, KPIs, priorities) stays but
-// loses its owner. Someone who has made audited changes can't be deleted: deactivate them instead.
+// Permanently removes an account.
 export async function deletePerson(userId: string): Promise<void> {
   const { user, admin } = await requireCanManage(userId)
   if (userId === user.id) throw new Error("You can't delete your own account")
-  // Access that this person granted to others must not block the delete. Their audit entries stay:
-  // the deleted account's e-mail is recorded in the entry for the delete itself.
   const { data: gone } = await admin.auth.admin.getUserById(userId)
   await admin.from('user_department_access').update({ granted_by: null }).eq('granted_by', userId)
   await admin.from('audit_log').update({ changed_by: null }).eq('changed_by', userId)
@@ -203,8 +216,7 @@ export async function deletePerson(userId: string): Promise<void> {
   await logAccountAction(admin, user.id, userId, 'account.delete', { email: gone?.user?.email ?? null })
 }
 
-// Changes someone's sign-in e-mail directly (no confirmation e-mail; an admin is vouching for it).
-// Meetings invitations that were already linked to them keep working.
+// Changes someone's sign-in e-mail directly.
 export async function updatePersonEmail(userId: string, email: string): Promise<void> {
   const { user, admin } = await requireCanManage(userId)
   const next = email.trim().toLowerCase()

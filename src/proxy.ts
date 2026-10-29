@@ -65,9 +65,35 @@ export async function proxy(request: NextRequest) {
 
     // A deactivated account is banned in Supabase Auth too (blocks new sign-ins outright, see
     // admin/access/actions.ts), but an already-open session would stay usable until its token
-    // expires. Cut it immediately instead.
+    // expires. Cut it immediately and notify administrators.
     if (profile && profile.is_active === false) {
       await supabase.auth.signOut()
+
+      try {
+        const ip = request.headers.get('x-forwarded-for')?.split(',')[0].trim() || request.headers.get('x-real-ip') || 'Unknown IP'
+        const userAgent = request.headers.get('user-agent') || 'Unknown Device'
+        fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/send-security-alert`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({
+            event_type: 'deactivated_account_access',
+            email: (claims?.email as string) || user.id,
+            ip,
+            user_agent: userAgent,
+            path: path,
+            severity: 'CRITICAL',
+            details: {
+              note: 'A deactivated / blocked account session attempted to browse protected application routes.',
+              user_id: user.id,
+              attempted_path: path,
+            },
+          }),
+        }).catch(() => {})
+      } catch { /* non-blocking */ }
+
       const url = request.nextUrl.clone()
       url.pathname = '/login'
       url.searchParams.set('message', 'Your account has been deactivated. Contact an admin.')

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { ShieldCheck, Trash2, UserPlus, Pencil, X, User as UserIcon, Eye, Settings as SettingsIcon, LogOut, RefreshCw, Mail } from 'lucide-react'
+import { ShieldCheck, ShieldAlert, Trash2, UserPlus, Pencil, X, User as UserIcon, Eye, Settings as SettingsIcon, LogOut, RefreshCw, Mail } from 'lucide-react'
 import MeetingsInvite from './MeetingsInvite'
 import MeetingsManagerView from './MeetingsManagerView'
 import { listPeople, createPerson, updatePersonProfile, resetPersonPassword, setPersonActive, deletePerson, updatePersonEmail, type Person } from './actions'
@@ -105,6 +105,29 @@ export default function AccessControlPage() {
   const [viewAsDept, setViewAsDept] = useState<Department | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [waiting, setWaiting] = useState<{ id: string; full_name: string; email: string | null }[]>([])
+  const [testingAlert, setTestingAlert] = useState(false)
+
+  async function triggerSecurityTest() {
+    setTestingAlert(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('send-security-alert', {
+        body: {
+          event_type: 'sample_test',
+          email: myId ? profiles.find(p => p.id === myId)?.email || 'admin' : 'admin',
+          details: {
+            triggered_by: 'Access Control Admin Panel',
+            message: 'Manual security alert test triggered to verify email delivery.',
+          },
+        },
+      })
+      if (error) throw error
+      alert('Security Alert Test email sent successfully to davidthen4285@gmail.com and david.then@komt.com.my!')
+    } catch (err: any) {
+      alert('Failed to send test alert: ' + (err?.message || 'unknown error'))
+    } finally {
+      setTestingAlert(false)
+    }
+  }
 
   const supabase = createClient()
 
@@ -413,6 +436,14 @@ Type DELETE to confirm.`)
             className="flex items-center gap-1.5 bg-white border text-gray-600 text-sm font-medium px-3 py-2 rounded-lg hover:bg-gray-50 disabled:opacity-50"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
+          </button>
+          <button
+            onClick={triggerSecurityTest}
+            disabled={testingAlert}
+            title="Send a sample security intrusion alert to davidthen4285@gmail.com and david.then@komt.com.my"
+            className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 text-amber-800 text-sm font-medium px-3 py-2 rounded-lg hover:bg-amber-100 disabled:opacity-50"
+          >
+            <ShieldAlert className={`w-4 h-4 ${testingAlert ? 'animate-spin text-amber-600' : 'text-amber-600'}`} /> {testingAlert ? 'Sending…' : 'Test Alert Email'}
           </button>
           <button
             onClick={() => setShowAddPerson(true)}
