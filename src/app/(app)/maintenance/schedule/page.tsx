@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { listMaintenanceStaff, uploadMaintenanceFile, type StaffMember } from '../actions'
+import { compressImageToTarget } from '@/lib/compressImage'
 import { CalendarClock, ClipboardList, X, Plus, Trash2, ChevronLeft, ChevronRight, Bell, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react'
 import PhotoPicker from '@/components/PhotoPicker'
 import { reportActionError } from '@/lib/staleAction'
@@ -37,30 +38,6 @@ type SubmissionItemDetail = {
   maintenance_checklist_items: { description: string; section_label: string | null } | null
 }
 
-async function compressImage(file: File): Promise<Blob> {
-  if (!file.type.startsWith('image/')) return file
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result as string)
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
-  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const i = new Image()
-    i.onload = () => resolve(i)
-    i.onerror = reject
-    i.src = dataUrl
-  })
-  const MAX = 900
-  let { width, height } = img
-  if (width > height) { if (width > MAX) { height *= MAX / width; width = MAX } }
-  else if (height > MAX) { width *= MAX / height; height = MAX }
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  canvas.getContext('2d')!.drawImage(img, 0, 0, width, height)
-  return new Promise<Blob>(resolve => canvas.toBlob(blob => resolve(blob || file), 'image/jpeg', 0.75))
-}
 
 // ISO week helpers. isoWeekInfo mirrors the previous isoWeek() but also
 // returns the ISO week-YEAR (not always the same as the calendar year for
@@ -456,7 +433,7 @@ export default function SchedulePage() {
     try {
       let photo_drive_id: string | null = null
       if (checklistPhoto) {
-        const blob = await compressImage(checklistPhoto)
+        const blob = await compressImageToTarget(checklistPhoto, 195 * 1024)
         const fd = new FormData()
         fd.set('file', blob, 'photo.jpg')
         photo_drive_id = await uploadMaintenanceFile(fd)

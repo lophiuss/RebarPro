@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { CheckCircle, Scale } from 'lucide-react'
+import { compressImageToTarget } from '@/lib/compressImage'
 
 export default function WeightInPage() {
   const supabase = createClient()
@@ -24,46 +25,9 @@ export default function WeightInPage() {
       .then(({ data }) => setSuppliers(data || []))
   }, [])
 
-  // Resize to max 1024px on the long edge and re-encode as ~60%-quality JPEG,
-  // same as the legacy weight-in.html did client-side before upload.
-  async function compressImage(file: File): Promise<Blob> {
-    if (!file.type.startsWith('image/')) return file
-
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader()
-      reader.onload = () => resolve(reader.result as string)
-      reader.onerror = reject
-      reader.readAsDataURL(file)
-    })
-
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const i = new Image()
-      i.onload = () => resolve(i)
-      i.onerror = reject
-      i.src = dataUrl
-    })
-
-    const MAX = 1024
-    let { width, height } = img
-    if (width > height) {
-      if (width > MAX) { height *= MAX / width; width = MAX }
-    } else if (height > MAX) {
-      width *= MAX / height; height = MAX
-    }
-
-    const canvas = document.createElement('canvas')
-    canvas.width = width
-    canvas.height = height
-    canvas.getContext('2d')!.drawImage(img, 0, 0, width, height)
-
-    return new Promise<Blob>(resolve => {
-      canvas.toBlob(blob => resolve(blob || file), 'image/jpeg', 0.6)
-    })
-  }
-
   async function uploadPhoto(file: File | null): Promise<string | null> {
     if (!file) return null
-    const blob = await compressImage(file)
+    const blob = await compressImageToTarget(file, 195 * 1024)
     const path = `weight-in/${Date.now()}-${Math.round(Math.random() * 1e9)}-${file.name.replace(/\.[^.]+$/, '.jpg')}`
     const { error } = await supabase.storage.from('cement-uploads').upload(path, blob, { contentType: 'image/jpeg' })
     if (error) throw error

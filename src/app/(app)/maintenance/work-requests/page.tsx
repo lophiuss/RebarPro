@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { uploadMaintenanceFile, listMaintenanceStaff, type StaffMember } from '../actions'
+import { compressImageToTarget } from '@/lib/compressImage'
 import { Inbox, CheckCircle2, UserPlus, X, Pencil, ClipboardCheck, XCircle, PlayCircle, Trash2 } from 'lucide-react'
 import PhotoPicker from '@/components/PhotoPicker'
 import PhotoLightbox from '@/components/PhotoLightbox'
@@ -18,30 +19,6 @@ type WorkRequest = {
   created_at: string
 }
 
-async function compressImage(file: File): Promise<Blob> {
-  if (!file.type.startsWith('image/')) return file
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result as string)
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
-  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const i = new Image()
-    i.onload = () => resolve(i)
-    i.onerror = reject
-    i.src = dataUrl
-  })
-  const MAX = 900
-  let { width, height } = img
-  if (width > height) { if (width > MAX) { height *= MAX / width; width = MAX } }
-  else if (height > MAX) { width *= MAX / height; height = MAX }
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  canvas.getContext('2d')!.drawImage(img, 0, 0, width, height)
-  return new Promise<Blob>(resolve => canvas.toBlob(blob => resolve(blob || file), 'image/jpeg', 0.75))
-}
 
 function hoursBetween(a: string, b: string) {
   return ((new Date(b).getTime() - new Date(a).getTime()) / 3600000).toFixed(1)
@@ -207,7 +184,7 @@ export default function WorkRequestsPage() {
     try {
       let resolution_photo_drive_id: string | null = null
       if (resolutionPhoto) {
-        const blob = await compressImage(resolutionPhoto)
+        const blob = await compressImageToTarget(resolutionPhoto, 195 * 1024)
         const fd = new FormData()
         fd.set('file', blob, 'resolution.jpg')
         resolution_photo_drive_id = await uploadMaintenanceFile(fd)
@@ -245,7 +222,7 @@ export default function WorkRequestsPage() {
     try {
       const patch: any = { completion_remark: editRemark.trim() || null }
       if (editPhoto) {
-        const blob = await compressImage(editPhoto)
+        const blob = await compressImageToTarget(editPhoto, 195 * 1024)
         const fd = new FormData()
         fd.set('file', blob, 'resolution.jpg')
         patch.resolution_photo_drive_id = await uploadMaintenanceFile(fd)

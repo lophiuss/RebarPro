@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { uploadMaintenanceFile } from '../actions'
+import { compressImageToTarget } from '@/lib/compressImage'
 import { ClipboardEdit, CheckCircle, X, Printer } from 'lucide-react'
 import PhotoPicker from '@/components/PhotoPicker'
 import PhotoLightbox from '@/components/PhotoLightbox'
@@ -40,31 +41,6 @@ const STATUS_STYLE: Record<string, string> = {
   completed: 'bg-amber-100 text-amber-700',
   approved: 'bg-green-100 text-green-700',
   cancelled: 'bg-red-100 text-red-700',
-}
-
-async function compressImage(file: File): Promise<Blob> {
-  if (!file.type.startsWith('image/')) return file
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result as string)
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
-  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const i = new Image()
-    i.onload = () => resolve(i)
-    i.onerror = reject
-    i.src = dataUrl
-  })
-  const MAX = 900
-  let { width, height } = img
-  if (width > height) { if (width > MAX) { height *= MAX / width; width = MAX } }
-  else if (height > MAX) { width *= MAX / height; height = MAX }
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  canvas.getContext('2d')!.drawImage(img, 0, 0, width, height)
-  return new Promise<Blob>(resolve => canvas.toBlob(blob => resolve(blob || file), 'image/jpeg', 0.75))
 }
 
 export default function JobsPage() {
@@ -117,7 +93,7 @@ export default function JobsPage() {
     try {
       let photo_drive_id: string | null = null
       if (photoFile) {
-        const blob = await compressImage(photoFile)
+        const blob = await compressImageToTarget(photoFile, 195 * 1024)
         const fd = new FormData()
         fd.set('file', blob, 'photo.jpg')
         photo_drive_id = await uploadMaintenanceFile(fd)

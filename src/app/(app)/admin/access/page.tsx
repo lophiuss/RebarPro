@@ -7,33 +7,8 @@ import MeetingsInvite from './MeetingsInvite'
 import MeetingsManagerView from './MeetingsManagerView'
 import { listPeople, createPerson, updatePersonProfile, resetPersonPassword, setPersonActive, deletePerson, updatePersonEmail, type Person } from './actions'
 import { NAV_ITEMS, type Department } from '@/components/AppNavigation'
+import { compressImageToTarget } from '@/lib/compressImage'
 
-// Resize to max 512px and re-encode as ~70%-quality JPEG, same approach as
-// the weight-in photo compression.
-async function compressImage(file: File): Promise<Blob> {
-  if (!file.type.startsWith('image/')) return file
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result as string)
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
-  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const i = new Image()
-    i.onload = () => resolve(i)
-    i.onerror = reject
-    i.src = dataUrl
-  })
-  const MAX = 512
-  let { width, height } = img
-  if (width > height) { if (width > MAX) { height *= MAX / width; width = MAX } }
-  else if (height > MAX) { width *= MAX / height; height = MAX }
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  canvas.getContext('2d')!.drawImage(img, 0, 0, width, height)
-  return new Promise<Blob>(resolve => canvas.toBlob(blob => resolve(blob || file), 'image/jpeg', 0.7))
-}
 
 type AccessRow = { user_id: string; department: Department; role: string }
 type NavPermRow = { department: Department; role: string; nav_key: string }
@@ -264,7 +239,7 @@ export default function AccessControlPage() {
     try {
       let avatarUrl: string | undefined = undefined
       if (editAvatarFile) {
-        const blob = await compressImage(editAvatarFile)
+        const blob = await compressImageToTarget(editAvatarFile, 195 * 1024)
         const path = `${editPerson.id}/${Date.now()}.jpg`
         const { error: uploadErr } = await supabase.storage.from('avatars').upload(path, blob, { contentType: 'image/jpeg', upsert: true })
         if (uploadErr) throw uploadErr

@@ -10,6 +10,7 @@ import { makeT } from '@/lib/i18n/languages'
 import { securityDict } from '@/lib/i18n/dict/security'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
 import { reportActionError } from '@/lib/staleAction'
+import { compressImageToTarget } from '@/lib/compressImage'
 
 type Post = { id: number; name: string }
 type LayoutRow = { photo_url: string | null; photo_drive_id: string | null } | null
@@ -175,8 +176,9 @@ export default function SecuritySettingsPage() {
     if (!file) return
     setUploadingLayout(true)
     try {
-      const path = `${Date.now()}-${file.name.replace(/\s+/g, '-')}`
-      const { error: upErr } = await supabase.storage.from('security-layout').upload(path, file, { contentType: file.type || 'image/jpeg' })
+      const compressed = await compressImageToTarget(file, 195 * 1024)
+      const path = `${Date.now()}-${compressed.name.replace(/\s+/g, '-')}`
+      const { error: upErr } = await supabase.storage.from('security-layout').upload(path, compressed, { contentType: 'image/jpeg' })
       if (upErr) throw upErr
       const { data: pub } = supabase.storage.from('security-layout').getPublicUrl(path)
       const { data: { user } } = await supabase.auth.getUser()

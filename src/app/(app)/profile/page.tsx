@@ -3,31 +3,8 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { User as UserIcon, Camera } from 'lucide-react'
+import { compressImageToTarget } from '@/lib/compressImage'
 
-async function compressImage(file: File): Promise<Blob> {
-  if (!file.type.startsWith('image/')) return file
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result as string)
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
-  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const i = new Image()
-    i.onload = () => resolve(i)
-    i.onerror = reject
-    i.src = dataUrl
-  })
-  const MAX = 512
-  let { width, height } = img
-  if (width > height) { if (width > MAX) { height *= MAX / width; width = MAX } }
-  else if (height > MAX) { width *= MAX / height; height = MAX }
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  canvas.getContext('2d')!.drawImage(img, 0, 0, width, height)
-  return new Promise<Blob>(resolve => canvas.toBlob(blob => resolve(blob || file), 'image/jpeg', 0.7))
-}
 
 export default function ProfilePage() {
   const supabase = createClient()
@@ -103,7 +80,7 @@ export default function ProfilePage() {
     try {
       let newAvatarUrl = avatarUrl
       if (avatarFile) {
-        const blob = await compressImage(avatarFile)
+        const blob = await compressImageToTarget(avatarFile, 195 * 1024)
         const path = `${userId}/${Date.now()}.jpg`
         const { error: upErr } = await supabase.storage.from('avatars').upload(path, blob, { contentType: 'image/jpeg', upsert: true })
         if (upErr) throw upErr

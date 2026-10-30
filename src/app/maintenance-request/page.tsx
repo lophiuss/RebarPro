@@ -2,32 +2,20 @@
 
 import { useEffect, useState } from 'react'
 import { submitWorkRequest, listPublicEquipmentOptions, type PublicEquipmentOption } from './actions'
-import { Wrench, CheckCircle2, Camera } from 'lucide-react'
+import { Wrench, CheckCircle2 } from 'lucide-react'
 import CategoryEquipmentPicker from '@/components/CategoryEquipmentPicker'
+import PhotoPicker from '@/components/PhotoPicker'
+import { compressImageToTarget } from '@/lib/compressImage'
 import { reportActionError } from '@/lib/staleAction'
 
 async function compressToDataUrl(file: File): Promise<string> {
-  const dataUrl = await new Promise<string>((resolve, reject) => {
+  const compressed = await compressImageToTarget(file, 195 * 1024)
+  return new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(reader.result as string)
     reader.onerror = reject
-    reader.readAsDataURL(file)
+    reader.readAsDataURL(compressed)
   })
-  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const i = new Image()
-    i.onload = () => resolve(i)
-    i.onerror = reject
-    i.src = dataUrl
-  })
-  const MAX = 900
-  let { width, height } = img
-  if (width > height) { if (width > MAX) { height *= MAX / width; width = MAX } }
-  else if (height > MAX) { width *= MAX / height; height = MAX }
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  canvas.getContext('2d')!.drawImage(img, 0, 0, width, height)
-  return canvas.toDataURL('image/jpeg', 0.75)
 }
 
 export default function MaintenanceRequestPage() {
@@ -100,12 +88,7 @@ export default function MaintenanceRequestPage() {
             <textarea required value={form.issueDescription} onChange={e => setForm({ ...form, issueDescription: e.target.value })} rows={3} className="w-full border border-gray-300 rounded-lg px-3.5 py-2.5 text-sm" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1.5">Photo (optional)</label>
-            <label className="flex items-center gap-2 w-full border-2 border-dashed border-gray-300 rounded-lg px-4 py-3 text-sm text-gray-600 hover:border-orange-400 hover:bg-orange-50/50 cursor-pointer transition">
-              <Camera className="w-5 h-5 text-orange-600 flex-shrink-0" />
-              <span className="truncate">{photoFile ? photoFile.name : 'Take or choose a photo'}</span>
-              <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => setPhotoFile(e.target.files?.[0] ?? null)} />
-            </label>
+            <PhotoPicker label="Photo (optional)" file={photoFile} onChange={setPhotoFile} />
           </div>
           <button type="submit" disabled={submitting} className="w-full bg-orange-600 disabled:opacity-50 text-white font-semibold text-sm py-3 rounded-lg hover:bg-orange-700 mt-2">
             {submitting ? 'Submitting...' : 'Submit Request'}
