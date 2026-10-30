@@ -1,7 +1,8 @@
 'use client'
 
 import { useEffect, useId, useRef, useState } from 'react'
-import { Camera, Upload, X } from 'lucide-react'
+import { Camera, Upload, X, Loader2, Check } from 'lucide-react'
+import { compressImageToTarget } from '@/lib/compressImage'
 
 // Two very different "Take Photo" behaviors depending on device:
 // - Touch devices (phones/tablets): the hidden file input's
@@ -18,15 +19,54 @@ function isTouchDevice() {
   return window.matchMedia('(pointer: coarse)').matches
 }
 
-export default function PhotoPicker({ label = 'Photo', file, onChange }: { label?: string; file: File | null; onChange: (file: File | null) => void }) {
+export default function PhotoPicker({
+  label = 'Photo',
+  file,
+  onChange,
+  maxBytes = 195 * 1024,
+}: {
+  label?: string
+  file: File | null
+  onChange: (file: File | null) => void
+  maxBytes?: number
+}) {
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const uploadId = useId()
   const videoRef = useRef<HTMLVideoElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const [showCamera, setShowCamera] = useState(false)
   const [cameraError, setCameraError] = useState<string | null>(null)
+  const [compressing, setCompressing] = useState(false)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
 
   useEffect(() => () => { streamRef.current?.getTracks().forEach(t => t.stop()) }, [])
+
+  useEffect(() => {
+    if (!file) {
+      setPreviewUrl(null)
+      return
+    }
+    const url = URL.createObjectURL(file)
+    setPreviewUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [file])
+
+  async function processAndSetFile(rawFile: File | null) {
+    if (!rawFile) {
+      onChange(null)
+      return
+    }
+    setCompressing(true)
+    try {
+      const compressed = await compressImageToTarget(rawFile, maxBytes)
+      onChange(compressed)
+    } catch (err) {
+      console.warn('[PhotoPicker] Compression fallback:', err)
+      onChange(rawFile)
+    } finally {
+      setCompressing(false)
+    }
+  }
 
   async function handleTakePhoto() {
     if (isTouchDevice()) {
@@ -57,10 +97,13 @@ export default function PhotoPicker({ label = 'Photo', file, onChange }: { label
     canvas.width = video.videoWidth
     canvas.height = video.videoHeight
     canvas.getContext('2d')!.drawImage(video, 0, 0)
-    canvas.toBlob(blob => {
-      if (blob) onChange(new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' }))
+    canvas.toBlob(async blob => {
+      if (blob) {
+        const rawFile = new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' })
+        await processAndSetFile(rawFile)
+      }
       stopCamera()
-    }, 'image/jpeg', 0.9)
+    }, 'image/jpeg', 0.85)
   }
 
   return (
@@ -83,12 +126,38 @@ export default function PhotoPicker({ label = 'Photo', file, onChange }: { label
           <span>Upload Photo</span>
         </label>
       </div>
-      <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => onChange(e.target.files?.[0] ?? null)} />
-      <input id={uploadId} type="file" accept="image/*" className="hidden" onChange={e => onChange(e.target.files?.[0] ?? null)} />
-      {file && (
-        <div className="flex items-center gap-2 mt-2 text-xs text-gray-500 bg-gray-50 border rounded-lg px-3 py-2">
-          <span className="truncate flex-1">{file.name}</span>
-          <button type="button" onClick={() => onChange(null)} className="text-gray-400 hover:text-red-600 flex-shrink-0"><X className="w-3.5 h-3.5" /></button>
+      <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={e => processAndSetFile(e.target.files?.[0] ?? null)} />
+      <input id={uploadId} type="file" accept="image/*" className="hidden" onChange={e => processAndSetFile(e.target.files?.[0] ?? null)} />
+
+      {compressing && (
+        <div className="flex items-center gap-2 mt-2 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 animate-pulse">
+          <Loader2 className="w-4 h-4 animate-spin shrink-0 text-blue-600" />
+          <span>Optimizing & compressing photo to below 200KB…</span>
+        </div>
+      )}
+
+      {!compressing && file && (
+        <div className="flex items-center gap-2.5 mt-2 text-xs bg-gray-50 border border-gray-200 rounded-lg p-2 shadow-2xs">
+          {previewUrl && (
+            <img src={previewUrl} alt="Thumbnail preview" className="w-10 h-10 rounded-md object-cover border border-gray-300 shrink-0" />
+          )}
+          <div className="flex-1 min-w-0">
+            <span className="truncate block font-medium text-slate-800">{file.name}</span>
+            <div className="flex items-center gap-1.5 text-[11px] mt-0.5">
+              <span className="text-slate-500 font-mono">{(file.size / 1024).toFixed(1)} KB</span>
+              <span className="inline-flex items-center gap-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded">
+                <Check className="w-3 h-3 text-emerald-600" /> &lt; 200KB
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            className="text-gray-400 hover:text-red-600 p-1.5 rounded-md hover:bg-gray-100 transition shrink-0"
+            title="Remove photo"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 

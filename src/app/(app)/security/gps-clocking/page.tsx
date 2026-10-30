@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { uploadSecurityPhotoWithRetry } from '@/lib/uploadPhoto'
+import { compressImageToTarget } from '@/lib/compressImage'
 import { Navigation, MapPin, CheckCircle2, Loader2 } from 'lucide-react'
 import PhotoPicker from '@/components/PhotoPicker'
 import PhotoLightbox from '@/components/PhotoLightbox'
@@ -25,30 +26,6 @@ function isoToday() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-async function compressImage(file: File): Promise<Blob> {
-  if (!file.type.startsWith('image/')) return file
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result as string)
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
-  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const i = new Image()
-    i.onload = () => resolve(i)
-    i.onerror = reject
-    i.src = dataUrl
-  })
-  const MAX = 900
-  let { width, height } = img
-  if (width > height) { if (width > MAX) { height *= MAX / width; width = MAX } }
-  else if (height > MAX) { width *= MAX / height; height = MAX }
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  canvas.getContext('2d')!.drawImage(img, 0, 0, width, height)
-  return new Promise<Blob>(resolve => canvas.toBlob(blob => resolve(blob || file), 'image/jpeg', 0.75))
-}
 
 // Haversine — great-circle distance between two lat/lng points, in meters.
 function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
@@ -168,7 +145,7 @@ export default function GpsClockingPage() {
             setLocating(false)
             return
           }
-          const blob = await compressImage(photo)
+          const blob = await compressImageToTarget(photo, 195 * 1024)
           const fd = new FormData()
           fd.set('photo', blob, 'clocking.jpg')
           fd.set('subfolder', 'clocking')

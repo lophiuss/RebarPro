@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { uploadSecurityPhotoWithRetry } from '@/lib/uploadPhoto'
+import { compressImageToTarget } from '@/lib/compressImage'
 import { Siren } from 'lucide-react'
 import PhotoLightbox from '@/components/PhotoLightbox'
 import PhotoPicker from '@/components/PhotoPicker'
@@ -30,30 +31,6 @@ const SEVERITY_STYLE: Record<Incident['severity'], string> = {
   high: 'bg-red-50 text-red-700',
 }
 
-async function compressImage(file: File): Promise<Blob> {
-  if (!file.type.startsWith('image/')) return file
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(reader.result as string)
-    reader.onerror = reject
-    reader.readAsDataURL(file)
-  })
-  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const i = new Image()
-    i.onload = () => resolve(i)
-    i.onerror = reject
-    i.src = dataUrl
-  })
-  const MAX = 900
-  let { width, height } = img
-  if (width > height) { if (width > MAX) { height *= MAX / width; width = MAX } }
-  else if (height > MAX) { width *= MAX / height; height = MAX }
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
-  canvas.getContext('2d')!.drawImage(img, 0, 0, width, height)
-  return new Promise<Blob>(resolve => canvas.toBlob(blob => resolve(blob || file), 'image/jpeg', 0.75))
-}
 
 export default function IncidentsPage() {
   const supabase = createClient()
@@ -79,7 +56,7 @@ export default function IncidentsPage() {
     try {
       let photo_drive_id: string | null = null
       if (photoFile) {
-        const blob = await compressImage(photoFile)
+        const blob = await compressImageToTarget(photoFile, 195 * 1024)
         const fd = new FormData()
         fd.set('photo', blob, 'photo.jpg')
         fd.set('subfolder', 'incidents')
