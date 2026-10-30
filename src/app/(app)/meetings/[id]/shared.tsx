@@ -48,6 +48,7 @@ export type Kpi = {
   id: string; name: string; details: string | null; owner_id: string | null; cadence: Cadence
   unit_type: UnitType; goal_rule: GoalRule; goal_value: number | null; goal_value_max: number | null
   meeting_ids: string[]
+  archived_at?: string | null
 }
 export type KpiCustomGoal = { kpi_id: string; period_start: string; goal_rule: GoalRule; goal_value: number | null; goal_value_max: number | null }
 export type KpiValue = { kpi_id: string; period_start: string; value: number | null }

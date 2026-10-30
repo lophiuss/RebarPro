@@ -250,7 +250,7 @@ export async function concludeMeeting(runId: string, opts: { archiveTodos: boole
     supabase.from('mtg_goals').select('id, title, details, status, owner_id, due_date, milestones').eq('meeting_id', meetingId),
     supabase.from('mtg_runs').select('notes, started_at, attendance').eq('id', runId).single(),
     supabase.from('mtg_attendees').select('user_id, profile:profiles(full_name)').eq('meeting_id', meetingId),
-    supabase.from('mtg_kpi_meetings').select('kpi:mtg_kpis(id, name, owner_id, cadence, unit_type, goal_rule, goal_value, goal_value_max)').eq('meeting_id', meetingId),
+    supabase.from('mtg_kpi_meetings').select('kpi:mtg_kpis(id, name, owner_id, cadence, unit_type, goal_rule, goal_value, goal_value_max, archived_at)').eq('meeting_id', meetingId),
   ])
 
   const rated = (ratings ?? []).filter(r => r.rating != null)
@@ -266,7 +266,7 @@ export async function concludeMeeting(runId: string, opts: { archiveTodos: boole
 
   // KPI scorecard: each KPI with its most recent values, so the report is
   // self-contained even if the KPI is later edited.
-  const kpis = (kpiLinks ?? []).map((l: any) => l.kpi).filter(Boolean) as any[]
+  const kpis = (kpiLinks ?? []).map((l: any) => l.kpi).filter((k: any) => k && !k.archived_at) as any[]
   let kpiSnapshot: any[] = []
   if (kpis.length) {
     const { data: vals } = await supabase
@@ -664,6 +664,20 @@ export async function setKpiNote(meetingId: string, kpiId: string, periodStart: 
     const { error } = await supabase.from('mtg_kpi_notes').upsert({ kpi_id: kpiId, period_start: periodStart, note: clean, updated_by: user.id, updated_at: new Date().toISOString() })
     if (error) throw error
   }
+  refresh(meetingId)
+}
+
+export async function archiveKpi(meetingId: string, id: string) {
+  const { supabase } = await requireMeetingsAccess()
+  const { error } = await supabase.from('mtg_kpis').update({ archived_at: new Date().toISOString() }).eq('id', id)
+  if (error) throw error
+  refresh(meetingId)
+}
+
+export async function restoreKpi(meetingId: string, id: string) {
+  const { supabase } = await requireMeetingsAccess()
+  const { error } = await supabase.from('mtg_kpis').update({ archived_at: null }).eq('id', id)
+  if (error) throw error
   refresh(meetingId)
 }
 

@@ -40,7 +40,7 @@ export default async function MeetingPage({
     supabase.from('mtg_meetings').select('id, name, description, leader_id, schedule, icebreaker_notes').eq('id', id).maybeSingle(),
     // KPIs can be attached to several meetings, so they come through the link table.
     supabase.from('mtg_kpi_meetings')
-      .select('kpi:mtg_kpis(id, name, details, owner_id, owner_name, cadence, unit_type, goal_rule, goal_value, goal_value_max, position, links:mtg_kpi_meetings(meeting_id))')
+      .select('kpi:mtg_kpis(id, name, details, owner_id, owner_name, cadence, unit_type, goal_rule, goal_value, goal_value_max, position, archived_at, links:mtg_kpi_meetings(meeting_id))')
       .eq('meeting_id', id),
     supabase.from('mtg_attendees').select('user_id').eq('meeting_id', id),
     supabase.from('mtg_agenda_items').select('id, page_type, title, minutes, position').eq('meeting_id', id).order('position'),
@@ -64,6 +64,7 @@ export default async function MeetingPage({
           supabase.from('mtg_headlines').select('id, title, details, owner_id, owner_name, created_at, archived_at').eq('meeting_id', id).order('created_at', { ascending: false }).limit(1000),
           supabase.from('mtg_todos').select('id, title, details, owner_id, owner_name, created_at, due_date, done_at, archived_at, status').eq('meeting_id', id).order('created_at', { ascending: false }).limit(1000),
           supabase.from('mtg_issues').select('id, title, details, owner_id, owner_name, created_at, status, solved_at').eq('meeting_id', id).order('created_at', { ascending: false }).limit(1000),
+          supabase.from('mtg_kpi_meetings').select('kpi:mtg_kpis(id, name, details, owner_id, owner_name, created_at, archived_at, cadence, unit_type, goal_rule, goal_value, goal_value_max)').eq('meeting_id', id),
         ])
       : Promise.resolve(null),
     tab === 'WORKSPACE' && user
@@ -106,7 +107,13 @@ export default async function MeetingPage({
   const mIssues = nameOwners(issues as any[], found)
   const mGoals = nameOwners(goals as any[], found)
   const mKpis = nameOwners(kpis as any[], found)
-  const hist = archive ? { headlines: nameOwners(archive[0].data as any[], found), todos: nameOwners(archive[1].data as any[], found), issues: nameOwners(archive[2].data as any[], found) } : null
+  const archiveKpis = (archive?.[3]?.data as any[] || []).map((r: any) => r.kpi).filter(Boolean)
+  const hist = archive ? {
+    headlines: nameOwners(archive[0].data as any[], found),
+    todos: nameOwners(archive[1].data as any[], found),
+    issues: nameOwners(archive[2].data as any[], found),
+    kpis: nameOwners(archiveKpis, found),
+  } : null
   const contactNames = (contactRows ?? []).map((r: any) => r.contact?.full_name as string).filter(Boolean).sort()
   const lastFeedback = ((summaries?.[0]?.snapshot as any)?.ratings ?? []) as { user_id: string; rating: number | null; feedback: string | null }[]
   const pageType: PageType = (PAGE_TYPES as string[]).includes(sp.pageType ?? '') ? (sp.pageType as PageType) : 'CHECK_IN'

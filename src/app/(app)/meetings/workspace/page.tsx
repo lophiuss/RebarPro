@@ -24,7 +24,7 @@ export default async function MeetingsWorkspacePage() {
       .eq('owner_id', myId).order('created_at'),
     supabase.from('mtg_kpis')
       .select('id, name, details, owner_id, cadence, unit_type, goal_rule, goal_value, goal_value_max, meeting_id')
-      .eq('owner_id', myId).order('cadence').order('position'),
+      .eq('owner_id', myId).is('archived_at', null).order('cadence').order('position'),
     supabase.from('mtg_settings').select('core_values').eq('id', 1).maybeSingle(),
     supabase.from('mtg_private_notes').select('id, body, updated_at, color').order('updated_at', { ascending: false }),
     supabase.from('profiles').select('full_name').eq('id', myId).maybeSingle(),

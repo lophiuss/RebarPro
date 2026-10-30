@@ -10,9 +10,10 @@ import { ISSUE_STATUS_LABEL, TODO_COLUMNS, ymd, type IssueStatus, type Person, t
 type H = { id: string; title: string; details: string | null; owner_id: string | null; created_at: string; archived_at: string | null }
 type T = { id: string; title: string; details: string | null; owner_id: string | null; created_at: string; due_date: string | null; done_at: string | null; archived_at: string | null; status: TodoStatus }
 type I = { id: string; title: string; details: string | null; owner_id: string | null; created_at: string; status: IssueStatus; solved_at: string | null }
-export type History = { headlines: H[]; todos: T[]; issues: I[] }
+type K = { id: string; name: string; details: string | null; owner_id: string | null; created_at: string; archived_at: string | null; cadence: string; unit_type: string; goal_rule: string; goal_value: number | null; goal_value_max: number | null }
+export type History = { headlines: H[]; todos: T[]; issues: I[]; kpis?: K[] }
 
-type Kind = 'all' | 'headlines' | 'todos' | 'issues'
+type Kind = 'all' | 'headlines' | 'todos' | 'issues' | 'kpis'
 type Preset = '7' | '30' | '90' | 'year' | 'all' | 'custom'
 
 const PRESETS: { key: Preset; label: string }[] = [
@@ -53,6 +54,20 @@ export function ArchiveTab({ history, peopleById, meetingName }: { history: Hist
         extra: i.solved_at ? `Solved ${i.solved_at.slice(0, 10)}` : '',
       })
     }
+    for (const k of history.kpis ?? []) {
+      const goalStr = k.goal_rule === 'between' ? `${k.goal_value ?? 0} - ${k.goal_value_max ?? 0}` : `${k.goal_rule} ${k.goal_value ?? 0}`
+      out.push({
+        kind: 'kpis',
+        id: k.id,
+        title: k.name,
+        details: k.details,
+        owner_id: k.owner_id,
+        created: k.created_at,
+        status: k.archived_at ? 'Achieved / Archived' : 'Active',
+        tone: k.archived_at ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800',
+        extra: `${k.cadence} • Goal: ${goalStr}`,
+      })
+    }
     return out.sort((a, b) => b.created.localeCompare(a.created))
   }, [history])
 
@@ -76,7 +91,7 @@ export function ArchiveTab({ history, peopleById, meetingName }: { history: Hist
   })
   const count = (k: Exclude<Kind, 'all'>) => inRange.filter(r => r.kind === k).length
   const shown = inRange.filter(r => kind === 'all' || r.kind === kind)
-  const KIND_LABEL: Record<Exclude<Kind, 'all'>, string> = { headlines: 'Headline', todos: 'To-do', issues: 'Issue' }
+  const KIND_LABEL: Record<Exclude<Kind, 'all'>, string> = { headlines: 'Headline', todos: 'To-do', issues: 'Issue', kpis: 'KPI' }
 
   function exportCsv() {
     const lines = [['Type', 'Title', 'Owner', 'Created', 'Status', 'Note', 'Details'].map(csv).join(',')]
@@ -124,6 +139,7 @@ export function ArchiveTab({ history, peopleById, meetingName }: { history: Hist
             { key: 'headlines', label: `Headlines (${count('headlines')})` },
             { key: 'todos', label: `To-dos (${count('todos')})` },
             { key: 'issues', label: `Issues (${count('issues')})` },
+            { key: 'kpis', label: `KPIs (${count('kpis')})` },
           ]}
         />
       </div>

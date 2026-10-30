@@ -5,8 +5,8 @@ import HistoryDialog from '../ui/HistoryDialog'
 import { notify, confirmDialog } from '../ui/feedback'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Plus, Trash2, X, Check, ListChecks, AlertCircle, BarChart3, Table2, StickyNote, MoreVertical, GripVertical, History, ChevronLeft, ChevronRight } from 'lucide-react'
-import { addKpi, setKpiValue, setKpiNote, reorderKpis, deleteKpi, updateKpi, setKpiMeetings, setKpiCustomGoal, deleteKpiCustomGoal } from '../actions'
+import { Plus, Trash2, X, Check, ListChecks, AlertCircle, BarChart3, Table2, StickyNote, MoreVertical, GripVertical, History, ChevronLeft, ChevronRight, CheckCircle2, RotateCcw } from 'lucide-react'
+import { addKpi, setKpiValue, setKpiNote, reorderKpis, deleteKpi, updateKpi, setKpiMeetings, setKpiCustomGoal, deleteKpiCustomGoal, archiveKpi, restoreKpi } from '../actions'
 import { useMeeting, useRun } from './context'
 import Avatar from '../Avatar'
 import { PersonSelect } from '../PersonPicker'
@@ -242,7 +242,14 @@ function KpiDrawer({ kpi, custom, allMeetings, onClose }: {
       <div className="fixed inset-0 bg-black/30 z-40 no-print" onClick={onClose} />
       <aside className="fixed inset-y-0 right-0 z-50 w-full sm:w-[34rem] bg-white shadow-2xl flex flex-col no-print" role="dialog" aria-label="Edit KPI">
         <header className="flex items-center gap-3 px-5 py-4 border-b">
-          <h2 className="font-bold text-lg flex-1">Edit KPI</h2>
+          <div className="flex-1 flex items-center gap-2 min-w-0">
+            <h2 className="font-bold text-lg truncate">Edit KPI</h2>
+            {kpi.archived_at && (
+              <span className="text-xs bg-amber-100 text-amber-800 font-semibold px-2.5 py-0.5 rounded-full inline-flex items-center gap-1 shrink-0">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Achieved &amp; Archived
+              </span>
+            )}
+          </div>
           {saved && <span className="text-xs text-green-700 inline-flex items-center gap-1"><Check className="w-3.5 h-3.5" /> Changes saved</span>}
           <button onClick={onClose} aria-label="Close"><X className="w-5 h-5 text-gray-500 hover:text-gray-700" /></button>
         </header>
@@ -342,6 +349,29 @@ function KpiDrawer({ kpi, custom, allMeetings, onClose }: {
             onClick={async () => { if (await confirmDialog(`Delete KPI "${kpi.name}" and all its values?`)) { const ok = await run(async () => { await deleteKpi(meetingId, kpi.id); return true }); if (ok) onClose() } }}
             className="inline-flex items-center gap-1.5 text-sm font-semibold text-red-600 hover:text-red-700"
           ><Trash2 className="w-4 h-4" /> Delete</button>
+          {kpi.archived_at ? (
+            <button
+              onClick={async () => {
+                const ok = await run(async () => { await restoreKpi(meetingId, kpi.id); return true })
+                if (ok) onClose()
+              }}
+              className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue-700 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <RotateCcw className="w-4 h-4" /> Restore to Active
+            </button>
+          ) : (
+            <button
+              onClick={async () => {
+                if (await confirmDialog(`Achieve and archive KPI "${kpi.name}"?\n\nIt will be moved to the Achieved & Archived list, and all historical data is preserved.`)) {
+                  const ok = await run(async () => { await archiveKpi(meetingId, kpi.id); return true })
+                  if (ok) onClose()
+                }
+              }}
+              className="inline-flex items-center gap-1.5 text-sm font-semibold text-amber-800 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 px-3 py-1.5 rounded-lg transition-colors"
+            >
+              <CheckCircle2 className="w-4 h-4" /> Achieve &amp; Archive
+            </button>
+          )}
         </footer>
       </aside>
     </>
@@ -389,21 +419,25 @@ export function Metrics({ kpis, values, customGoals, otherMeetings, meetingName,
     if (ok) { setLocalNotes(prev => ({ ...prev, [key]: text.trim() })); setNoteEdit(null) }
   }
   const periods = useMemo(() => periodsFor(cadence, range), [cadence, range])
-  const serverShown = kpis.filter(k => k.cadence === cadence)
+  const [statusFilter, setStatusFilter] = useState<'active' | 'archived'>('active')
+  const activeKpis = useMemo(() => kpis.filter(k => !k.archived_at), [kpis])
+  const archivedKpis = useMemo(() => kpis.filter(k => !!k.archived_at), [kpis])
+  const currentKpis = statusFilter === 'active' ? activeKpis : archivedKpis
+  const serverShown = currentKpis.filter(k => k.cadence === cadence)
   // Drag to sort: the new order shows at once and is saved in the background; the saved order takes over
   // when the page refreshes.
-  const orderSig = serverShown.map(k => k.id).join('|')
+  const orderSig = `${statusFilter}|${serverShown.map(k => k.id).join('|')}`
   const [seenOrder, setSeenOrder] = useState(orderSig)
   const [localOrder, setLocalOrder] = useState<Record<string, string[]>>({})
   if (seenOrder !== orderSig) { setSeenOrder(orderSig); setLocalOrder({}) }
   const shown = useMemo(() => {
-    const ids = localOrder[cadence]
+    const ids = localOrder[`${statusFilter}|${cadence}`]
     if (!ids) return serverShown
     const byId = new Map(serverShown.map(k => [k.id, k]))
     const ordered = ids.map(id => byId.get(id)).filter((k): k is Kpi => !!k)
     return ordered.length === serverShown.length ? ordered : serverShown
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [localOrder, cadence, orderSig])
+  }, [localOrder, cadence, statusFilter, orderSig])
   const rowEls = useRef(new Map<string, HTMLTableRowElement>())
   const [dragKpi, setDragKpi] = useState<string | null>(null)
   const [dropAt, setDropAt] = useState<{ id: string; after: boolean } | null>(null)
@@ -415,8 +449,9 @@ export function Metrics({ kpis, values, customGoals, otherMeetings, meetingName,
     if (at < 0) return
     ids.splice(after ? at + 1 : at, 0, id)
     if (ids.join('|') === shown.map(k => k.id).join('|')) return
-    setLocalOrder(prev => ({ ...prev, [cadence]: ids }))
-    run(async () => { await reorderKpis(meetingId, ids); return true }).then(ok => { if (!ok) setLocalOrder(prev => { const next = { ...prev }; delete next[cadence]; return next }) })
+    const key = `${statusFilter}|${cadence}`
+    setLocalOrder(prev => ({ ...prev, [key]: ids }))
+    run(async () => { await reorderKpis(meetingId, ids); return true }).then(ok => { if (!ok) setLocalOrder(prev => { const next = { ...prev }; delete next[key]; return next }) })
   }
   // The columns of the table: a year row on top, then the dates as DD-MMM (months and quarters are shorter).
   const dateHead = (start: string) => {
@@ -483,7 +518,10 @@ export function Metrics({ kpis, values, customGoals, otherMeetings, meetingName,
       })
       return true
     })
-    if (ok) setForm({ ...form, name: '', value: '', max: '' })
+    if (ok) {
+      setForm({ ...form, name: '', value: '', max: '' })
+      if (statusFilter === 'archived') setStatusFilter('active')
+    }
   }
 
   // A to-do or issue about one specific KPI number, pre-filled for review.
@@ -505,7 +543,30 @@ export function Metrics({ kpis, values, customGoals, otherMeetings, meetingName,
 
   return (
     <div>
-      <SectionTitle right={<Segmented value={cadence} onChange={setCadence} options={CADENCES.map(c => ({ key: c, label: `${c[0].toUpperCase()}${c.slice(1)} (${kpis.filter(k => k.cadence === c).length})` }))} />}>KPIs</SectionTitle>
+      <SectionTitle
+        right={
+          <div className="flex flex-wrap items-center gap-2">
+            <Segmented
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={[
+                { key: 'active', label: `Active (${activeKpis.length})` },
+                { key: 'archived', label: `Achieved / Archived (${archivedKpis.length})` },
+              ]}
+            />
+            <Segmented
+              value={cadence}
+              onChange={setCadence}
+              options={CADENCES.map(c => ({
+                key: c,
+                label: `${c[0].toUpperCase()}${c.slice(1)} (${currentKpis.filter(k => k.cadence === c).length})`,
+              }))}
+            />
+          </div>
+        }
+      >
+        KPIs
+      </SectionTitle>
 
       <div className={`${card} p-3 mb-4 flex flex-wrap items-end gap-3`}>
         <Segmented value={view} onChange={setView} options={[{ key: 'table', label: 'Table' }, { key: 'chart', label: 'Chart' }]} />
@@ -551,7 +612,10 @@ export function Metrics({ kpis, values, customGoals, otherMeetings, meetingName,
       </div>
 
       {shown.length === 0 ? (
-        <Empty title={`Your ${cadence} KPIs live here`} hint="Track the numbers that tell you how things are trending." />
+        <Empty
+          title={statusFilter === 'archived' ? `No achieved or archived ${cadence} KPIs` : `Your ${cadence} KPIs live here`}
+          hint={statusFilter === 'archived' ? 'When a KPI achieves its goal or is retired, you can achieve and archive it from its details drawer.' : 'Track the numbers that tell you how things are trending.'}
+        />
       ) : view === 'chart' && chartKpi ? (
         <div>
           <div className="flex items-center justify-between gap-2 mb-2">
@@ -652,6 +716,11 @@ export function Metrics({ kpis, values, customGoals, otherMeetings, meetingName,
                         <button onClick={() => setOpenId(k.id)} className="flex items-center gap-2 text-left hover:text-blue-700 min-w-0" title="Open KPI details">
                           <Avatar person={peopleById.get(k.owner_id ?? '')} size="sm" />
                           <span className="font-medium">{k.name}</span>
+                          {k.archived_at && (
+                            <span className="text-[10px] font-semibold text-amber-800 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded shrink-0">
+                              Achieved
+                            </span>
+                          )}
                         </button>
                       </div>
                     </td>
