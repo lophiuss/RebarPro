@@ -1,8 +1,25 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { ShieldCheck, Users, Truck, Building2, DoorClosed, DoorOpen, X, LogOut, Activity } from 'lucide-react'
+import {
+  ShieldCheck,
+  Users,
+  Truck,
+  Building2,
+  DoorClosed,
+  DoorOpen,
+  X,
+  LogOut,
+  Activity,
+  Navigation,
+  ClipboardEdit,
+  Radio,
+  KeyRound,
+  Siren,
+  ArrowRight,
+} from 'lucide-react'
 import PhotoLightbox from '@/components/PhotoLightbox'
 import ActivityLogFeed from '@/components/ActivityLogFeed'
 import ShoutoutBoard from '@/components/ShoutoutBoard'
@@ -142,6 +159,86 @@ export default function SecurityDashboardPage() {
       </div>
 
       <ShoutoutBoard department="security" />
+
+      {/* Quick Action Navigation for Guards on Mobile/Desktop */}
+      <div>
+        <h2 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2.5">
+          {t('dashboard.quickActions')}
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          {/* Highlight Card: GPS Clocking */}
+          <Link
+            href="/security/gps-clocking"
+            className="group col-span-1 sm:col-span-2 lg:col-span-2 flex items-center justify-between p-4 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl text-white shadow-sm hover:shadow-md transition active:scale-[0.99]"
+          >
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="w-12 h-12 rounded-xl bg-white/20 backdrop-blur-xs flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                <Navigation className="w-6 h-6 text-white" />
+              </div>
+              <div className="min-w-0">
+                <div className="font-bold text-base tracking-tight truncate flex items-center gap-1.5">
+                  {t('dashboard.gpsClocking')}
+                  <span className="text-[10px] uppercase font-bold bg-white/25 px-2 py-0.5 rounded-full">
+                    Clock In
+                  </span>
+                </div>
+                <p className="text-xs text-blue-100 truncate mt-0.5">
+                  {t('dashboard.gpsClockingDesc')}
+                </p>
+              </div>
+            </div>
+            <ArrowRight className="w-5 h-5 text-white/70 group-hover:text-white group-hover:translate-x-1 transition shrink-0 ml-2" />
+          </Link>
+
+          {/* Gate Entries */}
+          <Link
+            href="/security/entries"
+            className="group flex items-center justify-between p-3.5 bg-white border border-gray-200 hover:border-blue-400 rounded-xl shadow-2xs hover:shadow-sm transition active:scale-[0.99]"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-9 h-9 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0 group-hover:bg-blue-600 group-hover:text-white transition">
+                <ClipboardEdit className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="font-semibold text-xs text-slate-800 truncate">{t('dashboard.entries')}</div>
+                <div className="text-[11px] text-gray-500 truncate">{t('dashboard.entriesDesc')}</div>
+              </div>
+            </div>
+          </Link>
+
+          {/* Post Logs */}
+          <Link
+            href="/security/post-logs"
+            className="group flex items-center justify-between p-3.5 bg-white border border-gray-200 hover:border-blue-400 rounded-xl shadow-2xs hover:shadow-sm transition active:scale-[0.99]"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-9 h-9 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0 group-hover:bg-emerald-600 group-hover:text-white transition">
+                <Radio className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="font-semibold text-xs text-slate-800 truncate">{t('dashboard.postLogs')}</div>
+                <div className="text-[11px] text-gray-500 truncate">{t('dashboard.postLogsDesc')}</div>
+              </div>
+            </div>
+          </Link>
+
+          {/* Key Management */}
+          <Link
+            href="/security/keys"
+            className="group flex items-center justify-between p-3.5 bg-white border border-gray-200 hover:border-blue-400 rounded-xl shadow-2xs hover:shadow-sm transition active:scale-[0.99]"
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-9 h-9 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0 group-hover:bg-amber-600 group-hover:text-white transition">
+                <KeyRound className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="font-semibold text-xs text-slate-800 truncate">{t('dashboard.keyManagement')}</div>
+                <div className="text-[11px] text-gray-500 truncate">{t('dashboard.keyManagementDesc')}</div>
+              </div>
+            </div>
+          </Link>
+        </div>
+      </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
         <div className="bg-white border rounded-xl p-4 shadow-sm">
