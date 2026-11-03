@@ -76,6 +76,7 @@ export default function AuditPage() {
   const [guardTimeline, setGuardTimeline] = useState<{ name: string; cells: (string | null)[] }[]>([])
   const [postTimeline, setPostTimeline] = useState<{ name: string; cells: (string | null)[] }[]>([])
   const [activity, setActivity] = useState<ActivityEvent[]>([])
+  const [activityExpanded, setActivityExpanded] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
   const [showRangeExport, setShowRangeExport] = useState(false)
   const [rangeFrom, setRangeFrom] = useState(isoToday())
@@ -581,33 +582,63 @@ export default function AuditPage() {
         ))}
       </div>
 
-      <div className="bg-white border rounded-xl shadow-sm overflow-hidden mb-6" data-audit-card>
-        <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between">
-          <h2 className="text-sm font-bold text-slate-700 flex items-center gap-2" data-audit-title><Activity className="w-4 h-4 text-indigo-500" /> {t('audit.activityLogFor')} {date}</h2>
-          <span className="text-xs bg-indigo-50 text-indigo-700 rounded-full px-2.5 py-1 font-semibold">{activity.length}</span>
+      {/* 📸 Visitor & Delivery Photos (Positioned before Activity Log) */}
+      {photoEntries.length > 0 && (
+        <div className="bg-white border rounded-xl shadow-sm p-5 mb-6" data-audit-card>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-bold text-slate-700 flex items-center gap-2" data-audit-title>
+              📸 {t('audit.visitorPhotos')}
+            </h2>
+            <span className="text-xs bg-blue-50 text-blue-700 rounded-full px-2.5 py-0.5 font-semibold">
+              {photoEntries.length}
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            {photoEntries.map(e => (
+              <button
+                key={e.id}
+                onClick={() => setEntryDetail(e)}
+                title="View check-in / check-out details"
+                className="w-28 border rounded-lg overflow-hidden bg-white shadow-sm hover:shadow-md hover:-translate-y-0.5 transition text-left flex-shrink-0 cursor-pointer"
+              >
+                <img src={`/api/security/photo/${e.photo_drive_id}`} className="w-full h-[85px] object-cover" />
+                <div className="px-2 py-1.5">
+                  <div className="text-xs font-bold text-slate-800 truncate" title={e.person_name}>{e.person_name}</div>
+                  <div className="text-[10px] text-gray-500">{new Date(e.time_in).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</div>
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
-        <ActivityLogFeed events={activity} emptyLabel={t('audit.noActivityForDate')} />
+      )}
+
+      {/* ⚡ Activity Log (Default Collapsed with Option to Expand) */}
+      <div className="bg-white border rounded-xl shadow-sm overflow-hidden mb-6" data-audit-card>
+        <button
+          type="button"
+          onClick={() => setActivityExpanded(v => !v)}
+          className="w-full px-4 py-3 border-b bg-gray-50 flex items-center justify-between hover:bg-gray-100 transition cursor-pointer text-left select-none"
+        >
+          <div className="flex items-center gap-2">
+            <ChevronDown className={`w-4 h-4 text-slate-500 transition-transform ${activityExpanded ? 'rotate-180' : ''}`} />
+            <h2 className="text-sm font-bold text-slate-700 flex items-center gap-2" data-audit-title>
+              <Activity className="w-4 h-4 text-indigo-500" /> {t('audit.activityLogFor')} {date}
+            </h2>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs bg-indigo-50 text-indigo-700 rounded-full px-2.5 py-1 font-semibold">{activity.length}</span>
+            <span className="text-xs bg-indigo-50 text-indigo-700 hover:bg-indigo-100 font-semibold px-2.5 py-1 rounded-md transition">
+              {activityExpanded ? t('audit.collapse') : t('audit.expand')}
+            </span>
+          </div>
+        </button>
+        {activityExpanded && (
+          <ActivityLogFeed events={activity} emptyLabel={t('audit.noActivityForDate')} />
+        )}
       </div>
 
       <div className="bg-white border rounded-xl shadow-sm p-5" data-audit-card>
         <h2 className="text-sm font-bold text-slate-700 mb-4" data-audit-title>📖 {t('audit.fullHistoryFor')} {date}</h2>
-
-        {photoEntries.length > 0 && (
-          <div className="mb-6">
-            <h3 className="text-xs font-bold text-blue-600 uppercase mb-2">📸 {t('audit.visitorPhotos')}</h3>
-            <div className="flex flex-wrap gap-3">
-              {photoEntries.map(e => (
-                <button key={e.id} onClick={() => setEntryDetail(e)} title="View check-in / check-out details" className="w-28 border rounded-lg overflow-hidden bg-white shadow-sm hover:shadow-md hover:-translate-y-0.5 transition text-left flex-shrink-0">
-                  <img src={`/api/security/photo/${e.photo_drive_id}`} className="w-full h-[85px] object-cover" />
-                  <div className="px-2 py-1.5">
-                    <div className="text-xs font-bold text-slate-800 truncate" title={e.person_name}>{e.person_name}</div>
-                    <div className="text-[10px] text-gray-500">{new Date(e.time_in).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</div>
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
 
         {guardTimeline.length > 0 && (
           <div className="mb-6" data-audit-card>

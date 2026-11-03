@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import QRCode from 'qrcode'
-import { Settings as SettingsIcon, Plus, Trash2, Pencil, Image as ImageIcon, QrCode, Copy, Check, MapPin, X, ChevronUp, ChevronDown } from 'lucide-react'
+import { Settings as SettingsIcon, Plus, Trash2, Pencil, Image as ImageIcon, QrCode, Copy, Check, MapPin, X, ChevronUp, ChevronDown, KeyRound } from 'lucide-react'
 import CheckpointMap from '@/components/CheckpointMap'
 import { useLang } from '@/lib/i18n/useLang'
 import { makeT } from '@/lib/i18n/languages'
@@ -15,6 +15,7 @@ import { compressImageToTarget } from '@/lib/compressImage'
 type Post = { id: number; name: string }
 type LayoutRow = { photo_url: string | null; photo_drive_id: string | null } | null
 type Checkpoint = { id: number; name: string; latitude: number; longitude: number; radius_meters: number; sequence_order: number; is_active: boolean }
+type Key = { id: number; key_name: string; key_no: string | null; description: string | null }
 
 export default function SecuritySettingsPage() {
   const supabase = createClient()
@@ -27,6 +28,9 @@ export default function SecuritySettingsPage() {
   const [qrDataUrl, setQrDataUrl] = useState('')
   const [copied, setCopied] = useState(false)
   const [canManage, setCanManage] = useState(false)
+
+  const [keys, setKeys] = useState<Key[]>([])
+  const [newKey, setNewKey] = useState({ key_name: '', key_no: '', description: '' })
 
   const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([])
   const [editingCp, setEditingCp] = useState<Checkpoint | null>(null)
@@ -45,16 +49,34 @@ export default function SecuritySettingsPage() {
 
   async function load() {
     const { data: { user } } = await supabase.auth.getUser()
-    const [{ data: postRows }, { data: layoutRow }, { data: cpRows }, { data: access }] = await Promise.all([
+    const [{ data: postRows }, { data: layoutRow }, { data: cpRows }, { data: keyRows }, { data: access }] = await Promise.all([
       supabase.from('security_guard_posts').select('*').order('name'),
       supabase.from('security_layout').select('photo_url, photo_drive_id').order('id', { ascending: false }).limit(1).maybeSingle(),
       supabase.from('security_checkpoints').select('*').order('sequence_order'),
+      supabase.from('security_keys').select('*').order('key_name'),
       user ? supabase.from('user_department_access').select('role').eq('user_id', user.id).eq('department', 'security').maybeSingle() : Promise.resolve({ data: null }),
     ])
     setPosts(postRows || [])
     setLayout(layoutRow)
     setCheckpoints(cpRows || [])
+    setKeys(keyRows || [])
     setCanManage(access?.role === 'admin' || access?.role === 'manager')
+  }
+
+  async function addKey(e: React.FormEvent) {
+    e.preventDefault()
+    if (!newKey.key_name.trim()) { alert(t('keys.keyNameRequired')); return }
+    const { error } = await supabase.from('security_keys').insert([{ key_name: newKey.key_name.trim(), key_no: newKey.key_no || null, description: newKey.description || null }])
+    if (error) { alert('Error: ' + error.message); return }
+    setNewKey({ key_name: '', key_no: '', description: '' })
+    load()
+  }
+
+  async function deleteKey(id: number) {
+    if (!confirm(t('keys.confirmDeleteKey'))) return
+    const { error } = await supabase.from('security_keys').delete().eq('id', id)
+    if (error) { alert('Error: ' + error.message); return }
+    load()
   }
 
   function startAddCheckpoint(lat: number, lng: number) {
@@ -258,6 +280,69 @@ export default function SecuritySettingsPage() {
             </div>
           ))}
           {posts.length === 0 && <p className="text-sm text-gray-400 py-2">{t('settings.noPostsConfigured')}</p>}
+        </div>
+      </div>
+
+      {/* Key Definitions (Moved from Keys page) */}
+      <div className="bg-white border rounded-xl shadow-sm p-6 mt-6">
+        <h2 className="text-sm font-bold text-slate-700 mb-1 flex items-center gap-2">
+          <KeyRound className="w-4 h-4 text-blue-600" /> {t('keys.keyDefinitions')}
+        </h2>
+        <p className="text-xs text-gray-500 mb-4">
+          Manage facility keys available for checkout by security guards.
+        </p>
+
+        {canManage && (
+          <form onSubmit={addKey} className="flex flex-wrap gap-2 items-end mb-4">
+            <input
+              placeholder={t('keys.keyName')}
+              value={newKey.key_name}
+              onChange={e => setNewKey({ ...newKey, key_name: e.target.value })}
+              className="border rounded-md px-3 py-2 text-sm"
+              required
+            />
+            <input
+              placeholder={t('keys.keyNo')}
+              value={newKey.key_no}
+              onChange={e => setNewKey({ ...newKey, key_no: e.target.value })}
+              className="border rounded-md px-3 py-2 text-sm"
+            />
+            <input
+              placeholder={t('keys.description')}
+              value={newKey.description}
+              onChange={e => setNewKey({ ...newKey, description: e.target.value })}
+              className="border rounded-md px-3 py-2 text-sm flex-1 min-w-[150px]"
+            />
+            <button
+              type="submit"
+              className="flex items-center gap-1.5 bg-blue-600 text-white text-sm font-medium px-3 py-2 rounded-lg hover:bg-blue-700 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" /> {t('common.add')}
+            </button>
+          </form>
+        )}
+
+        <div className="divide-y divide-gray-100">
+          {keys.map(k => (
+            <div key={k.id} className="py-2.5 flex items-center justify-between text-sm">
+              <div>
+                <span className="font-semibold text-slate-800">{k.key_name}</span>
+                {k.key_no && <span className="font-mono text-xs text-blue-600 ml-1.5 bg-blue-50 px-1.5 py-0.5 rounded">#{k.key_no}</span>}
+                {k.description && <span className="text-xs text-gray-500 ml-2">· {k.description}</span>}
+              </div>
+              {canManage && (
+                <button
+                  type="button"
+                  onClick={() => deleteKey(k.id)}
+                  className="text-red-500 hover:text-red-700 p-1 cursor-pointer"
+                  title={t('common.delete')}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          ))}
+          {keys.length === 0 && <p className="text-sm text-gray-400 py-2">{t('keys.noKeysDefined')}</p>}
         </div>
       </div>
 

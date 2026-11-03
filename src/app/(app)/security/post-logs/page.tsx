@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Radio, LogOut, AlertTriangle } from 'lucide-react'
+import { Radio, LogOut, AlertTriangle, ChevronDown } from 'lucide-react'
 import { useLang } from '@/lib/i18n/useLang'
 import { makeT } from '@/lib/i18n/languages'
 import { securityDict } from '@/lib/i18n/dict/security'
 import LanguageSwitcher from '@/components/LanguageSwitcher'
 
 type Post = { id: number; name: string }
-type PostLog = { id: number; post_name: string; guard_name: string; time_in: string; time_out: string | null; notes: string | null }
+type PostLog = { id: number; post_name: string; guard_name: string; time_in: string; time_out: string | null; notes: string | null; created_by?: string | null }
 
 // Local date, not UTC — .toISOString() shifts the date for any timezone
 // ahead of UTC (e.g. shows "yesterday" for a UTC+8 user before 8am local).
@@ -25,6 +25,9 @@ export default function PostLogsPage() {
   const [history, setHistory] = useState<PostLog[]>([])
   const [date, setDate] = useState(isoToday())
   const [myGuardName, setMyGuardName] = useState('')
+  const [myEmail, setMyEmail] = useState('')
+  const [isManager, setIsManager] = useState(false)
+  const [historyExpanded, setHistoryExpanded] = useState(false)
   const [form, setForm] = useState({ post_name: '', guard_name: '', notes: '' })
   const [lang, setLang] = useLang()
   const t = makeT(securityDict, lang)
@@ -34,13 +37,16 @@ export default function PostLogsPage() {
 
   async function load() {
     const { data: { user } } = await supabase.auth.getUser()
-    const [{ data: postRows }, { data: activeRows }, { data: profile }] = await Promise.all([
+    const [{ data: postRows }, { data: activeRows }, { data: profile }, { data: access }] = await Promise.all([
       supabase.from('security_guard_posts').select('id, name').order('name'),
       supabase.from('security_post_logs').select('*').is('time_out', null).order('time_in', { ascending: false }),
       user ? supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle() : Promise.resolve({ data: null }),
+      user ? supabase.from('user_department_access').select('role').eq('user_id', user.id).eq('department', 'security').maybeSingle() : Promise.resolve({ data: null }),
     ])
     const loggedInName = profile?.full_name || user?.email || ''
     setMyGuardName(loggedInName)
+    setMyEmail(user?.email || '')
+    setIsManager(access?.role === 'admin' || access?.role === 'manager')
     setPosts(postRows || [])
     setActive(activeRows || [])
     setForm(prev => ({
@@ -55,6 +61,18 @@ export default function PostLogsPage() {
     const end = new Date(date + 'T23:59:59.999').toISOString()
     const { data } = await supabase.from('security_post_logs').select('*').gte('time_in', start).lte('time_in', end).order('time_in', { ascending: false })
     setHistory(data || [])
+  }
+
+  function canEndShift(log: PostLog) {
+    if (isManager) return true
+    const shiftGuard = (log.guard_name || '').trim().toLowerCase()
+    const meName = (myGuardName || '').trim().toLowerCase()
+    const meEmail = (myEmail || '').trim().toLowerCase()
+    const createdBy = (log.created_by || '').trim().toLowerCase()
+
+    if (meName && shiftGuard === meName) return true
+    if (meEmail && (shiftGuard === meEmail || createdBy === meEmail)) return true
+    return false
   }
 
   async function startShift(e: React.FormEvent) {
@@ -72,13 +90,20 @@ export default function PostLogsPage() {
   }
 
   async function endShift(id: number) {
+    const target = active.find(a => a.id === id)
+    if (target && !canEndShift(target)) {
+      alert(lang === 'zh' ? '您只能结束自己的值班班次。' : lang === 'ms' ? 'Anda hanya boleh menamatkan syif anda sendiri.' : 'You can only end your own shift.')
+      return
+    }
     const { error } = await supabase.from('security_post_logs').update({ time_out: new Date().toISOString() }).eq('id', id).is('time_out', null)
     if (error) { alert('Error: ' + error.message); return }
     load()
   }
 
   async function endAllOverdue() {
-    const { error } = await supabase.from('security_post_logs').update({ time_out: new Date().toISOString() }).in('id', overdue.map(o => o.id))
+    const toEnd = overdue.filter(canEndShift)
+    if (toEnd.length === 0) return
+    const { error } = await supabase.from('security_post_logs').update({ time_out: new Date().toISOString() }).in('id', toEnd.map(o => o.id))
     if (error) { alert('Error: ' + error.message); return }
     load()
   }
@@ -135,15 +160,26 @@ export default function PostLogsPage() {
         <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
           <div className="px-4 py-3 border-b bg-gray-50"><h2 className="text-sm font-bold text-slate-700">{t('postLogs.activeShifts')} ({currentActive.length})</h2></div>
           <div className="divide-y divide-gray-100 max-h-[420px] overflow-y-auto">
-            {currentActive.map(a => (
-              <div key={a.id} className="px-4 py-3 flex items-center justify-between text-sm">
-                <div>
-                  <div className="font-medium">{a.post_name} — {a.guard_name}</div>
-                  <div className="text-xs text-gray-500">{t('postLogs.since')} {new Date(a.time_in).toLocaleString()}</div>
+            {currentActive.map(a => {
+              const canEnd = canEndShift(a)
+              return (
+                <div key={a.id} className="px-4 py-3 flex items-center justify-between text-sm">
+                  <div>
+                    <div className="font-medium">{a.post_name} — {a.guard_name}</div>
+                    <div className="text-xs text-gray-500">{t('postLogs.since')} {new Date(a.time_in).toLocaleString()}</div>
+                  </div>
+                  {canEnd ? (
+                    <button onClick={() => endShift(a.id)} className="flex items-center gap-1 text-xs bg-green-50 text-green-700 font-semibold px-2.5 py-1.5 rounded-lg hover:bg-green-100 flex-shrink-0 cursor-pointer">
+                      <LogOut className="w-3.5 h-3.5" /> {t('postLogs.endShift')}
+                    </button>
+                  ) : (
+                    <span className="text-xs text-slate-400 font-medium px-2 py-1 bg-slate-50 rounded">
+                      {t('postLogs.active')}
+                    </span>
+                  )}
                 </div>
-                <button onClick={() => endShift(a.id)} className="flex items-center gap-1 text-xs bg-green-50 text-green-700 px-2.5 py-1.5 rounded-lg hover:bg-green-100 flex-shrink-0"><LogOut className="w-3.5 h-3.5" /> {t('postLogs.endShift')}</button>
-              </div>
-            ))}
+              )
+            })}
             {currentActive.length === 0 && <p className="px-4 py-8 text-center text-sm text-gray-400">{t('postLogs.noActiveShifts')}</p>}
           </div>
         </div>
@@ -153,18 +189,29 @@ export default function PostLogsPage() {
         <div className="bg-amber-50 border border-amber-200 rounded-xl shadow-sm overflow-hidden mb-8">
           <div className="px-4 py-3 border-b border-amber-200 flex items-center justify-between">
             <h2 className="text-sm font-bold text-amber-800 flex items-center gap-2"><AlertTriangle className="w-4 h-4" /> {t('postLogs.overdue')}</h2>
-            <button onClick={endAllOverdue} className="text-xs bg-red-600 text-white font-medium px-2.5 py-1.5 rounded-lg hover:bg-red-700">{t('postLogs.endAllOverdue')}</button>
+            {isManager && (
+              <button onClick={endAllOverdue} className="text-xs bg-red-600 text-white font-medium px-2.5 py-1.5 rounded-lg hover:bg-red-700 cursor-pointer">{t('postLogs.endAllOverdue')}</button>
+            )}
           </div>
           <div className="divide-y divide-amber-100">
             {overdue.map(a => {
               const hrs = (now - new Date(a.time_in).getTime()) / 3600000
+              const canEnd = canEndShift(a)
               return (
                 <div key={a.id} className="px-4 py-3 flex items-center justify-between text-sm bg-white">
                   <div>
                     <div className="font-medium">{a.post_name} — {a.guard_name}</div>
                     <div className="text-xs text-red-600">{t('postLogs.started')} {new Date(a.time_in).toLocaleString()} <span className="font-bold">({hrs.toFixed(1)} {t('postLogs.hrsAgo')})</span></div>
                   </div>
-                  <button onClick={() => endShift(a.id)} className="flex items-center gap-1 text-xs bg-red-50 text-red-700 px-2.5 py-1.5 rounded-lg hover:bg-red-100 flex-shrink-0"><LogOut className="w-3.5 h-3.5" /> {t('postLogs.endShift')}</button>
+                  {canEnd ? (
+                    <button onClick={() => endShift(a.id)} className="flex items-center gap-1 text-xs bg-red-50 text-red-700 font-semibold px-2.5 py-1.5 rounded-lg hover:bg-red-100 flex-shrink-0 cursor-pointer">
+                      <LogOut className="w-3.5 h-3.5" /> {t('postLogs.endShift')}
+                    </button>
+                  ) : (
+                    <span className="text-xs text-amber-600 font-medium px-2 py-1 bg-amber-50 rounded">
+                      {t('postLogs.overdue')}
+                    </span>
+                  )}
                 </div>
               )
             })}
@@ -173,33 +220,55 @@ export default function PostLogsPage() {
       )}
 
       <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between flex-wrap gap-2">
-          <h2 className="text-sm font-bold text-slate-700">{t('postLogs.history')}</h2>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)} className="border rounded-md px-2 py-1.5 text-sm" />
+        <div
+          onClick={() => setHistoryExpanded(v => !v)}
+          className="px-4 py-3 border-b bg-gray-50 flex items-center justify-between flex-wrap gap-2 cursor-pointer hover:bg-gray-100 transition select-none"
+        >
+          <div className="flex items-center gap-2">
+            <ChevronDown className={`w-4 h-4 text-slate-500 transition-transform ${historyExpanded ? 'rotate-180' : ''}`} />
+            <h2 className="text-sm font-bold text-slate-700">{t('postLogs.history')}</h2>
+            <span className="text-xs text-gray-400">({history.length})</span>
+          </div>
+          <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+            {historyExpanded && (
+              <input type="date" value={date} onChange={e => setDate(e.target.value)} className="border rounded-md px-2 py-1 text-sm bg-white" />
+            )}
+            <button
+              type="button"
+              onClick={() => setHistoryExpanded(v => !v)}
+              className="text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 font-semibold px-2.5 py-1 rounded-md transition cursor-pointer"
+            >
+              {historyExpanded ? (t('audit.collapse') || 'Collapse') : (t('audit.expand') || 'Expand')}
+            </button>
+          </div>
         </div>
-        <table className="min-w-full divide-y divide-gray-200 text-sm">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('postLogs.post')}</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('common.guard')}</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('postLogs.in')}</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('postLogs.out')}</th>
-              <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('common.notes')}</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {history.map(h => (
-              <tr key={h.id}>
-                <td className="px-4 py-2 font-medium">{h.post_name}</td>
-                <td className="px-4 py-2">{h.guard_name}</td>
-                <td className="px-4 py-2 text-gray-500">{new Date(h.time_in).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</td>
-                <td className="px-4 py-2 text-gray-500">{h.time_out ? new Date(h.time_out).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : <span className="text-amber-600 font-medium">{t('postLogs.active')}</span>}</td>
-                <td className="px-4 py-2 text-gray-500">{h.notes || '-'}</td>
-              </tr>
-            ))}
-            {history.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400">{t('postLogs.noShiftsForDate')}</td></tr>}
-          </tbody>
-        </table>
+        {historyExpanded && (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200 text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('postLogs.post')}</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('common.guard')}</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('postLogs.in')}</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('postLogs.out')}</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">{t('common.notes')}</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {history.map(h => (
+                  <tr key={h.id}>
+                    <td className="px-4 py-2 font-medium">{h.post_name}</td>
+                    <td className="px-4 py-2">{h.guard_name}</td>
+                    <td className="px-4 py-2 text-gray-500">{new Date(h.time_in).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</td>
+                    <td className="px-4 py-2 text-gray-500">{h.time_out ? new Date(h.time_out).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : <span className="text-amber-600 font-medium">{t('postLogs.active')}</span>}</td>
+                    <td className="px-4 py-2 text-gray-500">{h.notes || '-'}</td>
+                  </tr>
+                ))}
+                {history.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400">{t('postLogs.noShiftsForDate')}</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   )

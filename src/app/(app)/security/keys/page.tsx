@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { KeyRound, Plus, Trash2 } from 'lucide-react'
+import { KeyRound, Settings } from 'lucide-react'
 import { useLang } from '@/lib/i18n/useLang'
 import { makeT } from '@/lib/i18n/languages'
 import { securityDict } from '@/lib/i18n/dict/security'
@@ -18,7 +19,6 @@ export default function KeysPage() {
   const [isManager, setIsManager] = useState(false)
 
   const [issueForm, setIssueForm] = useState({ key_id: '', issued_to: '', purpose: '' })
-  const [newKey, setNewKey] = useState({ key_name: '', key_no: '', description: '' })
   const [lang, setLang] = useLang()
   const t = makeT(securityDict, lang)
 
@@ -66,29 +66,24 @@ export default function KeysPage() {
     load()
   }
 
-  async function addKey(e: React.FormEvent) {
-    e.preventDefault()
-    if (!newKey.key_name.trim()) { alert(t('keys.keyNameRequired')); return }
-    const { error } = await supabase.from('security_keys').insert([{ key_name: newKey.key_name.trim(), key_no: newKey.key_no || null, description: newKey.description || null }])
-    if (error) { alert('Error: ' + error.message); return }
-    setNewKey({ key_name: '', key_no: '', description: '' })
-    load()
-  }
-
-  async function deleteKey(id: number) {
-    if (!confirm(t('keys.confirmDeleteKey'))) return
-    const { error } = await supabase.from('security_keys').delete().eq('id', id)
-    if (error) { alert('Error: ' + error.message); return }
-    load()
-  }
-
   const outLogs = logs.filter(l => l.status === 'out')
 
   return (
     <div className="p-4 md:p-8 max-w-6xl mx-auto">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <h1 className="text-3xl font-bold flex items-center gap-2"><KeyRound className="w-7 h-7 text-blue-600" /> {t('keys.title')}</h1>
-        <LanguageSwitcher lang={lang} onChange={setLang} />
+        <div className="flex items-center gap-2">
+          {isManager && (
+            <Link
+              href="/security/settings"
+              className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg font-medium flex items-center gap-1.5 transition"
+            >
+              <Settings className="w-3.5 h-3.5 text-slate-500" />
+              <span>{t('keys.keyDefinitions')} (Settings)</span>
+            </Link>
+          )}
+          <LanguageSwitcher lang={lang} onChange={setLang} />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.3fr] gap-6 mb-8">
@@ -128,27 +123,6 @@ export default function KeysPage() {
           </div>
         </div>
       </div>
-
-      {isManager && (
-        <div className="bg-white border rounded-xl shadow-sm p-6 mb-8">
-          <h2 className="text-sm font-bold text-slate-700 mb-3">{t('keys.keyDefinitions')}</h2>
-          <form onSubmit={addKey} className="flex flex-wrap gap-2 items-end mb-4">
-            <input placeholder={t('keys.keyName')} value={newKey.key_name} onChange={e => setNewKey({ ...newKey, key_name: e.target.value })} className="border rounded-md px-3 py-2 text-sm" />
-            <input placeholder={t('keys.keyNo')} value={newKey.key_no} onChange={e => setNewKey({ ...newKey, key_no: e.target.value })} className="border rounded-md px-3 py-2 text-sm" />
-            <input placeholder={t('keys.description')} value={newKey.description} onChange={e => setNewKey({ ...newKey, description: e.target.value })} className="border rounded-md px-3 py-2 text-sm flex-1 min-w-[150px]" />
-            <button type="submit" className="flex items-center gap-1.5 bg-blue-600 text-white text-sm font-medium px-3 py-2 rounded-lg hover:bg-blue-700"><Plus className="w-4 h-4" /> {t('common.add')}</button>
-          </form>
-          <div className="divide-y divide-gray-100">
-            {keys.map(k => (
-              <div key={k.id} className="py-2 flex items-center justify-between text-sm">
-                <span>{k.key_name}{k.key_no ? ` (${k.key_no})` : ''} <span className="text-gray-400">{k.description}</span></span>
-                <button onClick={() => deleteKey(k.id)} className="text-red-500 hover:text-red-700 p-1"><Trash2 className="w-3.5 h-3.5" /></button>
-              </div>
-            ))}
-            {keys.length === 0 && <p className="text-sm text-gray-400 py-2">{t('keys.noKeysDefined')}</p>}
-          </div>
-        </div>
-      )}
 
       <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
         <div className="px-4 py-3 border-b bg-gray-50"><h2 className="text-sm font-bold text-slate-700">{t('keys.recentActivity')}</h2></div>
