@@ -652,91 +652,103 @@ export function Metrics({ kpis, values, customGoals, otherMeetings, meetingName,
           />
         </div>
       ) : (
-        <div className={`${card} overflow-auto max-h-[calc(100vh-14rem)]`}>
-          {/* Fixed layout: the period columns share whatever width is left, so the value boxes grow with the page. */}
-          <table className="w-full text-sm table-fixed" style={{ minWidth: `${22 + periods.length * 3.6}rem` }}>
-            <colgroup><col style={{ width: '12rem' }} /><col style={{ width: '5.5rem' }} /><col style={{ width: '4.5rem' }} /><col style={{ width: '4.5rem' }} />{periods.map(p => <col key={p.start} />)}</colgroup>
-            <thead className="bg-gray-50">
-              {/* The dates stay at the top and the first four columns stay on the left while scrolling. */}
-              <tr className="text-xs uppercase tracking-wide text-gray-500">
-                <th rowSpan={2} className="text-left px-2 py-1.5 font-semibold sticky top-0 left-0 z-30 bg-gray-50">KPI</th>
-                <th rowSpan={2} className="px-1 py-1.5 font-semibold sticky top-0 left-[12rem] z-30 bg-gray-50">Goal</th>
-                <th rowSpan={2} className="px-1 py-1.5 font-semibold sticky top-0 left-[17.5rem] z-30 bg-gray-50">Sum</th>
-                <th rowSpan={2} className="px-1 py-1.5 font-semibold sticky top-0 left-[22rem] z-30 bg-gray-50 shadow-[inset_-1px_0_0_#e5e7eb]">Avg</th>
-                {yearSpans.map(y => <th key={y.year} colSpan={y.count} className="h-7 px-1 text-center text-sm font-bold tracking-normal text-slate-700 sticky top-0 z-20 bg-gray-100 border-l border-gray-300 first:border-l-0">{y.year}</th>)}
-              </tr>
-              <tr className="text-xs uppercase tracking-wide text-gray-500">
-                {periods.map((p, i) => <th key={p.start} className={`px-1 py-1.5 font-semibold whitespace-nowrap sticky top-7 z-20 bg-gray-50 ${i > 0 && p.start.slice(0, 4) !== periods[i - 1].start.slice(0, 4) ? 'border-l border-gray-300' : ''}`}>{dateHead(p.start)}</th>)}
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {shown.map(k => {
-                const nums = periods.map(p => byKey.get(`${k.id}|${p.start}`)).filter((v): v is number => v !== null && v !== undefined)
-                const sum = nums.reduce((s, v) => s + v, 0)
-                const avg = nums.length ? sum / nums.length : null
-                return (
-                  <tr
-                    key={k.id}
-                    ref={el => { if (el) rowEls.current.set(k.id, el); else rowEls.current.delete(k.id) }}
-                    className={`group/row ${dragKpi === k.id ? 'opacity-40' : ''}`}
-                    onDragOver={e => {
-                      if (!dragKpi) return
-                      e.preventDefault()
-                      const r = e.currentTarget.getBoundingClientRect()
-                      const after = e.clientY > r.top + r.height / 2
-                      if (dropAt?.id !== k.id || dropAt.after !== after) setDropAt({ id: k.id, after })
-                    }}
-                    onDrop={e => { e.preventDefault(); if (dragKpi && dropAt) moveKpi(dragKpi, dropAt.id, dropAt.after); setDragKpi(null); setDropAt(null) }}
-                    style={dropAt?.id === k.id && dragKpi && dragKpi !== k.id ? { boxShadow: dropAt.after ? 'inset 0 -3px 0 #2563eb' : 'inset 0 3px 0 #2563eb' } : undefined}
-                  >
-                    <td className="px-1 py-1 min-w-[11rem] sticky left-0 z-10 bg-white">
-                      <div className="flex items-center gap-0.5">
-                        <button
-                          type="button"
-                          draggable
-                          onDragStart={e => {
-                            setDragKpi(k.id)
-                            e.dataTransfer.effectAllowed = 'move'
-                            e.dataTransfer.setData('text/plain', k.id)
-                            const row = rowEls.current.get(k.id)
-                            if (row) e.dataTransfer.setDragImage(row, 24, 16)
-                          }}
-                          onDragEnd={() => { setDragKpi(null); setDropAt(null) }}
-                          onKeyDown={e => {
-                            if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
-                            e.preventDefault()
-                            const i = shown.findIndex(x => x.id === k.id)
-                            const to = shown[e.key === 'ArrowUp' ? i - 1 : i + 1]
-                            if (to) moveKpi(k.id, to.id, e.key === 'ArrowDown')
-                          }}
-                          aria-label={`Drag to reorder ${k.name}. Or press the up or down arrow keys.`}
-                          title="Drag to reorder"
-                          className="p-1.5 -ml-0.5 shrink-0 text-gray-400 hover:text-gray-700 cursor-grab active:cursor-grabbing touch-none"
-                        ><GripVertical className="w-4 h-4" /></button>
-                        <button onClick={() => setOpenId(k.id)} className="flex items-center gap-2 text-left hover:text-blue-700 min-w-0" title="Open KPI details">
-                          <Avatar person={peopleById.get(k.owner_id ?? '')} size="sm" />
-                          <span className="font-medium">{k.name}</span>
-                          {k.archived_at && (
-                            <span className="text-[10px] font-semibold text-amber-800 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded shrink-0">
-                              Achieved
-                            </span>
-                          )}
-                        </button>
-                      </div>
-                    </td>
-                    <td className="px-1 py-1 text-center text-gray-700 whitespace-nowrap font-medium sticky left-[12rem] z-10 bg-white">{formatGoal(baseGoal(k), k.unit_type)}</td>
-                    <td className="px-1 py-1 text-center text-gray-500 tabular-nums sticky left-[17.5rem] z-10 bg-white">{k.unit_type === 'yesno' || nums.length === 0 ? '—' : formatKpiValue(sum, k.unit_type)}</td>
-                    <td className="px-1 py-1 text-center text-gray-500 tabular-nums sticky left-[22rem] z-10 bg-white shadow-[inset_-1px_0_0_#e5e7eb]">{k.unit_type === 'yesno' || avg === null ? '—' : formatKpiValue(avg, k.unit_type)}</td>
-                    {periods.map(p => (
-                      <td key={p.start} className="px-1 py-1 text-center">
-                        <KpiCell kpi={k} start={p.start} value={byKey.get(`${k.id}|${p.start}`)} goal={goalFor(k, p.start, customGoals)} onCreate={kind => startDraft(kind, k, p)} note={noteByKey.get(`${k.id}|${p.start}`)} onNote={() => setNoteEdit({ kpi: k, start: p.start, label: p.label, text: noteByKey.get(`${k.id}|${p.start}`) ?? '' })} />
+        <div>
+          <div className="md:hidden flex items-center justify-between text-[11px] text-gray-500 mb-1.5 px-1 font-medium">
+            <span>← Swipe matrix horizontally →</span>
+            <span>{periods.length} {cadence} periods</span>
+          </div>
+          <div className={`${card} overflow-auto max-h-[calc(100vh-14rem)]`}>
+            {/* Fixed layout: on desktop 4 columns stick; on mobile ONLY the KPI name sticks so periods are fully visible */}
+            <table className="w-full text-xs sm:text-sm table-fixed" style={{ minWidth: `${18 + periods.length * 3.4}rem` }}>
+              <colgroup>
+                <col className="w-28 sm:w-36 md:w-48" />
+                <col className="w-16 sm:w-20 md:w-[5.5rem]" />
+                <col className="w-14 sm:w-16 md:w-[4.5rem]" />
+                <col className="w-14 sm:w-16 md:w-[4.5rem]" />
+                {periods.map(p => <col key={p.start} className="w-13 sm:w-16" />)}
+              </colgroup>
+              <thead className="bg-gray-50">
+                {/* The dates stay at the top and on desktop the first four columns stay on the left while scrolling. */}
+                <tr className="text-[11px] sm:text-xs uppercase tracking-wide text-gray-500">
+                  <th rowSpan={2} className="text-left px-1.5 sm:px-2 py-1.5 font-semibold sticky top-0 left-0 z-30 bg-gray-50 shadow-[1px_0_0_#e5e7eb] md:shadow-none">KPI</th>
+                  <th rowSpan={2} className="px-1 py-1.5 font-semibold sticky top-0 md:left-[12rem] z-20 md:z-30 bg-gray-50">Goal</th>
+                  <th rowSpan={2} className="px-1 py-1.5 font-semibold sticky top-0 md:left-[17.5rem] z-20 md:z-30 bg-gray-50">Sum</th>
+                  <th rowSpan={2} className="px-1 py-1.5 font-semibold sticky top-0 md:left-[22rem] z-20 md:z-30 bg-gray-50 md:shadow-[inset_-1px_0_0_#e5e7eb]">Avg</th>
+                  {yearSpans.map(y => <th key={y.year} colSpan={y.count} className="h-7 px-1 text-center text-xs sm:text-sm font-bold tracking-normal text-slate-700 sticky top-0 z-20 bg-gray-100 border-l border-gray-300 first:border-l-0">{y.year}</th>)}
+                </tr>
+                <tr className="text-[11px] sm:text-xs uppercase tracking-wide text-gray-500">
+                  {periods.map((p, i) => <th key={p.start} className={`px-1 py-1.5 font-semibold whitespace-nowrap sticky top-7 z-20 bg-gray-50 ${i > 0 && p.start.slice(0, 4) !== periods[i - 1].start.slice(0, 4) ? 'border-l border-gray-300' : ''}`}>{dateHead(p.start)}</th>)}
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {shown.map(k => {
+                  const nums = periods.map(p => byKey.get(`${k.id}|${p.start}`)).filter((v): v is number => v !== null && v !== undefined)
+                  const sum = nums.reduce((s, v) => s + v, 0)
+                  const avg = nums.length ? sum / nums.length : null
+                  return (
+                    <tr
+                      key={k.id}
+                      ref={el => { if (el) rowEls.current.set(k.id, el); else rowEls.current.delete(k.id) }}
+                      className={`group/row ${dragKpi === k.id ? 'opacity-40' : ''}`}
+                      onDragOver={e => {
+                        if (!dragKpi) return
+                        e.preventDefault()
+                        const r = e.currentTarget.getBoundingClientRect()
+                        const after = e.clientY > r.top + r.height / 2
+                        if (dropAt?.id !== k.id || dropAt.after !== after) setDropAt({ id: k.id, after })
+                      }}
+                      onDrop={e => { e.preventDefault(); if (dragKpi && dropAt) moveKpi(dragKpi, dropAt.id, dropAt.after); setDragKpi(null); setDropAt(null) }}
+                      style={dropAt?.id === k.id && dragKpi && dragKpi !== k.id ? { boxShadow: dropAt.after ? 'inset 0 -3px 0 #2563eb' : 'inset 0 3px 0 #2563eb' } : undefined}
+                    >
+                      <td className="px-1 py-1 sticky left-0 z-10 bg-white shadow-[1px_0_0_#e5e7eb] md:shadow-none">
+                        <div className="flex items-center gap-0.5">
+                          <button
+                            type="button"
+                            draggable
+                            onDragStart={e => {
+                              setDragKpi(k.id)
+                              e.dataTransfer.effectAllowed = 'move'
+                              e.dataTransfer.setData('text/plain', k.id)
+                              const row = rowEls.current.get(k.id)
+                              if (row) e.dataTransfer.setDragImage(row, 24, 16)
+                            }}
+                            onDragEnd={() => { setDragKpi(null); setDropAt(null) }}
+                            onKeyDown={e => {
+                              if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
+                              e.preventDefault()
+                              const i = shown.findIndex(x => x.id === k.id)
+                              const to = shown[e.key === 'ArrowUp' ? i - 1 : i + 1]
+                              if (to) moveKpi(k.id, to.id, e.key === 'ArrowDown')
+                            }}
+                            aria-label={`Drag to reorder ${k.name}. Or press the up or down arrow keys.`}
+                            title="Drag to reorder"
+                            className="hidden sm:inline-flex p-1.5 -ml-0.5 shrink-0 text-gray-400 hover:text-gray-700 cursor-grab active:cursor-grabbing touch-none"
+                          ><GripVertical className="w-4 h-4" /></button>
+                          <button onClick={() => setOpenId(k.id)} className="flex items-center gap-1.5 text-left hover:text-blue-700 min-w-0" title="Open KPI details">
+                            <span className="shrink-0"><Avatar person={peopleById.get(k.owner_id ?? '')} size="sm" /></span>
+                            <span className="font-medium truncate text-xs sm:text-sm">{k.name}</span>
+                            {k.archived_at && (
+                              <span className="text-[9px] font-semibold text-amber-800 bg-amber-100 border border-amber-300 px-1 py-0.2 rounded shrink-0">
+                                Done
+                              </span>
+                            )}
+                          </button>
+                        </div>
                       </td>
-                    ))}
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                      <td className="px-1 py-1 text-center text-gray-700 whitespace-nowrap font-medium md:sticky md:left-[12rem] md:z-10 bg-white text-xs sm:text-sm">{formatGoal(baseGoal(k), k.unit_type)}</td>
+                      <td className="px-1 py-1 text-center text-gray-500 tabular-nums md:sticky md:left-[17.5rem] md:z-10 bg-white text-xs sm:text-sm">{k.unit_type === 'yesno' || nums.length === 0 ? '—' : formatKpiValue(sum, k.unit_type)}</td>
+                      <td className="px-1 py-1 text-center text-gray-500 tabular-nums md:sticky md:left-[22rem] md:z-10 bg-white md:shadow-[inset_-1px_0_0_#e5e7eb] text-xs sm:text-sm">{k.unit_type === 'yesno' || avg === null ? '—' : formatKpiValue(avg, k.unit_type)}</td>
+                      {periods.map(p => (
+                        <td key={p.start} className="px-1 py-1 text-center">
+                          <KpiCell kpi={k} start={p.start} value={byKey.get(`${k.id}|${p.start}`)} goal={goalFor(k, p.start, customGoals)} onCreate={kind => startDraft(kind, k, p)} note={noteByKey.get(`${k.id}|${p.start}`)} onNote={() => setNoteEdit({ kpi: k, start: p.start, label: p.label, text: noteByKey.get(`${k.id}|${p.start}`) ?? '' })} />
+                        </td>
+                      ))}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
       {view === 'table' && shown.length > 0 && <p className="text-xs text-gray-500 mt-2 inline-flex flex-wrap items-center gap-1"><Table2 className="w-3.5 h-3.5" /> Hover a number and use its ⋮ corner button to add a note, or create a to-do or issue from it. A small orange corner means it has a note. <BarChart3 className="w-3.5 h-3.5 ml-2" /> Switch to Chart for trends by quarter or year.</p>}

@@ -102,11 +102,12 @@ export function OwnerSelect({ value, onChange }: { value: string; onChange: (v: 
 }
 
 // Row title that opens the item panel; an icon marks items that have details.
-export function ItemTitle({ title, hasDetails, struck, onOpen }: { title: string; hasDetails: boolean; struck?: boolean; onOpen: () => void }) {
+export function ItemTitle({ title, hasDetails, struck, onOpen, lineClamp = 2 }: { title: string; hasDetails: boolean; struck?: boolean; onOpen: () => void; lineClamp?: number }) {
+  const clampClass = lineClamp === 1 ? 'truncate' : lineClamp === 2 ? 'line-clamp-2 break-words' : 'line-clamp-3 break-words'
   return (
-    <button type="button" onClick={onOpen} title="Open details" className={`flex-1 min-w-0 text-left truncate hover:text-blue-700 ${struck ? 'line-through text-gray-500' : ''}`}>
-      {title}
-      {hasDetails && <FileText className="inline-block w-3.5 h-3.5 ml-1.5 text-gray-500 align-[-2px]" aria-label="Has details" />}
+    <button type="button" onClick={onOpen} title="Open details" className={`flex-1 min-w-0 text-left hover:text-blue-700 text-xs sm:text-sm font-medium ${clampClass} ${struck ? 'line-through text-gray-400' : 'text-slate-800'}`}>
+      <span>{title}</span>
+      {hasDetails && <FileText className="inline-block w-3.5 h-3.5 ml-1.5 text-gray-400 align-[-2px] shrink-0" aria-label="Has details" />}
     </button>
   )
 }
@@ -132,8 +133,8 @@ export function sortByOwner<T extends { owner_id: string | null; created_at?: st
 
 export function SectionTitle({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-      <h2 className="text-2xl font-bold text-slate-900">{children}</h2>
+    <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3 mb-3 sm:mb-4">
+      <h2 className="text-xl sm:text-2xl font-bold text-slate-900">{children}</h2>
       {right}
     </div>
   )

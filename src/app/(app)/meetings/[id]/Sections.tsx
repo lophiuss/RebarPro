@@ -57,24 +57,34 @@ export function Headlines({ headlines, todos, issues, otherMeetings }: { headlin
       ) : (
         <ul className={`${card} divide-y`}>
           {sortedHeadlines.map(h => (
-            <li key={h.id} className="flex items-center gap-3 px-3 py-2.5">
-              <Avatar person={peopleById.get(h.owner_id ?? '')} />
-              <ItemTitle title={h.title} hasDetails={!!h.details} onOpen={() => setOpenId(h.id)} />
-              <div className="flex items-center gap-1 text-xs">
+            <li key={h.id} className="flex items-start sm:items-center justify-between gap-2 px-3 py-2 sm:py-2.5">
+              <div className="flex items-start sm:items-center gap-2.5 min-w-0 flex-1">
+                <div className="shrink-0 pt-0.5 sm:pt-0">
+                  <Avatar person={peopleById.get(h.owner_id ?? '')} size="sm" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <ItemTitle title={h.title} hasDetails={!!h.details} onOpen={() => setOpenId(h.id)} lineClamp={2} />
+                  <div className="flex flex-wrap gap-1 mt-0.5 sm:hidden">
+                    {todos.some(t => t.source_headline_id === h.id) && <span className="text-[10px] font-semibold text-blue-700 bg-blue-50 rounded px-1">To-do created</span>}
+                    {issues.some(i => i.source_headline_id === h.id) && <span className="text-[10px] font-semibold text-amber-700 bg-amber-50 rounded px-1">Issue created</span>}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-1 text-xs shrink-0 self-center">
                 {todos.some(t => t.source_headline_id === h.id) && <span className="hidden sm:inline text-xs font-semibold text-blue-700 bg-blue-50 rounded-full px-1.5 py-0.5">To-do created</span>}
                 {issues.some(i => i.source_headline_id === h.id) && <span className="hidden sm:inline text-xs font-semibold text-amber-700 bg-amber-50 rounded-full px-1.5 py-0.5">Issue created</span>}
                 <button
                   onClick={() => setDraft({ kind: 'todo', headline: h })}
-                  title="Create a new to-do from this headline (the headline stays)"
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-blue-50 text-blue-700 font-semibold hover:bg-blue-100"
-                ><ListChecks className="w-3.5 h-3.5" /> To-do</button>
+                  title="Create a new to-do from this headline"
+                  className="inline-flex items-center gap-0.5 px-2 py-1 rounded bg-blue-50 text-blue-700 font-semibold hover:bg-blue-100 text-xs"
+                ><ListChecks className="w-3.5 h-3.5" /> <span className="hidden sm:inline">To-do</span></button>
                 <button
                   onClick={() => setDraft({ kind: 'issue', headline: h })}
-                  title="Create a new issue from this headline (the headline stays)"
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-50 text-amber-700 font-semibold hover:bg-amber-100"
-                ><AlertCircle className="w-3.5 h-3.5" /> Issue</button>
+                  title="Create a new issue from this headline"
+                  className="inline-flex items-center gap-0.5 px-2 py-1 rounded bg-amber-50 text-amber-700 font-semibold hover:bg-amber-100 text-xs"
+                ><AlertCircle className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Issue</span></button>
+                <button onClick={async () => { if (await confirmDialog('Delete this headline?')) { await (run(() => deleteHeadline(meetingId, h.id))) } }} aria-label="Delete" className="p-1 text-gray-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" /></button>
               </div>
-              <button onClick={async () => { if (await confirmDialog('Delete this headline?')) { await (run(() => deleteHeadline(meetingId, h.id))) } }} aria-label="Delete" className="p-2 -m-2 text-gray-500 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
             </li>
           ))}
         </ul>
@@ -162,21 +172,29 @@ export function Todos({ todos, otherMeetings }: { todos: Todo[]; otherMeetings: 
             const tDone = isDone(t)
             const overdue = !tDone && t.due_date && t.due_date < todayStr()
             return (
-              <li key={t.id} className={`flex items-center gap-3 px-3 py-2.5 transition-colors ${tDone ? 'bg-gray-50/60' : ''}`}>
-                <button
-                  onClick={() => toggleDone(t)}
-                  aria-label={tDone ? 'Mark not done' : 'Mark done'}
-                  aria-pressed={tDone}
-                  className={`w-7 h-7 rounded-full border-2 shrink-0 inline-flex items-center justify-center transition duration-150 active:scale-90 ${tDone ? 'bg-blue-600 border-blue-600 text-white scale-100' : 'border-gray-300 hover:border-blue-500 hover:bg-blue-50'}`}
-                >
-                  {tDone && <Check className="w-4 h-4" strokeWidth={3} />}
-                </button>
-                <Avatar person={peopleById.get(t.owner_id ?? '')} size="sm" />
-                <ItemTitle title={t.title} hasDetails={!!t.details} struck={tDone} onOpen={() => setOpenId(t.id)} />
-                {t.source_headline_id && <span className="hidden sm:inline text-xs text-gray-500">from headline</span>}
-                <NewBadge createdAt={t.created_at} />
-                <span className={`text-xs whitespace-nowrap ${overdue ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>{t.due_date ?? ''}</span>
-                <button onClick={async () => { if (await confirmDialog('Delete this to-do?')) { await (run(() => deleteTodo(meetingId, t.id))) } }} aria-label="Delete" className="p-2 -m-2 text-gray-500 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+              <li key={t.id} className={`flex items-start sm:items-center justify-between gap-2.5 px-3 py-2 sm:py-2.5 transition-colors ${tDone ? 'bg-gray-50/60' : ''}`}>
+                <div className="flex items-start sm:items-center gap-2.5 min-w-0 flex-1">
+                  <button
+                    onClick={() => toggleDone(t)}
+                    aria-label={tDone ? 'Mark not done' : 'Mark done'}
+                    aria-pressed={tDone}
+                    className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full border-2 shrink-0 inline-flex items-center justify-center transition duration-150 active:scale-90 mt-0.5 sm:mt-0 ${tDone ? 'bg-blue-600 border-blue-600 text-white scale-100' : 'border-gray-300 hover:border-blue-500 hover:bg-blue-50'}`}
+                  >
+                    {tDone && <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4" strokeWidth={3} />}
+                  </button>
+                  <div className="shrink-0 pt-0.5 sm:pt-0">
+                    <Avatar person={peopleById.get(t.owner_id ?? '')} size="sm" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <ItemTitle title={t.title} hasDetails={!!t.details} struck={tDone} onOpen={() => setOpenId(t.id)} lineClamp={2} />
+                    {t.source_headline_id && <span className="block sm:inline text-[10px] sm:text-xs text-gray-400">from headline</span>}
+                  </div>
+                  <NewBadge createdAt={t.created_at} />
+                </div>
+                <div className="flex items-center gap-2 shrink-0 self-center">
+                  <span className={`text-[11px] sm:text-xs whitespace-nowrap ${overdue ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>{t.due_date ?? ''}</span>
+                  <button onClick={async () => { if (await confirmDialog('Delete this to-do?')) { await (run(() => deleteTodo(meetingId, t.id))) } }} aria-label="Delete" className="p-1 text-gray-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" /></button>
+                </div>
               </li>
             )
           })}
@@ -255,24 +273,39 @@ export function Issues({ issues, otherMeetings }: { issues: Issue[]; otherMeetin
           {shown.map(i => {
             const st = statusOf(i)
             return (
-            <li key={i.id} className={`flex flex-wrap items-center gap-3 px-3 py-2.5 transition-colors ${st === 'solved' ? 'bg-green-50/50' : ''}`}>
-              <Avatar person={peopleById.get(i.owner_id ?? '')} size="sm" />
-              <ItemTitle title={i.title} hasDetails={!!i.details} struck={st === 'solved'} onOpen={() => setOpenId(i.id)} />
-              {i.source_headline_id && <span className="hidden sm:inline text-xs text-gray-500">from headline</span>}
-              <NewBadge createdAt={i.created_at} />
-              {st === 'solved' ? (
-                <div className="flex items-center gap-1.5 text-xs">
-                  <span className="inline-flex items-center gap-1 font-semibold text-green-700"><Check className="w-3.5 h-3.5" strokeWidth={3} /> Solved</span>
-                  <button onClick={() => move(i, 'short_term')} className="px-2 py-1 rounded-md bg-white border text-gray-600 hover:bg-gray-50">Reopen</button>
+            <li key={i.id} className={`flex items-start sm:items-center justify-between gap-2 px-3 py-2 sm:py-2.5 transition-colors ${st === 'solved' ? 'bg-green-50/50' : ''}`}>
+              <div className="flex items-start sm:items-center gap-2.5 min-w-0 flex-1">
+                <div className="shrink-0 pt-0.5 sm:pt-0">
+                  <Avatar person={peopleById.get(i.owner_id ?? '')} size="sm" />
                 </div>
-              ) : (
-                <div className="flex items-center gap-1.5 text-xs">
-                  <button onClick={() => move(i, 'solved')} className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-green-50 text-green-700 font-semibold hover:bg-green-100 active:scale-95 transition"><Check className="w-3.5 h-3.5" /> Solved</button>
-                  {st !== 'short_term' && <button onClick={() => move(i, 'short_term')} className="px-2 py-1 rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 active:scale-95 transition">Short term</button>}
-                  {st !== 'parking_lot' && <button onClick={() => move(i, 'parking_lot')} className="px-2 py-1 rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 active:scale-95 transition">KIV</button>}
-                  <button onClick={async () => { if (await confirmDialog('Delete this issue?')) { await (run(() => deleteIssue(meetingId, i.id))) } }} aria-label="Delete" className="p-2 -m-2 text-gray-500 hover:text-red-600 ml-1"><Trash2 className="w-4 h-4" /></button>
+                <div className="min-w-0 flex-1">
+                  <ItemTitle title={i.title} hasDetails={!!i.details} struck={st === 'solved'} onOpen={() => setOpenId(i.id)} lineClamp={2} />
+                  {i.source_headline_id && <span className="block sm:inline text-[10px] sm:text-xs text-gray-400">from headline</span>}
                 </div>
-              )}
+                <NewBadge createdAt={i.created_at} />
+              </div>
+
+              <div className="flex items-center gap-1 text-xs shrink-0 self-center">
+                {st === 'solved' ? (
+                  <div className="flex items-center gap-1">
+                    <span className="inline-flex items-center gap-1 font-semibold text-emerald-700 text-xs">
+                      <Check className="w-3.5 h-3.5" strokeWidth={3} />
+                      <span className="hidden sm:inline">Solved</span>
+                    </span>
+                    <button onClick={() => move(i, 'short_term')} className="px-2 py-0.5 rounded border bg-white text-gray-600 hover:bg-gray-50 text-xs">Reopen</button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => move(i, 'solved')} title="Mark solved" className="inline-flex items-center gap-0.5 px-2 py-1 rounded bg-green-50 text-green-700 font-semibold hover:bg-green-100 active:scale-95 transition text-xs">
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Solve</span>
+                    </button>
+                    {st !== 'short_term' && <button onClick={() => move(i, 'short_term')} className="px-2 py-1 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 active:scale-95 transition text-xs">Short</button>}
+                    {st !== 'parking_lot' && <button onClick={() => move(i, 'parking_lot')} title="Move to KIV / parking lot" className="px-2 py-1 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 active:scale-95 transition text-xs">KIV</button>}
+                    <button onClick={async () => { if (await confirmDialog('Delete this issue?')) { await (run(() => deleteIssue(meetingId, i.id))) } }} aria-label="Delete" className="p-1 text-gray-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" /></button>
+                  </div>
+                )}
+              </div>
             </li>
             )
           })}
@@ -323,7 +356,7 @@ function RatingRow({ person, existing, editable, onBehalf, revealed, runId }: {
         {name}
         {r?.rating != null
           ? (revealed
-            ? <span className="text-sm"><span className={`inline-flex w-7 h-7 items-center justify-center rounded-md font-bold mr-2 ${r.rating < 8 ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'}`}>{r.rating}</span>{r.feedback && <span className="text-gray-600">{r.feedback}</span>}</span>
+            ? <span className="text-xs sm:text-sm"><span className={`inline-flex w-6 h-6 sm:w-7 sm:h-7 items-center justify-center rounded-md font-bold mr-2 ${r.rating < 8 ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'}`}>{r.rating}</span>{r.feedback && <span className="text-gray-600 text-xs sm:text-sm">{r.feedback}</span>}</span>
             : <span className="text-xs font-semibold text-emerald-700 inline-flex items-center gap-1"><Check className="w-3.5 h-3.5" /> Rated</span>)
           : <span className="text-xs text-gray-500">Waiting…</span>}
       </li>
@@ -331,9 +364,14 @@ function RatingRow({ person, existing, editable, onBehalf, revealed, runId }: {
   }
 
   return (
-    <li className="flex flex-wrap md:flex-nowrap items-center gap-x-3 gap-y-1.5 px-3 py-2">
-      {name}
-      <div className="flex gap-1" role="radiogroup" aria-label={`Rating for ${person.full_name}`}>
+    <li className="flex flex-col md:flex-row md:items-center gap-2 md:gap-3 px-3 py-2.5">
+      <div className="flex items-center justify-between w-full md:w-auto">
+        {name}
+        {saved && <span className="md:hidden text-xs text-emerald-600 font-medium inline-flex items-center gap-0.5"><Check className="w-3.5 h-3.5" /> Saved</span>}
+      </div>
+
+      {/* 10 Rating Buttons: use grid on mobile so 100% fits within screen width! */}
+      <div className="grid grid-cols-10 gap-1 w-full max-w-sm md:w-auto shrink-0" role="radiogroup" aria-label={`Rating for ${person.full_name}`}>
         {Array.from({ length: 10 }, (_, i) => i + 1).map(n => (
           <button
             key={n}
@@ -342,19 +380,22 @@ function RatingRow({ person, existing, editable, onBehalf, revealed, runId }: {
             aria-checked={rating === n}
             onClick={() => { setRating(n); persist(n, feedback) }}
             aria-label={`Rate ${n}`}
-            className={`w-7 h-7 rounded-md text-xs font-semibold border transition active:scale-90 ${rating === n ? (n < 8 ? 'bg-amber-500 border-amber-500 text-white' : 'bg-blue-600 border-blue-600 text-white') : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+            className={`h-7 sm:h-7 rounded-md text-xs font-semibold border transition active:scale-90 flex items-center justify-center ${rating === n ? (n < 8 ? 'bg-amber-500 border-amber-500 text-white' : 'bg-blue-600 border-blue-600 text-white') : 'bg-white text-gray-700 hover:bg-gray-50'}`}
           >{n}</button>
         ))}
       </div>
-      <input
-        value={feedback}
-        onChange={e => { setFeedback(e.target.value); setSaved(false) }}
-        onBlur={() => { if (rating !== null && feedback.trim() !== (existing?.feedback ?? '').trim()) persist(rating, feedback) }}
-        placeholder={rating !== null && rating < 8 ? 'What would make it an 8+? (optional)' : 'Feedback (optional)'}
-        className={`${input} flex-1 min-w-[10rem] py-1.5`}
-        aria-label={`Feedback from ${person.full_name}`}
-      />
-      <span className="w-4 shrink-0" aria-live="polite">{saved && <Check className="w-4 h-4 text-emerald-600" aria-label="Saved" />}</span>
+
+      <div className="flex items-center gap-2 w-full flex-1 min-w-0">
+        <input
+          value={feedback}
+          onChange={e => { setFeedback(e.target.value); setSaved(false) }}
+          onBlur={() => { if (rating !== null && feedback.trim() !== (existing?.feedback ?? '').trim()) persist(rating, feedback) }}
+          placeholder={rating !== null && rating < 8 ? 'What would make it an 8+? (optional)' : 'Feedback (optional)'}
+          className={`${input} flex-1 min-w-0 text-xs sm:text-sm py-1.5`}
+          aria-label={`Feedback from ${person.full_name}`}
+        />
+        <span className="hidden md:inline-block w-4 shrink-0" aria-live="polite">{saved && <Check className="w-4 h-4 text-emerald-600" aria-label="Saved" />}</span>
+      </div>
     </li>
   )
 }
@@ -414,13 +455,13 @@ export function WrapUp({ todos, issues, ratings, pageSeconds }: { todos: Todo[];
         <div className={`${card} p-3`}>
           <div className="flex items-center gap-2 text-sm font-semibold mb-1.5"><ListChecks className="w-4 h-4 text-blue-600" /> New to-dos <span className="ml-auto text-xs font-bold bg-blue-50 text-blue-700 rounded-full px-2 py-0.5">{newTodos.length}</span></div>
           {newTodos.length === 0 ? <p className="text-xs text-gray-500">None created in this meeting.</p> : (
-            <ul className="space-y-1 max-h-36 overflow-y-auto">{newTodos.map(t => <li key={t.id} className="text-sm flex items-center gap-2"><Avatar person={peopleById.get(t.owner_id ?? '')} size="sm" /><span className="truncate">{t.title}</span><span className="ml-auto text-xs text-gray-500 shrink-0">{t.due_date}</span></li>)}</ul>
+            <ul className="space-y-1.5 max-h-36 overflow-y-auto">{newTodos.map(t => <li key={t.id} className="text-xs sm:text-sm flex items-center gap-2"><Avatar person={peopleById.get(t.owner_id ?? '')} size="sm" /><span className="truncate flex-1 min-w-0">{t.title}</span><span className="ml-auto text-xs text-gray-500 shrink-0">{t.due_date}</span></li>)}</ul>
           )}
         </div>
         <div className={`${card} p-3`}>
           <div className="flex items-center gap-2 text-sm font-semibold mb-1.5"><AlertCircle className="w-4 h-4 text-emerald-600" /> Issues solved <span className="ml-auto text-xs font-bold bg-emerald-50 text-emerald-700 rounded-full px-2 py-0.5">{solved.length}</span></div>
           {solved.length === 0 ? <p className="text-xs text-gray-500">None solved in this meeting.</p> : (
-            <ul className="space-y-1 max-h-36 overflow-y-auto">{solved.map(i => <li key={i.id} className="text-sm flex items-center gap-2"><Check className="w-4 h-4 text-emerald-600 shrink-0" /><span className="truncate">{i.title}</span></li>)}</ul>
+            <ul className="space-y-1.5 max-h-36 overflow-y-auto">{solved.map(i => <li key={i.id} className="text-xs sm:text-sm flex items-center gap-2"><Check className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-600 shrink-0" /><span className="truncate flex-1 min-w-0">{i.title}</span></li>)}</ul>
           )}
         </div>
       </div>
@@ -459,19 +500,19 @@ export function WrapUp({ todos, issues, ratings, pageSeconds }: { todos: Todo[];
       {/* Conclude */}
       {isLeader ? (
         <div className={`${card} p-3`}>
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-            <label className="inline-flex items-center gap-2"><input type="checkbox" checked={archiveTodos} onChange={e => setArchiveTodos(e.target.checked)} /> Archive done to-dos</label>
-            <label className="inline-flex items-center gap-2"><input type="checkbox" checked={archiveHeadlines} onChange={e => setArchiveHeadlines(e.target.checked)} /> Archive headlines</label>
-            <label className="inline-flex items-center gap-2"><input type="checkbox" checked={sendEmail} onChange={e => setSendEmail(e.target.checked)} /> E-mail minutes to all {attendees.length} attendees{absent > 0 ? ` (incl. ${absent} absent)` : ''}</label>
+          <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2 sm:gap-x-5 text-xs sm:text-sm">
+            <label className="inline-flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={archiveTodos} onChange={e => setArchiveTodos(e.target.checked)} /> Archive done to-dos</label>
+            <label className="inline-flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={archiveHeadlines} onChange={e => setArchiveHeadlines(e.target.checked)} /> Archive headlines</label>
+            <label className="inline-flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={sendEmail} onChange={e => setSendEmail(e.target.checked)} /> E-mail minutes to all {attendees.length} attendees{absent > 0 ? ` (incl. ${absent} absent)` : ''}</label>
           </div>
           {sendEmail && (
-            <div className="flex flex-wrap gap-x-5 gap-y-1 mt-2 pl-6 text-sm text-gray-600">
-              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={includeDetails} onChange={e => setIncludeDetails(e.target.checked)} /> Headline and to-do details</label>
-              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={includeNotes} onChange={e => setIncludeNotes(e.target.checked)} /> Meeting notes</label>
+            <div className="flex flex-col sm:flex-row sm:flex-wrap gap-2 sm:gap-x-5 mt-2 pl-4 sm:pl-6 text-xs sm:text-sm text-gray-600">
+              <label className="inline-flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={includeDetails} onChange={e => setIncludeDetails(e.target.checked)} /> Headline and to-do details</label>
+              <label className="inline-flex items-center gap-2 cursor-pointer"><input type="checkbox" checked={includeNotes} onChange={e => setIncludeNotes(e.target.checked)} /> Meeting notes</label>
             </div>
           )}
           <div className="flex items-center justify-end mt-3">
-            <button onClick={conclude} disabled={concluding} className="px-5 py-2.5 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-50">{concluding ? 'Concluding…' : 'Conclude meeting'}</button>
+            <button onClick={conclude} disabled={concluding} className="w-full sm:w-auto px-5 py-2.5 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 disabled:opacity-50">{concluding ? 'Concluding…' : 'Conclude meeting'}</button>
           </div>
         </div>
       ) : (

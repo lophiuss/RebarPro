@@ -165,35 +165,41 @@ export function CheckIn({ lastFeedback, ice, onIce, notes, prep = [] }: { lastFe
   return (
     <div>
       <SectionTitle>Check-in</SectionTitle>
-      <div className={`${card} p-4 md:p-5 mb-4`}>
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-3 mb-4">
-          <div className="flex items-center gap-3">
-            <span className={`w-11 h-11 rounded-full inline-flex items-center justify-center ${presentCount === attendees.length && attendees.length > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-50 text-blue-600'}`}><Users className="w-5 h-5" /></span>
+      <div className={`${card} p-3 sm:p-4 md:p-5 mb-4`}>
+        <div className="flex flex-wrap items-center gap-x-4 sm:gap-x-6 gap-y-2.5 mb-3 sm:mb-4">
+          <div className="flex items-center gap-2.5">
+            <span className={`w-9 h-9 sm:w-11 sm:h-11 rounded-full inline-flex items-center justify-center shrink-0 ${presentCount === attendees.length && attendees.length > 0 ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-50 text-blue-600'}`}>
+              <Users className="w-4 h-4 sm:w-5 sm:h-5" />
+            </span>
             <div>
-              <div className="text-xl font-bold leading-tight tabular-nums">{presentCount} <span className="text-gray-500 font-medium">of {attendees.length} here</span></div>
-              <div className="text-xs text-gray-500">{liveRun ? 'Tap a name to check them in or out.' : 'Start the meeting to check people in.'}</div>
+              <div className="text-base sm:text-xl font-bold leading-tight tabular-nums">
+                {presentCount} <span className="text-gray-500 font-medium text-xs sm:text-base">of {attendees.length} here</span>
+              </div>
+              <div className="text-[11px] sm:text-xs text-gray-500">{liveRun ? 'Tap a name to check in or out.' : 'Start the meeting to check in.'}</div>
             </div>
           </div>
-          <div className="flex-1 min-w-[10rem] max-w-xs" aria-hidden="true">
-            <div className="h-2.5 rounded-full bg-gray-100 overflow-hidden"><div className="h-full rounded-full bg-emerald-500 transition-all duration-300" style={{ width: `${pct}%` }} /></div>
-            <div className="text-xs text-gray-500 mt-1">{pct}% present</div>
+          <div className="w-full sm:flex-1 sm:min-w-[8rem] sm:max-w-xs" aria-hidden="true">
+            <div className="h-2 sm:h-2.5 rounded-full bg-gray-100 overflow-hidden">
+              <div className="h-full rounded-full bg-emerald-500 transition-all duration-300" style={{ width: `${pct}%` }} />
+            </div>
+            <div className="text-[10px] sm:text-xs text-gray-500 mt-0.5">{pct}% present</div>
           </div>
           {liveRun && attendees.length > 0 && (
-            <div className="flex items-center gap-2 ml-auto flex-wrap">
+            <div className="flex items-center gap-1.5 ml-auto flex-wrap w-full sm:w-auto">
               {/* Superhero Mode Toggle */}
-              <div className="flex items-center gap-1 bg-amber-50/80 border border-amber-200/90 rounded-lg p-1">
+              <div className="flex items-center gap-0.5 bg-amber-50/80 border border-amber-200/90 rounded-lg p-0.5">
                 <button
                   type="button"
                   onClick={() => setHeroMode(!heroMode)}
                   title={heroMode ? 'Superhero effect active: click to disable' : 'Click to enable superhero ready-in effect'}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold transition active:scale-95 ${
+                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-semibold transition active:scale-95 ${
                     heroMode
                       ? 'bg-amber-500 text-white shadow-2xs'
                       : 'bg-white text-gray-500 hover:bg-gray-100'
                   }`}
                 >
-                  <Zap className={`w-3.5 h-3.5 ${heroMode ? 'fill-white' : 'text-gray-400'}`} />
-                  <span>Superhero {heroMode ? 'ON' : 'OFF'}</span>
+                  <Zap className={`w-3 h-3 ${heroMode ? 'fill-white' : 'text-gray-400'}`} />
+                  <span className="text-[11px]">Hero {heroMode ? 'ON' : 'OFF'}</span>
                 </button>
                 {heroMode && (
                   <button
@@ -202,12 +208,24 @@ export function CheckIn({ lastFeedback, ice, onIce, notes, prep = [] }: { lastFe
                     title={soundEnabled ? 'Fanfare sound ON' : 'Fanfare sound MUTED'}
                     className="p-1 rounded-md hover:bg-white text-gray-600 transition"
                   >
-                    {soundEnabled ? <Volume2 className="w-3.5 h-3.5 text-emerald-600" /> : <VolumeX className="w-3.5 h-3.5 text-gray-400" />}
+                    {soundEnabled ? <Volume2 className="w-3 h-3 text-emerald-600" /> : <VolumeX className="w-3 h-3 text-gray-400" />}
                   </button>
                 )}
               </div>
-              <button onClick={() => markAll(true)} disabled={presentCount === attendees.length} className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 active:scale-95 transition disabled:opacity-40"><UserCheck className="w-4 h-4" /> Everyone is here</button>
-              <button onClick={() => markAll(false)} disabled={presentCount === 0} className="px-3 py-2 rounded-lg border bg-white text-sm font-medium text-gray-600 hover:bg-gray-50 active:scale-95 transition disabled:opacity-40">Clear</button>
+              <button
+                onClick={() => markAll(true)}
+                disabled={presentCount === attendees.length}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 sm:px-4 sm:py-2 rounded-lg bg-emerald-600 text-white text-xs sm:text-sm font-semibold hover:bg-emerald-700 active:scale-95 transition disabled:opacity-40"
+              >
+                <UserCheck className="w-3.5 h-3.5" /> <span>Everyone</span>
+              </button>
+              <button
+                onClick={() => markAll(false)}
+                disabled={presentCount === 0}
+                className="px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-lg border bg-white text-xs sm:text-sm font-medium text-gray-600 hover:bg-gray-50 active:scale-95 transition disabled:opacity-40"
+              >
+                Clear
+              </button>
             </div>
           )}
         </div>
@@ -217,7 +235,7 @@ export function CheckIn({ lastFeedback, ice, onIce, notes, prep = [] }: { lastFe
             <button type="button" onClick={() => setAdding(true)} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border-2 border-dashed border-gray-300 text-sm font-semibold text-gray-600 hover:border-blue-400 hover:text-blue-600"><Plus className="w-4 h-4" /> Add person</button>
           </div>
         ) : (
-          <ul className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(8.5rem,1fr))]">
+          <ul className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3">
             {attendees.map(p => {
               const here = isPresent(p.id)
               return (
@@ -229,23 +247,28 @@ export function CheckIn({ lastFeedback, ice, onIce, notes, prep = [] }: { lastFe
                     aria-label={`${p.full_name}: ${here ? 'present' : 'not here yet'}`}
                     disabled={!liveRun}
                     onClick={() => toggle(p.id)}
-                    className={`group w-full rounded-2xl border-2 px-2 pt-4 pb-3 flex flex-col items-center gap-2 text-center select-none transition duration-150 active:scale-95 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-300 ${
-                      here ? 'border-emerald-400 bg-emerald-50 shadow-sm' : 'border-dashed border-gray-300 bg-white hover:border-blue-300 hover:bg-blue-50/40'
+                    className={`group w-full rounded-xl sm:rounded-2xl border-2 px-1.5 py-2.5 sm:px-2 sm:pt-4 sm:pb-3 flex flex-col items-center gap-1 sm:gap-2 text-center select-none transition duration-150 active:scale-95 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-300 ${
+                      here ? 'border-emerald-400 bg-emerald-50 shadow-2xs' : 'border-dashed border-gray-300 bg-white hover:border-blue-300 hover:bg-blue-50/40'
                     } ${liveRun ? 'cursor-pointer' : 'opacity-60 cursor-not-allowed'}`}
                   >
                     <span className="relative">
-                      <span className={`block rounded-full p-1 transition duration-150 ${here ? 'bg-emerald-500' : 'bg-transparent'}`}>
-                        <span className={`block transition duration-150 ${here ? '' : 'grayscale opacity-70 group-hover:grayscale-0 group-hover:opacity-100'}`}><Avatar person={p} size="xl" /></span>
+                      <span className={`block rounded-full p-0.5 sm:p-1 transition duration-150 ${here ? 'bg-emerald-500' : 'bg-transparent'}`}>
+                        <span className={`block transition duration-150 ${here ? '' : 'grayscale opacity-70 group-hover:grayscale-0 group-hover:opacity-100'}`}>
+                          <span className="sm:hidden"><Avatar person={p} size="lg" /></span>
+                          <span className="hidden sm:inline-block"><Avatar person={p} size="xl" /></span>
+                        </span>
                       </span>
-                      <span className={`absolute -bottom-1 -right-1 w-7 h-7 rounded-full border-2 border-white inline-flex items-center justify-center transition duration-150 ${here ? 'bg-emerald-600 text-white scale-100' : 'bg-gray-200 text-transparent scale-90 group-hover:bg-blue-100 group-hover:text-blue-500'}`}><Check className="w-4 h-4" strokeWidth={3} /></span>
+                      <span className={`absolute -bottom-1 -right-1 w-5 h-5 sm:w-7 sm:h-7 rounded-full border-2 border-white inline-flex items-center justify-center transition duration-150 ${here ? 'bg-emerald-600 text-white scale-100' : 'bg-gray-200 text-transparent scale-90 group-hover:bg-blue-100 group-hover:text-blue-500'}`}>
+                        <Check className="w-3 h-3 sm:w-4 sm:h-4" strokeWidth={3} />
+                      </span>
                     </span>
-                    <span className={`text-sm leading-tight line-clamp-2 break-words ${here ? 'font-semibold text-emerald-900' : 'font-medium text-gray-700'}`}>{p.full_name}</span>
-                    <span className="h-4 flex items-center gap-1 text-xs font-semibold">
-                      {p.id === hostId ? <span className="inline-flex items-center gap-1 text-amber-600"><Crown className="w-3 h-3" /> Host</span> : p.id === myId ? <span className="text-blue-600">You</span> : null}
+                    <span className={`text-xs sm:text-sm leading-tight line-clamp-1 sm:line-clamp-2 break-words ${here ? 'font-semibold text-emerald-900' : 'font-medium text-gray-700'}`}>{p.full_name}</span>
+                    <span className="h-3.5 sm:h-4 flex items-center gap-1 text-[10px] sm:text-xs font-semibold">
+                      {p.id === hostId ? <span className="inline-flex items-center gap-0.5 text-amber-600"><Crown className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> Host</span> : p.id === myId ? <span className="text-blue-600">You</span> : null}
                     </span>
                     {here && heroMode && heroes[p.id] && (
                       <span
-                        className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full text-white shadow-2xs max-w-full truncate animate-in zoom-in-75 duration-200 mt-0.5"
+                        className="inline-flex items-center gap-0.5 text-[9px] sm:text-[11px] font-bold px-1.5 py-0.2 sm:px-2 sm:py-0.5 rounded-full text-white shadow-2xs max-w-full truncate animate-in zoom-in-75 duration-200 mt-0.5"
                         style={{ background: heroes[p.id].color }}
                         title={`${heroes[p.id].heroName}: ${heroes[p.id].superpower}`}
                       >
@@ -258,10 +281,17 @@ export function CheckIn({ lastFeedback, ice, onIce, notes, prep = [] }: { lastFe
               )
             })}
             <li>
-              <button type="button" onClick={() => setAdding(true)} aria-label="Add a person to this meeting" title="Add a person"
-                className="w-full h-full min-h-[10rem] rounded-2xl border-2 border-dashed border-gray-300 bg-white px-2 py-4 flex flex-col items-center justify-center gap-2 text-gray-500 hover:border-blue-400 hover:bg-blue-50/40 hover:text-blue-600 active:scale-95 transition focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-300">
-                <span className="w-14 h-14 rounded-full border-2 border-current inline-flex items-center justify-center"><Plus className="w-7 h-7" /></span>
-                <span className="text-sm font-medium">Add person</span>
+              <button
+                type="button"
+                onClick={() => setAdding(true)}
+                aria-label="Add a person to this meeting"
+                title="Add a person"
+                className="w-full h-full min-h-[5.5rem] sm:min-h-[10rem] rounded-xl sm:rounded-2xl border-2 border-dashed border-gray-300 bg-white px-1.5 py-2.5 sm:px-2 sm:py-4 flex flex-col items-center justify-center gap-1.5 sm:gap-2 text-gray-500 hover:border-blue-400 hover:bg-blue-50/40 hover:text-blue-600 active:scale-95 transition focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-300"
+              >
+                <span className="w-9 h-9 sm:w-14 sm:h-14 rounded-full border-2 border-current inline-flex items-center justify-center">
+                  <Plus className="w-4 h-4 sm:w-7 sm:h-7" />
+                </span>
+                <span className="text-xs sm:text-sm font-medium">Add person</span>
               </button>
             </li>
           </ul>
