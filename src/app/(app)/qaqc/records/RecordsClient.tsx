@@ -1,11 +1,12 @@
 'use client'
 
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useRef, useEffect } from 'react'
 import {
   Search, Plus, FileSpreadsheet, Download, Trash2, Edit3,
   Calendar, CheckCircle2, Clock, ArrowUpDown, Check, X,
   Receipt, FileCheck, Layers, Sparkles, ListCollapse,
-  ChevronDown, ChevronUp
+  ChevronDown, ChevronUp, ArrowUp, ArrowDown, Filter, RotateCcw,
+  SlidersHorizontal
 } from 'lucide-react'
 import PasteExcelModal, { downloadQaqcTemplate } from './PasteExcelModal'
 import TestFormModal from './TestFormModal'
@@ -56,6 +57,237 @@ function fmtRm(n: number | null | undefined): string {
   return `RM ${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
+export interface ColumnFilters {
+  running_no: string
+  project: string
+  supplier: string
+  marking: string
+  test_type: string
+  date_test: string
+  date_year: string
+  report_status: '' | 'has_report' | 'pending_report' | 'has_email' | 'pending_email'
+  report_text: string
+  po_status: '' | 'has_po' | 'pending_po' | 'multi_po'
+  po_text: string
+  invoice_status: '' | 'has_invoice' | 'pending_invoice' | 'has_cn' | 'multi_inv'
+  invoice_text: string
+  payment_status: '' | 'Pending' | 'Paid' | 'Partially Paid' | 'Void'
+}
+
+export const initialFilters: ColumnFilters = {
+  running_no: '',
+  project: '',
+  supplier: '',
+  marking: '',
+  test_type: '',
+  date_test: '',
+  date_year: '',
+  report_status: '',
+  report_text: '',
+  po_status: '',
+  po_text: '',
+  invoice_status: '',
+  invoice_text: '',
+  payment_status: '',
+}
+
+interface ColumnHeaderCellProps {
+  title: string
+  colId: string
+  sortKey: string
+  currentSortKey: string
+  currentSortDir: 'asc' | 'desc'
+  onSort: (key: any, dir?: 'asc' | 'desc') => void
+  secondarySortKey?: string
+  secondarySortLabel?: string
+  isFiltered: boolean
+  isPopoverOpen: boolean
+  onTogglePopover: () => void
+  onClosePopover: () => void
+  onClearFilter?: () => void
+  alignRight?: boolean
+  className?: string
+  bgClass?: string
+  compact?: boolean
+  popoverRef?: React.RefObject<HTMLDivElement | null>
+  children?: React.ReactNode
+}
+
+function ColumnHeaderCell({
+  title,
+  colId,
+  sortKey,
+  currentSortKey,
+  currentSortDir,
+  onSort,
+  secondarySortKey,
+  secondarySortLabel,
+  isFiltered,
+  isPopoverOpen,
+  onTogglePopover,
+  onClosePopover,
+  onClearFilter,
+  alignRight = false,
+  className = '',
+  bgClass = 'bg-slate-100',
+  compact = true,
+  popoverRef,
+  children,
+}: ColumnHeaderCellProps) {
+  const isSorted = currentSortKey === sortKey
+  const isSecSorted = secondarySortKey && currentSortKey === secondarySortKey
+
+  return (
+    <th
+      scope="col"
+      className={`sticky top-0 z-30 ${bgClass} ${compact ? 'py-1 px-1.5' : 'py-2 px-2.5'} select-none relative ${className} ${
+        isFiltered ? 'bg-indigo-50/95 ring-1 ring-inset ring-indigo-400 font-black' : ''
+      }`}
+      aria-sort={isSorted ? (currentSortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+    >
+      <div className="flex items-center justify-between gap-1">
+        {/* Sort Trigger Button */}
+        <button
+          type="button"
+          onClick={() => onSort(sortKey)}
+          className="flex items-center gap-1 font-bold text-left hover:text-indigo-600 transition truncate cursor-pointer group"
+          title={`Click to sort by ${title} (${isSorted && currentSortDir === 'asc' ? 'Descending' : 'Ascending'})`}
+        >
+          <span className="truncate">{title}</span>
+          {isSorted ? (
+            currentSortDir === 'asc' ? (
+              <ArrowUp className="w-3 h-3 text-indigo-600 shrink-0 font-bold" />
+            ) : (
+              <ArrowDown className="w-3 h-3 text-indigo-600 shrink-0 font-bold" />
+            )
+          ) : isSecSorted ? (
+            currentSortDir === 'asc' ? (
+              <ArrowUp className="w-3 h-3 text-indigo-500 shrink-0 font-bold" />
+            ) : (
+              <ArrowDown className="w-3 h-3 text-indigo-500 shrink-0 font-bold" />
+            )
+          ) : (
+            <ArrowUpDown className="w-2.5 h-2.5 text-slate-400 opacity-30 group-hover:opacity-100 shrink-0" />
+          )}
+        </button>
+
+        {/* Filter Trigger Button */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            onTogglePopover()
+          }}
+          className={`p-1 rounded transition shrink-0 cursor-pointer ${
+            isFiltered
+              ? 'bg-indigo-600 text-white shadow-xs'
+              : 'text-slate-400 hover:text-slate-700 hover:bg-slate-200/80'
+          }`}
+          title={`Filter ${title}${isFiltered ? ' (Active filter)' : ''}`}
+        >
+          <Filter className="w-2.5 h-2.5" />
+        </button>
+      </div>
+
+      {/* Floating Filter Popover */}
+      {isPopoverOpen && (
+        <div
+          ref={popoverRef}
+          onClick={(e) => e.stopPropagation()}
+          className={`absolute top-full ${alignRight ? 'right-0' : 'left-0'} mt-1 z-50 bg-white border border-slate-200 rounded-xl shadow-2xl p-3 min-w-[260px] text-xs font-normal normal-case text-slate-700 animate-in fade-in zoom-in-95 duration-100`}
+        >
+          <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-2">
+            <span className="font-bold text-slate-800 flex items-center gap-1.5">
+              <Filter className="w-3.5 h-3.5 text-indigo-600" />
+              {title}
+            </span>
+            <button
+              type="button"
+              onClick={onClosePopover}
+              className="text-slate-400 hover:text-slate-600 p-0.5 rounded cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          {/* Quick Sort Options */}
+          <div className="space-y-1 mb-2.5">
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Sort</div>
+            <div className="grid grid-cols-2 gap-1.5">
+              <button
+                type="button"
+                onClick={() => onSort(sortKey, 'asc')}
+                className={`flex items-center justify-center gap-1 py-1 px-2 rounded-lg border text-[11px] font-medium transition cursor-pointer ${
+                  isSorted && currentSortDir === 'asc'
+                    ? 'bg-indigo-50 border-indigo-300 text-indigo-700 font-bold'
+                    : 'border-slate-200 hover:bg-slate-50 text-slate-600'
+                }`}
+              >
+                <ArrowUp className="w-3 h-3 text-indigo-600" /> Ascending
+              </button>
+              <button
+                type="button"
+                onClick={() => onSort(sortKey, 'desc')}
+                className={`flex items-center justify-center gap-1 py-1 px-2 rounded-lg border text-[11px] font-medium transition cursor-pointer ${
+                  isSorted && currentSortDir === 'desc'
+                    ? 'bg-indigo-50 border-indigo-300 text-indigo-700 font-bold'
+                    : 'border-slate-200 hover:bg-slate-50 text-slate-600'
+                }`}
+              >
+                <ArrowDown className="w-3 h-3 text-indigo-600" /> Descending
+              </button>
+            </div>
+            {secondarySortKey && (
+              <button
+                type="button"
+                onClick={() => onSort(secondarySortKey)}
+                className={`w-full mt-1 py-1 px-2 rounded-lg border text-[11px] font-medium transition flex items-center justify-center gap-1 cursor-pointer ${
+                  isSecSorted
+                    ? 'bg-indigo-50 border-indigo-300 text-indigo-700 font-bold'
+                    : 'border-slate-200 hover:bg-slate-50 text-slate-600'
+                }`}
+              >
+                Sort by {secondarySortLabel || secondarySortKey}
+              </button>
+            )}
+          </div>
+
+          {/* Filter Section */}
+          {children && (
+            <div className="border-t border-slate-100 pt-2 mb-2">
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Filter by {title}</div>
+              {children}
+            </div>
+          )}
+
+          {/* Popover Footer */}
+          <div className="flex items-center justify-between border-t border-slate-100 pt-2 text-[11px]">
+            {isFiltered && onClearFilter ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onClearFilter()
+                  onClosePopover()
+                }}
+                className="text-red-600 hover:text-red-700 font-semibold cursor-pointer underline"
+              >
+                Clear filter
+              </button>
+            ) : <span />}
+            <button
+              type="button"
+              onClick={onClosePopover}
+              className="text-slate-600 hover:text-slate-900 font-medium px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 transition cursor-pointer ml-auto"
+            >
+              Done
+            </button>
+          </div>
+        </div>
+      )}
+    </th>
+  )
+}
+
 export default function RecordsClient({
   initialTests,
   userRole,
@@ -66,12 +298,47 @@ export default function RecordsClient({
   const [tests, setTests] = useState<QaqcTestRecord[]>(initialTests)
   const [tab, setTab] = useState<'all' | 'need_po' | 'need_inv' | 'has_cn' | 'unpaid' | 'paid'>('all')
   const [searchTerm, setSearchTerm] = useState('')
-  const [filterProject, setFilterProject] = useState('')
-  const [filterSupplier, setFilterSupplier] = useState('')
-  const [filterTestType, setFilterTestType] = useState('')
-  const [filterYear, setFilterYear] = useState('')
-  const [sortKey, setSortKey] = useState<keyof QaqcTestRecord>('date_test')
+  const [colFilters, setColFilters] = useState<ColumnFilters>(initialFilters)
+  const [showFilterRow, setShowFilterRow] = useState(true)
+  const [openFilterCol, setOpenFilterCol] = useState<string | null>(null)
+  const [sortKey, setSortKey] = useState<keyof QaqcTestRecord | 'po_amount' | 'invoice_amount' | 'cn_amount'>('date_test')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const popoverRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+        setOpenFilterCol(null)
+      }
+    }
+    if (openFilterCol) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [openFilterCol])
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0
+    if (colFilters.running_no) count++
+    if (colFilters.project) count++
+    if (colFilters.supplier) count++
+    if (colFilters.marking) count++
+    if (colFilters.test_type) count++
+    if (colFilters.date_test || colFilters.date_year) count++
+    if (colFilters.report_status || colFilters.report_text) count++
+    if (colFilters.po_status || colFilters.po_text) count++
+    if (colFilters.invoice_status || colFilters.invoice_text) count++
+    if (colFilters.payment_status) count++
+    return count
+  }, [colFilters])
+
+  const resetAllFilters = () => {
+    setColFilters(initialFilters)
+    setSearchTerm('')
+    setOpenFilterCol(null)
+  }
 
   // Multi-selection for batch operations
   const [selectedIds, setSelectedIds] = useState<number[]>([])
@@ -189,46 +456,157 @@ export default function RecordsClient({
       // Tab filter
       if (tab === 'need_po' && item.po_no) return false
       if (tab === 'need_inv' && (!item.po_no || item.invoice_no)) return false
-      if (tab === 'has_cn' && (!item.cn_no && !item.cn_amount)) return false
+      if (tab === 'has_cn' && (!item.cn_no && (!item.cn_amount || item.cn_amount <= 0))) return false
       if (tab === 'unpaid' && (!item.invoice_no || item.payment_status === 'Paid')) return false
       if (tab === 'paid' && item.payment_status !== 'Paid') return false
 
-      // Dropdown filters
-      if (filterProject && item.project !== filterProject) return false
-      if (filterSupplier && item.supplier !== filterSupplier) return false
-      if (filterTestType && item.test_type !== filterTestType) return false
-      if (filterYear && !item.date_test.startsWith(filterYear)) return false
-
-      // Search term
+      // Global search term
       if (s) {
         const hay = [
           item.running_no, item.project, item.supplier, item.marking,
           item.test_type, item.report_no, item.po_no, item.invoice_no,
-          item.cn_no, item.cn_remarks, item.unit,
+          item.cn_no, item.cn_remarks, item.unit, item.qaqc_remarks, item.purchaser_remarks, item.account_remarks
         ].filter(Boolean).join(' ').toLowerCase()
         if (!hay.includes(s)) return false
       }
 
+      // Column-level filters
+      if (colFilters.running_no && !item.running_no.toLowerCase().includes(colFilters.running_no.toLowerCase())) {
+        return false
+      }
+      if (colFilters.project && item.project !== colFilters.project) {
+        return false
+      }
+      if (colFilters.supplier && item.supplier !== colFilters.supplier) {
+        return false
+      }
+      if (colFilters.marking && !(item.marking || '').toLowerCase().includes(colFilters.marking.toLowerCase())) {
+        return false
+      }
+      if (colFilters.test_type && item.test_type !== colFilters.test_type) {
+        return false
+      }
+      if (colFilters.date_test && !item.date_test.includes(colFilters.date_test)) {
+        return false
+      }
+      if (colFilters.date_year && !item.date_test.startsWith(colFilters.date_year)) {
+        return false
+      }
+
+      // Report & Email
+      if (colFilters.report_text) {
+        const txt = colFilters.report_text.toLowerCase()
+        const rep = (item.report_no || '').toLowerCase()
+        const email = (item.email_date || '').toLowerCase()
+        const rem = (item.qaqc_remarks || '').toLowerCase()
+        if (!rep.includes(txt) && !email.includes(txt) && !rem.includes(txt)) return false
+      }
+      if (colFilters.report_status === 'has_report' && !item.report_no) return false
+      if (colFilters.report_status === 'pending_report' && item.report_no) return false
+      if (colFilters.report_status === 'has_email' && !item.email_date) return false
+      if (colFilters.report_status === 'pending_email' && item.email_date) return false
+
+      // Purchaser PO
+      if (colFilters.po_text) {
+        const txt = colFilters.po_text.toLowerCase()
+        const po = (item.po_no || '').toLowerCase()
+        const rem = (item.purchaser_remarks || '').toLowerCase()
+        if (!po.includes(txt) && !rem.includes(txt)) return false
+      }
+      if (colFilters.po_status === 'has_po' && !item.po_no) return false
+      if (colFilters.po_status === 'pending_po' && item.po_no) return false
+      if (colFilters.po_status === 'multi_po') {
+        const cov = item.po_no ? poCoverageMap.get(item.po_no) : null
+        if (!cov || cov.count <= 1) return false
+      }
+
+      // Invoice & CN
+      if (colFilters.invoice_text) {
+        const txt = colFilters.invoice_text.toLowerCase()
+        const inv = (item.invoice_no || '').toLowerCase()
+        const cn = (item.cn_no || '').toLowerCase()
+        const rem = (item.cn_remarks || '').toLowerCase()
+        if (!inv.includes(txt) && !cn.includes(txt) && !rem.includes(txt)) return false
+      }
+      if (colFilters.invoice_status === 'has_invoice' && !item.invoice_no) return false
+      if (colFilters.invoice_status === 'pending_invoice' && item.invoice_no) return false
+      if (colFilters.invoice_status === 'has_cn' && !item.cn_no && (!item.cn_amount || item.cn_amount <= 0)) return false
+      if (colFilters.invoice_status === 'multi_inv') {
+        const cov = item.invoice_no ? invCoverageMap.get(item.invoice_no) : null
+        if (!cov || cov.count <= 1) return false
+      }
+
+      // Payment Status
+      if (colFilters.payment_status && item.payment_status !== colFilters.payment_status) {
+        return false
+      }
+
       return true
     })
-  }, [tests, tab, filterProject, filterSupplier, filterTestType, filterYear, searchTerm])
+  }, [tests, tab, searchTerm, colFilters, poCoverageMap, invCoverageMap])
 
   // Sorting
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
-      const aVal = a[sortKey] ?? ''
-      const bVal = b[sortKey] ?? ''
-      if (aVal < bVal) return sortDir === 'asc' ? -1 : 1
-      if (aVal > bVal) return sortDir === 'asc' ? 1 : -1
-      return 0
+      let aVal: any = a[sortKey as keyof QaqcTestRecord]
+      let bVal: any = b[sortKey as keyof QaqcTestRecord]
+
+      if (
+        sortKey === 'po_amount' ||
+        sortKey === 'invoice_amount' ||
+        sortKey === 'cn_amount' ||
+        sortKey === 'qty'
+      ) {
+        aVal = Number(aVal) || 0
+        bVal = Number(bVal) || 0
+        return sortDir === 'asc' ? aVal - bVal : bVal - aVal
+      }
+
+      if (
+        sortKey === 'date_test' ||
+        sortKey === 'date_cast' ||
+        sortKey === 'email_date' ||
+        sortKey === 'po_date' ||
+        sortKey === 'invoice_date' ||
+        sortKey === 'payment_date'
+      ) {
+        const aTime = aVal ? new Date(aVal).getTime() : 0
+        const bTime = bVal ? new Date(bVal).getTime() : 0
+        return sortDir === 'asc' ? aTime - bTime : bTime - aTime
+      }
+
+      if (sortKey === 'payment_status') {
+        const rank: Record<string, number> = {
+          Pending: 1,
+          'Partially Paid': 2,
+          Paid: 3,
+          Void: 4,
+        }
+        const aRank = rank[a.payment_status] || 99
+        const bRank = rank[b.payment_status] || 99
+        if (aRank !== bRank) {
+          return sortDir === 'asc' ? aRank - bRank : bRank - aRank
+        }
+      }
+
+      const aStr = String(aVal || '').trim()
+      const bStr = String(bVal || '').trim()
+      const res = aStr.localeCompare(bStr, undefined, { numeric: true, sensitivity: 'base' })
+      return sortDir === 'asc' ? res : -res
     })
   }, [filtered, sortKey, sortDir])
 
-  const handleSort = (key: keyof QaqcTestRecord) => {
-    if (sortKey === key) {
+  const handleSort = (
+    key: keyof QaqcTestRecord | 'po_amount' | 'invoice_amount' | 'cn_amount',
+    dir?: 'asc' | 'desc'
+  ) => {
+    if (dir) {
+      setSortKey(key as any)
+      setSortDir(dir)
+    } else if (sortKey === key) {
       setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))
     } else {
-      setSortKey(key)
+      setSortKey(key as any)
       setSortDir('asc')
     }
   }
@@ -408,7 +786,7 @@ export default function RecordsClient({
             <button
               type="button"
               onClick={() => setIsCompact(!isCompact)}
-              className={`flex items-center gap-1.5 border text-xs font-semibold px-3 py-1.5 rounded-xl transition shadow-2xs ${
+              className={`flex items-center gap-1.5 border text-xs font-semibold px-3 py-1.5 rounded-xl transition shadow-2xs cursor-pointer ${
                 isCompact
                   ? 'bg-slate-900 border-slate-900 text-white'
                   : 'bg-white hover:bg-slate-50 border-slate-300 text-slate-700'
@@ -416,12 +794,32 @@ export default function RecordsClient({
               title={isCompact ? 'Compact view active (shows more lines). Click for comfortable view.' : 'Click to enable compact view (see more lines)'}
             >
               <ListCollapse className="w-3.5 h-3.5" />
-              <span>{isCompact ? 'Compact (More Lines)' : 'Comfortable View'}</span>
+              <span>{isCompact ? 'Compact' : 'Comfortable'}</span>
+            </button>
+
+            {/* Filter Row Toggle Button */}
+            <button
+              type="button"
+              onClick={() => setShowFilterRow(!showFilterRow)}
+              className={`flex items-center gap-1.5 border text-xs font-semibold px-3 py-1.5 rounded-xl transition shadow-2xs cursor-pointer ${
+                showFilterRow
+                  ? 'bg-indigo-50 border-indigo-300 text-indigo-700 font-bold'
+                  : 'bg-white hover:bg-slate-50 border-slate-300 text-slate-700'
+              }`}
+              title={showFilterRow ? 'Hide column quick filter row' : 'Show column quick filter row'}
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Filter Row</span>
+              {activeFilterCount > 0 && (
+                <span className="bg-indigo-600 text-white text-[10px] font-bold rounded-full w-4 h-4 inline-flex items-center justify-center ml-0.5">
+                  {activeFilterCount}
+                </span>
+              )}
             </button>
 
             <button
               onClick={downloadQaqcTemplate}
-              className="flex items-center gap-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold px-3 py-1.5 rounded-xl transition shadow-2xs"
+              className="flex items-center gap-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-semibold px-3 py-1.5 rounded-xl transition shadow-2xs cursor-pointer"
               title="Download Excel / CSV template for bulk importing"
             >
               <Download className="w-3.5 h-3.5 text-emerald-600" />
@@ -429,14 +827,14 @@ export default function RecordsClient({
             </button>
             <button
               onClick={() => setIsExcelModalOpen(true)}
-              className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-semibold px-3 py-1.5 rounded-xl transition shadow-2xs"
+              className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 text-emerald-800 text-xs font-semibold px-3 py-1.5 rounded-xl transition shadow-2xs cursor-pointer"
             >
               <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
               Paste from Excel
             </button>
             <button
               onClick={handleExportCsv}
-              className="flex items-center gap-1 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold px-2.5 py-1.5 rounded-xl transition shadow-2xs"
+              className="flex items-center gap-1 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold px-2.5 py-1.5 rounded-xl transition shadow-2xs cursor-pointer"
               title="Export CSV"
             >
               <Download className="w-3.5 h-3.5 text-slate-500" />
@@ -444,7 +842,7 @@ export default function RecordsClient({
             </button>
             <button
               onClick={() => { setEditingRecord(null); setIsFormModalOpen(true) }}
-              className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3.5 py-1.5 rounded-xl transition shadow-xs"
+              className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3.5 py-1.5 rounded-xl transition shadow-xs cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               New Test
@@ -464,15 +862,15 @@ export default function RecordsClient({
               className="w-full pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg bg-slate-50 focus:bg-white text-xs"
             />
             {searchTerm && (
-              <button onClick={() => setSearchTerm('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+              <button onClick={() => setSearchTerm('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer">
                 <X className="w-3 h-3" />
               </button>
             )}
           </div>
 
           <select
-            value={filterProject}
-            onChange={e => setFilterProject(e.target.value)}
+            value={colFilters.project}
+            onChange={e => setColFilters(f => ({ ...f, project: e.target.value }))}
             className="border border-slate-200 rounded-lg px-2.5 py-1.5 bg-slate-50 text-slate-700"
           >
             <option value="">All Projects</option>
@@ -480,8 +878,8 @@ export default function RecordsClient({
           </select>
 
           <select
-            value={filterSupplier}
-            onChange={e => setFilterSupplier(e.target.value)}
+            value={colFilters.supplier}
+            onChange={e => setColFilters(f => ({ ...f, supplier: e.target.value }))}
             className="border border-slate-200 rounded-lg px-2.5 py-1.5 bg-slate-50 text-slate-700 max-w-[160px] truncate"
           >
             <option value="">All Suppliers</option>
@@ -489,8 +887,8 @@ export default function RecordsClient({
           </select>
 
           <select
-            value={filterTestType}
-            onChange={e => setFilterTestType(e.target.value)}
+            value={colFilters.test_type}
+            onChange={e => setColFilters(f => ({ ...f, test_type: e.target.value }))}
             className="border border-slate-200 rounded-lg px-2.5 py-1.5 bg-slate-50 text-slate-700 max-w-[160px] truncate"
           >
             <option value="">All Test Types</option>
@@ -498,8 +896,8 @@ export default function RecordsClient({
           </select>
 
           <select
-            value={filterYear}
-            onChange={e => setFilterYear(e.target.value)}
+            value={colFilters.date_year}
+            onChange={e => setColFilters(f => ({ ...f, date_year: e.target.value }))}
             className="border border-slate-200 rounded-lg px-2.5 py-1.5 bg-slate-50 text-slate-700"
           >
             <option value="">All Years</option>
@@ -507,34 +905,110 @@ export default function RecordsClient({
           </select>
 
           <span className="text-slate-400 text-[11px] ml-auto hidden sm:inline">
-            💡 Select rows to batch-tag PO or Invoice. Click directly into cells to edit.
+            💡 Click any column header to sort. Use filter icons or the filter row to narrow records.
           </span>
 
-          {(filterProject || filterSupplier || filterTestType || filterYear || searchTerm) && (
+          {(activeFilterCount > 0 || searchTerm) && (
             <button
-              onClick={() => {
-                setFilterProject('')
-                setFilterSupplier('')
-                setFilterTestType('')
-                setFilterYear('')
-                setSearchTerm('')
-              }}
-              className="text-slate-400 hover:text-slate-600 underline font-medium"
+              onClick={resetAllFilters}
+              className="text-indigo-600 hover:text-indigo-800 underline font-semibold cursor-pointer"
             >
-              Reset
+              Reset Filters ({activeFilterCount})
             </button>
           )}
         </div>
+
+        {/* Active Filter Chips Bar */}
+        {activeFilterCount > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 bg-indigo-50/70 border border-indigo-100 rounded-xl text-xs">
+            <span className="font-semibold text-indigo-950 flex items-center gap-1 text-[11px]">
+              <Filter className="w-3 h-3 text-indigo-600" /> Active Filters ({activeFilterCount}):
+            </span>
+            {colFilters.running_no && (
+              <span className="inline-flex items-center gap-1 bg-white border border-indigo-200 text-indigo-800 rounded-full px-2 py-0.5 text-[10.5px]">
+                No: {colFilters.running_no}
+                <button type="button" onClick={() => setColFilters(f => ({ ...f, running_no: '' }))} className="hover:text-red-600 cursor-pointer"><X className="w-3 h-3" /></button>
+              </span>
+            )}
+            {colFilters.project && (
+              <span className="inline-flex items-center gap-1 bg-white border border-indigo-200 text-indigo-800 rounded-full px-2 py-0.5 text-[10.5px]">
+                Project: {colFilters.project}
+                <button type="button" onClick={() => setColFilters(f => ({ ...f, project: '' }))} className="hover:text-red-600 cursor-pointer"><X className="w-3 h-3" /></button>
+              </span>
+            )}
+            {colFilters.supplier && (
+              <span className="inline-flex items-center gap-1 bg-white border border-indigo-200 text-indigo-800 rounded-full px-2 py-0.5 text-[10.5px]">
+                Supplier: {colFilters.supplier}
+                <button type="button" onClick={() => setColFilters(f => ({ ...f, supplier: '' }))} className="hover:text-red-600 cursor-pointer"><X className="w-3 h-3" /></button>
+              </span>
+            )}
+            {colFilters.marking && (
+              <span className="inline-flex items-center gap-1 bg-white border border-indigo-200 text-indigo-800 rounded-full px-2 py-0.5 text-[10.5px]">
+                Marking: {colFilters.marking}
+                <button type="button" onClick={() => setColFilters(f => ({ ...f, marking: '' }))} className="hover:text-red-600 cursor-pointer"><X className="w-3 h-3" /></button>
+              </span>
+            )}
+            {colFilters.test_type && (
+              <span className="inline-flex items-center gap-1 bg-white border border-indigo-200 text-indigo-800 rounded-full px-2 py-0.5 text-[10.5px]">
+                Type: {colFilters.test_type}
+                <button type="button" onClick={() => setColFilters(f => ({ ...f, test_type: '' }))} className="hover:text-red-600 cursor-pointer"><X className="w-3 h-3" /></button>
+              </span>
+            )}
+            {(colFilters.date_test || colFilters.date_year) && (
+              <span className="inline-flex items-center gap-1 bg-white border border-indigo-200 text-indigo-800 rounded-full px-2 py-0.5 text-[10.5px]">
+                Date: {colFilters.date_test || colFilters.date_year}
+                <button type="button" onClick={() => setColFilters(f => ({ ...f, date_test: '', date_year: '' }))} className="hover:text-red-600 cursor-pointer"><X className="w-3 h-3" /></button>
+              </span>
+            )}
+            {(colFilters.report_status || colFilters.report_text) && (
+              <span className="inline-flex items-center gap-1 bg-white border border-indigo-200 text-indigo-800 rounded-full px-2 py-0.5 text-[10.5px]">
+                Report: {colFilters.report_status || colFilters.report_text}
+                <button type="button" onClick={() => setColFilters(f => ({ ...f, report_status: '', report_text: '' }))} className="hover:text-red-600 cursor-pointer"><X className="w-3 h-3" /></button>
+              </span>
+            )}
+            {(colFilters.po_status || colFilters.po_text) && (
+              <span className="inline-flex items-center gap-1 bg-white border border-amber-300 text-amber-900 rounded-full px-2 py-0.5 text-[10.5px]">
+                PO: {colFilters.po_status || colFilters.po_text}
+                <button type="button" onClick={() => setColFilters(f => ({ ...f, po_status: '', po_text: '' }))} className="hover:text-red-600 cursor-pointer"><X className="w-3 h-3" /></button>
+              </span>
+            )}
+            {(colFilters.invoice_status || colFilters.invoice_text) && (
+              <span className="inline-flex items-center gap-1 bg-white border border-emerald-300 text-emerald-950 rounded-full px-2 py-0.5 text-[10.5px]">
+                Invoice: {colFilters.invoice_status || colFilters.invoice_text}
+                <button type="button" onClick={() => setColFilters(f => ({ ...f, invoice_status: '', invoice_text: '' }))} className="hover:text-red-600 cursor-pointer"><X className="w-3 h-3" /></button>
+              </span>
+            )}
+            {colFilters.payment_status && (
+              <span className="inline-flex items-center gap-1 bg-white border border-indigo-200 text-indigo-800 rounded-full px-2 py-0.5 text-[10.5px]">
+                Status: {colFilters.payment_status}
+                <button type="button" onClick={() => setColFilters(f => ({ ...f, payment_status: '' }))} className="hover:text-red-600 cursor-pointer"><X className="w-3 h-3" /></button>
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={resetAllFilters}
+              className="ml-auto text-indigo-600 hover:text-indigo-800 font-semibold cursor-pointer underline text-[11px]"
+            >
+              Clear All
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Main Ledger Table with FROZEN HEADER & SELECTION */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden relative">
-        <div className={`overflow-auto relative scrollbar-thin ${showMetrics ? 'max-h-[calc(100vh-14rem)]' : 'max-h-[calc(100vh-8.5rem)]'}`}>
+        <div
+          tabIndex={0}
+          role="region"
+          aria-label="QAQC Test Records Table"
+          className={`overflow-auto relative scrollbar-thin ${showMetrics ? 'max-h-[calc(100vh-14rem)]' : 'max-h-[calc(100vh-8.5rem)]'}`}
+        >
           <table className={`w-full text-left border-collapse min-w-[1550px] ${isCompact ? 'text-[11px]' : 'text-xs'}`}>
             {/* Frozen sticky thead */}
             <thead className="sticky top-0 z-30 bg-slate-100 shadow-xs border-b border-slate-300">
+              {/* Row 1: Column Titles, Sort Arrows, Filter Triggers */}
               <tr className={`uppercase font-bold text-slate-700 ${isCompact ? 'text-[10px]' : 'text-[11px]'}`}>
-                <th className={`sticky top-0 bg-slate-100 z-30 w-8 text-center ${isCompact ? 'py-1.5 px-2' : 'py-3 px-3'}`}>
+                <th scope="col" className={`sticky top-0 bg-slate-100 z-30 w-8 text-center ${isCompact ? 'py-1.5 px-2' : 'py-3 px-3'}`}>
                   <input
                     type="checkbox"
                     checked={isAllSelected}
@@ -543,30 +1017,500 @@ export default function RecordsClient({
                     className="rounded text-indigo-600 cursor-pointer"
                   />
                 </th>
-                <th className={`sticky top-0 bg-slate-100 z-30 cursor-pointer hover:bg-slate-200 transition ${isCompact ? 'py-1.5 px-2' : 'py-3 px-3'}`} onClick={() => handleSort('running_no')}>
-                  Running No <ArrowUpDown className="w-3 h-3 inline ml-0.5 opacity-50" />
+
+                {/* 1. Running No */}
+                <ColumnHeaderCell
+                  title="Running No"
+                  colId="running_no"
+                  sortKey="running_no"
+                  currentSortKey={sortKey}
+                  currentSortDir={sortDir}
+                  onSort={handleSort}
+                  isFiltered={Boolean(colFilters.running_no)}
+                  isPopoverOpen={openFilterCol === 'running_no'}
+                  onTogglePopover={() => setOpenFilterCol(cur => cur === 'running_no' ? null : 'running_no')}
+                  onClosePopover={() => setOpenFilterCol(null)}
+                  onClearFilter={() => setColFilters(f => ({ ...f, running_no: '' }))}
+                  compact={isCompact}
+                  popoverRef={popoverRef}
+                >
+                  <input
+                    type="text"
+                    value={colFilters.running_no}
+                    onChange={e => setColFilters(f => ({ ...f, running_no: e.target.value }))}
+                    placeholder="Search running no..."
+                    className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white"
+                    autoFocus
+                  />
+                </ColumnHeaderCell>
+
+                {/* 2. Project */}
+                <ColumnHeaderCell
+                  title="Project"
+                  colId="project"
+                  sortKey="project"
+                  currentSortKey={sortKey}
+                  currentSortDir={sortDir}
+                  onSort={handleSort}
+                  isFiltered={Boolean(colFilters.project)}
+                  isPopoverOpen={openFilterCol === 'project'}
+                  onTogglePopover={() => setOpenFilterCol(cur => cur === 'project' ? null : 'project')}
+                  onClosePopover={() => setOpenFilterCol(null)}
+                  onClearFilter={() => setColFilters(f => ({ ...f, project: '' }))}
+                  compact={isCompact}
+                  popoverRef={popoverRef}
+                >
+                  <select
+                    value={colFilters.project}
+                    onChange={e => setColFilters(f => ({ ...f, project: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white"
+                  >
+                    <option value="">All Projects</option>
+                    {allProjects.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </ColumnHeaderCell>
+
+                {/* 3. Supplier / Lab */}
+                <ColumnHeaderCell
+                  title="Supplier / Lab"
+                  colId="supplier"
+                  sortKey="supplier"
+                  currentSortKey={sortKey}
+                  currentSortDir={sortDir}
+                  onSort={handleSort}
+                  isFiltered={Boolean(colFilters.supplier)}
+                  isPopoverOpen={openFilterCol === 'supplier'}
+                  onTogglePopover={() => setOpenFilterCol(cur => cur === 'supplier' ? null : 'supplier')}
+                  onClosePopover={() => setOpenFilterCol(null)}
+                  onClearFilter={() => setColFilters(f => ({ ...f, supplier: '' }))}
+                  compact={isCompact}
+                  popoverRef={popoverRef}
+                >
+                  <select
+                    value={colFilters.supplier}
+                    onChange={e => setColFilters(f => ({ ...f, supplier: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white"
+                  >
+                    <option value="">All Suppliers / Labs</option>
+                    {allSuppliers.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </ColumnHeaderCell>
+
+                {/* 4. Marking */}
+                <ColumnHeaderCell
+                  title="Marking"
+                  colId="marking"
+                  sortKey="marking"
+                  currentSortKey={sortKey}
+                  currentSortDir={sortDir}
+                  onSort={handleSort}
+                  isFiltered={Boolean(colFilters.marking)}
+                  isPopoverOpen={openFilterCol === 'marking'}
+                  onTogglePopover={() => setOpenFilterCol(cur => cur === 'marking' ? null : 'marking')}
+                  onClosePopover={() => setOpenFilterCol(null)}
+                  onClearFilter={() => setColFilters(f => ({ ...f, marking: '' }))}
+                  compact={isCompact}
+                  popoverRef={popoverRef}
+                >
+                  <input
+                    type="text"
+                    value={colFilters.marking}
+                    onChange={e => setColFilters(f => ({ ...f, marking: e.target.value }))}
+                    placeholder="Search marking (e.g. BEAM-1)..."
+                    className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white"
+                    autoFocus
+                  />
+                </ColumnHeaderCell>
+
+                {/* 5. Test Type & Qty */}
+                <ColumnHeaderCell
+                  title="Test Type & Qty"
+                  colId="test_type"
+                  sortKey="test_type"
+                  secondarySortKey="qty"
+                  secondarySortLabel="Quantity"
+                  currentSortKey={sortKey}
+                  currentSortDir={sortDir}
+                  onSort={handleSort}
+                  isFiltered={Boolean(colFilters.test_type)}
+                  isPopoverOpen={openFilterCol === 'test_type'}
+                  onTogglePopover={() => setOpenFilterCol(cur => cur === 'test_type' ? null : 'test_type')}
+                  onClosePopover={() => setOpenFilterCol(null)}
+                  onClearFilter={() => setColFilters(f => ({ ...f, test_type: '' }))}
+                  compact={isCompact}
+                  popoverRef={popoverRef}
+                >
+                  <select
+                    value={colFilters.test_type}
+                    onChange={e => setColFilters(f => ({ ...f, test_type: e.target.value }))}
+                    className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white"
+                  >
+                    <option value="">All Test Types</option>
+                    {allTestTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </ColumnHeaderCell>
+
+                {/* 6. Tested Date */}
+                <ColumnHeaderCell
+                  title="Tested Date"
+                  colId="date_test"
+                  sortKey="date_test"
+                  secondarySortKey="date_cast"
+                  secondarySortLabel="Cast Date"
+                  currentSortKey={sortKey}
+                  currentSortDir={sortDir}
+                  onSort={handleSort}
+                  isFiltered={Boolean(colFilters.date_test || colFilters.date_year)}
+                  isPopoverOpen={openFilterCol === 'date_test'}
+                  onTogglePopover={() => setOpenFilterCol(cur => cur === 'date_test' ? null : 'date_test')}
+                  onClosePopover={() => setOpenFilterCol(null)}
+                  onClearFilter={() => setColFilters(f => ({ ...f, date_test: '', date_year: '' }))}
+                  compact={isCompact}
+                  popoverRef={popoverRef}
+                >
+                  <div className="space-y-1.5">
+                    <select
+                      value={colFilters.date_year}
+                      onChange={e => setColFilters(f => ({ ...f, date_year: e.target.value }))}
+                      className="w-full border border-slate-200 rounded-lg px-2 py-1 text-xs bg-slate-50"
+                    >
+                      <option value="">All Years</option>
+                      {allYears.map(y => <option key={y} value={y}>{y}</option>)}
+                    </select>
+                    <input
+                      type="text"
+                      value={colFilters.date_test}
+                      onChange={e => setColFilters(f => ({ ...f, date_test: e.target.value }))}
+                      placeholder="Filter date or month (YYYY-MM)..."
+                      className="w-full border border-slate-200 rounded-lg px-2 py-1 text-xs bg-slate-50"
+                    />
+                  </div>
+                </ColumnHeaderCell>
+
+                {/* 7. Report / Email */}
+                <ColumnHeaderCell
+                  title="Report / Email"
+                  colId="report"
+                  sortKey="report_no"
+                  secondarySortKey="email_date"
+                  secondarySortLabel="Email Date"
+                  currentSortKey={sortKey}
+                  currentSortDir={sortDir}
+                  onSort={handleSort}
+                  isFiltered={Boolean(colFilters.report_status || colFilters.report_text)}
+                  isPopoverOpen={openFilterCol === 'report'}
+                  onTogglePopover={() => setOpenFilterCol(cur => cur === 'report' ? null : 'report')}
+                  onClosePopover={() => setOpenFilterCol(null)}
+                  onClearFilter={() => setColFilters(f => ({ ...f, report_status: '', report_text: '' }))}
+                  compact={isCompact}
+                  popoverRef={popoverRef}
+                >
+                  <div className="space-y-1.5">
+                    <select
+                      value={colFilters.report_status}
+                      onChange={e => setColFilters(f => ({ ...f, report_status: e.target.value as any }))}
+                      className="w-full border border-slate-200 rounded-lg px-2 py-1 text-xs bg-slate-50"
+                    >
+                      <option value="">All Report Statuses</option>
+                      <option value="has_report">Has Official Report</option>
+                      <option value="pending_report">Pending Report</option>
+                      <option value="has_email">Email Sent</option>
+                      <option value="pending_email">Email Pending</option>
+                    </select>
+                    <input
+                      type="text"
+                      value={colFilters.report_text}
+                      onChange={e => setColFilters(f => ({ ...f, report_text: e.target.value }))}
+                      placeholder="Search report no, email or remarks..."
+                      className="w-full border border-slate-200 rounded-lg px-2 py-1 text-xs bg-slate-50"
+                    />
+                  </div>
+                </ColumnHeaderCell>
+
+                {/* 8. Purchaser PO */}
+                <ColumnHeaderCell
+                  title="Purchaser PO"
+                  colId="po"
+                  sortKey="po_no"
+                  secondarySortKey="po_amount"
+                  secondarySortLabel="PO Amount (RM)"
+                  currentSortKey={sortKey}
+                  currentSortDir={sortDir}
+                  onSort={handleSort}
+                  isFiltered={Boolean(colFilters.po_status || colFilters.po_text)}
+                  isPopoverOpen={openFilterCol === 'po'}
+                  onTogglePopover={() => setOpenFilterCol(cur => cur === 'po' ? null : 'po')}
+                  onClosePopover={() => setOpenFilterCol(null)}
+                  onClearFilter={() => setColFilters(f => ({ ...f, po_status: '', po_text: '' }))}
+                  className="border-l border-amber-200"
+                  bgClass="bg-amber-50"
+                  compact={isCompact}
+                  popoverRef={popoverRef}
+                >
+                  <div className="space-y-1.5">
+                    <select
+                      value={colFilters.po_status}
+                      onChange={e => setColFilters(f => ({ ...f, po_status: e.target.value as any }))}
+                      className="w-full border border-amber-200 rounded-lg px-2 py-1 text-xs bg-amber-50/50 text-amber-900"
+                    >
+                      <option value="">All PO Statuses</option>
+                      <option value="has_po">Has PO Number</option>
+                      <option value="pending_po">🟡 Awaiting PO</option>
+                      <option value="multi_po">Multi-test POs</option>
+                    </select>
+                    <input
+                      type="text"
+                      value={colFilters.po_text}
+                      onChange={e => setColFilters(f => ({ ...f, po_text: e.target.value }))}
+                      placeholder="Search PO # or remarks..."
+                      className="w-full border border-amber-200 rounded-lg px-2 py-1 text-xs bg-white"
+                    />
+                  </div>
+                </ColumnHeaderCell>
+
+                {/* 9. Invoice & CN Adjustments */}
+                <ColumnHeaderCell
+                  title="Invoice & CN"
+                  colId="invoice"
+                  sortKey="invoice_no"
+                  secondarySortKey="invoice_amount"
+                  secondarySortLabel="Invoice Amount (RM)"
+                  currentSortKey={sortKey}
+                  currentSortDir={sortDir}
+                  onSort={handleSort}
+                  isFiltered={Boolean(colFilters.invoice_status || colFilters.invoice_text)}
+                  isPopoverOpen={openFilterCol === 'invoice'}
+                  onTogglePopover={() => setOpenFilterCol(cur => cur === 'invoice' ? null : 'invoice')}
+                  onClosePopover={() => setOpenFilterCol(null)}
+                  onClearFilter={() => setColFilters(f => ({ ...f, invoice_status: '', invoice_text: '' }))}
+                  alignRight={true}
+                  className="border-l border-emerald-200"
+                  bgClass="bg-emerald-50"
+                  compact={isCompact}
+                  popoverRef={popoverRef}
+                >
+                  <div className="space-y-1.5">
+                    <select
+                      value={colFilters.invoice_status}
+                      onChange={e => setColFilters(f => ({ ...f, invoice_status: e.target.value as any }))}
+                      className="w-full border border-emerald-200 rounded-lg px-2 py-1 text-xs bg-emerald-50/50 text-emerald-900"
+                    >
+                      <option value="">All Invoice Statuses</option>
+                      <option value="has_invoice">Has Invoice Number</option>
+                      <option value="pending_invoice">🟣 Awaiting Invoice</option>
+                      <option value="has_cn">🏷️ Has Credit Note (CN)</option>
+                      <option value="multi_inv">Multi-test Invoices</option>
+                    </select>
+                    <input
+                      type="text"
+                      value={colFilters.invoice_text}
+                      onChange={e => setColFilters(f => ({ ...f, invoice_text: e.target.value }))}
+                      placeholder="Search Invoice #, CN # or remarks..."
+                      className="w-full border border-emerald-200 rounded-lg px-2 py-1 text-xs bg-white"
+                    />
+                  </div>
+                </ColumnHeaderCell>
+
+                {/* 10. Status */}
+                <ColumnHeaderCell
+                  title="Status"
+                  colId="status"
+                  sortKey="payment_status"
+                  currentSortKey={sortKey}
+                  currentSortDir={sortDir}
+                  onSort={handleSort}
+                  isFiltered={Boolean(colFilters.payment_status)}
+                  isPopoverOpen={openFilterCol === 'status'}
+                  onTogglePopover={() => setOpenFilterCol(cur => cur === 'status' ? null : 'status')}
+                  onClosePopover={() => setOpenFilterCol(null)}
+                  onClearFilter={() => setColFilters(f => ({ ...f, payment_status: '' }))}
+                  alignRight={true}
+                  bgClass="bg-emerald-50"
+                  compact={isCompact}
+                  popoverRef={popoverRef}
+                >
+                  <select
+                    value={colFilters.payment_status}
+                    onChange={e => setColFilters(f => ({ ...f, payment_status: e.target.value as any }))}
+                    className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-slate-50 focus:bg-white"
+                  >
+                    <option value="">All Payment Statuses</option>
+                    <option value="Pending">🟡 Pending</option>
+                    <option value="Paid">🟢 Paid</option>
+                    <option value="Partially Paid">🟠 Partially Paid</option>
+                    <option value="Void">⚪ Void</option>
+                  </select>
+                </ColumnHeaderCell>
+
+                {/* Actions Header */}
+                <th scope="col" className={`sticky top-0 bg-slate-100 z-30 text-right ${isCompact ? 'py-1.5 px-2' : 'py-3 px-3'}`}>
+                  {activeFilterCount > 0 ? (
+                    <button
+                      type="button"
+                      onClick={resetAllFilters}
+                      className="text-[10px] text-red-600 hover:text-red-800 font-bold underline cursor-pointer"
+                      title="Clear all column filters"
+                    >
+                      Clear ({activeFilterCount})
+                    </button>
+                  ) : (
+                    <span>Actions</span>
+                  )}
                 </th>
-                <th className={`sticky top-0 bg-slate-100 z-30 cursor-pointer hover:bg-slate-200 transition ${isCompact ? 'py-1.5 px-2' : 'py-3 px-3'}`} onClick={() => handleSort('project')}>
-                  Project <ArrowUpDown className="w-3 h-3 inline ml-0.5 opacity-50" />
-                </th>
-                <th className={`sticky top-0 bg-slate-100 z-30 ${isCompact ? 'py-1.5 px-2' : 'py-3 px-3'}`}>Supplier / Lab</th>
-                <th className={`sticky top-0 bg-slate-100 z-30 ${isCompact ? 'py-1.5 px-2' : 'py-3 px-3'}`}>Marking</th>
-                <th className={`sticky top-0 bg-slate-100 z-30 cursor-pointer hover:bg-slate-200 transition ${isCompact ? 'py-1.5 px-2' : 'py-3 px-3'}`} onClick={() => handleSort('test_type')}>
-                  Test Type & Qty <ArrowUpDown className="w-3 h-3 inline ml-0.5 opacity-50" />
-                </th>
-                <th className={`sticky top-0 bg-slate-100 z-30 cursor-pointer hover:bg-slate-200 transition ${isCompact ? 'py-1.5 px-2' : 'py-3 px-3'}`} onClick={() => handleSort('date_test')}>
-                  Tested Date <ArrowUpDown className="w-3 h-3 inline ml-0.5 opacity-50" />
-                </th>
-                <th className={`sticky top-0 bg-slate-100 z-30 ${isCompact ? 'py-1.5 px-2' : 'py-3 px-3'}`}>Report / Email</th>
-                <th className={`sticky top-0 bg-amber-50 z-30 border-l border-amber-200 ${isCompact ? 'py-1.5 px-2' : 'py-3 px-3'}`}>
-                  Purchaser PO
-                </th>
-                <th className={`sticky top-0 bg-emerald-50 z-30 border-l border-emerald-200 ${isCompact ? 'py-1.5 px-2' : 'py-3 px-3'}`}>
-                  Invoice & CN Adjustments
-                </th>
-                <th className={`sticky top-0 bg-emerald-50 z-30 ${isCompact ? 'py-1.5 px-2' : 'py-3 px-3'}`}>Status</th>
-                <th className={`sticky top-0 bg-slate-100 z-30 text-right ${isCompact ? 'py-1.5 px-2' : 'py-3 px-3'}`}>Actions</th>
               </tr>
+
+              {/* Row 2: Inline Quick Filters (Toggleable) */}
+              {showFilterRow && (
+                <tr className="bg-slate-50 border-b border-slate-300/80 text-slate-700">
+                  {/* Checkbox / Reset all col */}
+                  <th scope="col" className="sticky top-0 z-30 bg-slate-50 px-1 py-1 text-center w-8">
+                    {activeFilterCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={resetAllFilters}
+                        className="text-slate-400 hover:text-red-600 transition p-0.5 rounded cursor-pointer"
+                        title="Reset all column filters"
+                      >
+                        <RotateCcw className="w-3 h-3 mx-auto" />
+                      </button>
+                    )}
+                  </th>
+
+                  {/* 1. Running No */}
+                  <th scope="col" className="sticky top-0 z-30 bg-slate-50 px-1 py-1">
+                    <input
+                      type="text"
+                      value={colFilters.running_no}
+                      onChange={e => setColFilters(f => ({ ...f, running_no: e.target.value }))}
+                      placeholder="Filter #..."
+                      className="w-full font-normal font-mono text-[10px] px-1 py-0.5 border border-slate-300 rounded bg-white text-slate-800 focus:outline-indigo-500"
+                    />
+                  </th>
+
+                  {/* 2. Project */}
+                  <th scope="col" className="sticky top-0 z-30 bg-slate-50 px-1 py-1">
+                    <select
+                      value={colFilters.project}
+                      onChange={e => setColFilters(f => ({ ...f, project: e.target.value }))}
+                      className="w-full font-normal text-[10px] px-1 py-0.5 border border-slate-300 rounded bg-white text-slate-800 focus:outline-indigo-500 truncate"
+                    >
+                      <option value="">All Projects</option>
+                      {allProjects.map(p => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </th>
+
+                  {/* 3. Supplier */}
+                  <th scope="col" className="sticky top-0 z-30 bg-slate-50 px-1 py-1">
+                    <select
+                      value={colFilters.supplier}
+                      onChange={e => setColFilters(f => ({ ...f, supplier: e.target.value }))}
+                      className="w-full font-normal text-[10px] px-1 py-0.5 border border-slate-300 rounded bg-white text-slate-800 focus:outline-indigo-500 truncate"
+                    >
+                      <option value="">All Suppliers</option>
+                      {allSuppliers.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </th>
+
+                  {/* 4. Marking */}
+                  <th scope="col" className="sticky top-0 z-30 bg-slate-50 px-1 py-1">
+                    <input
+                      type="text"
+                      value={colFilters.marking}
+                      onChange={e => setColFilters(f => ({ ...f, marking: e.target.value }))}
+                      placeholder="Filter marking..."
+                      className="w-full font-normal text-[10px] px-1 py-0.5 border border-slate-300 rounded bg-white text-slate-800 focus:outline-indigo-500"
+                    />
+                  </th>
+
+                  {/* 5. Test Type */}
+                  <th scope="col" className="sticky top-0 z-30 bg-slate-50 px-1 py-1">
+                    <select
+                      value={colFilters.test_type}
+                      onChange={e => setColFilters(f => ({ ...f, test_type: e.target.value }))}
+                      className="w-full font-normal text-[10px] px-1 py-0.5 border border-slate-300 rounded bg-white text-slate-800 focus:outline-indigo-500 truncate"
+                    >
+                      <option value="">All Types</option>
+                      {allTestTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </th>
+
+                  {/* 6. Date Test */}
+                  <th scope="col" className="sticky top-0 z-30 bg-slate-50 px-1 py-1">
+                    <input
+                      type="text"
+                      value={colFilters.date_test}
+                      onChange={e => setColFilters(f => ({ ...f, date_test: e.target.value }))}
+                      placeholder="YYYY-MM..."
+                      className="w-full font-normal text-[10px] px-1 py-0.5 border border-slate-300 rounded bg-white text-slate-800 focus:outline-indigo-500"
+                    />
+                  </th>
+
+                  {/* 7. Report / Email */}
+                  <th scope="col" className="sticky top-0 z-30 bg-slate-50 px-1 py-1">
+                    <select
+                      value={colFilters.report_status}
+                      onChange={e => setColFilters(f => ({ ...f, report_status: e.target.value as any }))}
+                      className="w-full font-normal text-[10px] px-1 py-0.5 border border-slate-300 rounded bg-white text-slate-800 focus:outline-indigo-500"
+                    >
+                      <option value="">All Reports</option>
+                      <option value="has_report">Has Report</option>
+                      <option value="pending_report">Pending Report</option>
+                      <option value="has_email">Email Sent</option>
+                      <option value="pending_email">Email Pending</option>
+                    </select>
+                  </th>
+
+                  {/* 8. Purchaser PO */}
+                  <th scope="col" className="sticky top-0 z-30 bg-amber-50/80 border-l border-amber-200 px-1 py-1">
+                    <input
+                      type="text"
+                      value={colFilters.po_text}
+                      onChange={e => setColFilters(f => ({ ...f, po_text: e.target.value }))}
+                      placeholder="Filter PO #..."
+                      className="w-full font-normal text-[10px] px-1 py-0.5 border border-amber-300 rounded bg-white text-amber-900 focus:outline-amber-500"
+                    />
+                  </th>
+
+                  {/* 9. Invoice & CN */}
+                  <th scope="col" className="sticky top-0 z-30 bg-emerald-50/80 border-l border-emerald-200 px-1 py-1">
+                    <input
+                      type="text"
+                      value={colFilters.invoice_text}
+                      onChange={e => setColFilters(f => ({ ...f, invoice_text: e.target.value }))}
+                      placeholder="Filter Inv # / CN..."
+                      className="w-full font-normal text-[10px] px-1 py-0.5 border border-emerald-300 rounded bg-white text-emerald-950 focus:outline-emerald-500"
+                    />
+                  </th>
+
+                  {/* 10. Status */}
+                  <th scope="col" className="sticky top-0 z-30 bg-emerald-50/80 px-1 py-1">
+                    <select
+                      value={colFilters.payment_status}
+                      onChange={e => setColFilters(f => ({ ...f, payment_status: e.target.value as any }))}
+                      className="w-full font-normal text-[10px] px-1 py-0.5 border border-emerald-300 rounded bg-white text-slate-800 focus:outline-emerald-500"
+                    >
+                      <option value="">All</option>
+                      <option value="Pending">🟡 Pending</option>
+                      <option value="Paid">🟢 Paid</option>
+                      <option value="Partially Paid">🟠 Partial</option>
+                      <option value="Void">⚪ Void</option>
+                    </select>
+                  </th>
+
+                  {/* Actions column */}
+                  <th scope="col" className="sticky top-0 z-30 bg-slate-50 px-1 py-1 text-right">
+                    {activeFilterCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={resetAllFilters}
+                        className="text-[10px] font-bold text-red-600 hover:text-red-800 underline cursor-pointer"
+                      >
+                        Reset
+                      </button>
+                    )}
+                  </th>
+                </tr>
+              )}
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {sorted.length === 0 ? (
