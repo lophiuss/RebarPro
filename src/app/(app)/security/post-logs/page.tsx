@@ -24,6 +24,7 @@ export default function PostLogsPage() {
   const [active, setActive] = useState<PostLog[]>([])
   const [history, setHistory] = useState<PostLog[]>([])
   const [date, setDate] = useState(isoToday())
+  const [myGuardName, setMyGuardName] = useState('')
   const [form, setForm] = useState({ post_name: '', guard_name: '', notes: '' })
   const [lang, setLang] = useLang()
   const t = makeT(securityDict, lang)
@@ -32,12 +33,20 @@ export default function PostLogsPage() {
   useEffect(() => { loadHistory() }, [date])
 
   async function load() {
-    const [{ data: postRows }, { data: activeRows }] = await Promise.all([
+    const { data: { user } } = await supabase.auth.getUser()
+    const [{ data: postRows }, { data: activeRows }, { data: profile }] = await Promise.all([
       supabase.from('security_guard_posts').select('id, name').order('name'),
       supabase.from('security_post_logs').select('*').is('time_out', null).order('time_in', { ascending: false }),
+      user ? supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle() : Promise.resolve({ data: null }),
     ])
+    const loggedInName = profile?.full_name || user?.email || ''
+    setMyGuardName(loggedInName)
     setPosts(postRows || [])
     setActive(activeRows || [])
+    setForm(prev => ({
+      ...prev,
+      guard_name: prev.guard_name || loggedInName,
+    }))
     loadHistory()
   }
 
@@ -50,14 +59,15 @@ export default function PostLogsPage() {
 
   async function startShift(e: React.FormEvent) {
     e.preventDefault()
-    if (!form.post_name || !form.guard_name.trim()) { alert(t('postLogs.postGuardRequired')); return }
+    const guardName = form.guard_name.trim() || myGuardName
+    if (!form.post_name || !guardName) { alert(t('postLogs.postGuardRequired')); return }
     const { data: { user } } = await supabase.auth.getUser()
     const { error } = await supabase.from('security_post_logs').insert([{
-      post_name: form.post_name, guard_name: form.guard_name.trim(), time_in: new Date().toISOString(),
+      post_name: form.post_name, guard_name: guardName, time_in: new Date().toISOString(),
       notes: form.notes || null, created_by: user?.email || null,
     }])
     if (error) { alert('Error: ' + error.message); return }
-    setForm({ post_name: '', guard_name: '', notes: '' })
+    setForm({ post_name: '', guard_name: myGuardName, notes: '' })
     load()
   }
 
@@ -95,8 +105,25 @@ export default function PostLogsPage() {
             </select>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">{t('postLogs.guardName')}</label>
-            <input required value={form.guard_name} onChange={e => setForm({ ...form, guard_name: e.target.value })} className="w-full border rounded-md px-3 py-2 text-sm" />
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-medium text-gray-500">{t('postLogs.guardName')}</label>
+              {myGuardName && form.guard_name !== myGuardName && (
+                <button
+                  type="button"
+                  onClick={() => setForm(f => ({ ...f, guard_name: myGuardName }))}
+                  className="text-[11px] text-blue-600 hover:underline cursor-pointer"
+                >
+                  Use my name ({myGuardName})
+                </button>
+              )}
+            </div>
+            <input
+              required
+              value={form.guard_name}
+              onChange={e => setForm({ ...form, guard_name: e.target.value })}
+              placeholder={myGuardName || 'Enter guard name'}
+              className="w-full border rounded-md px-3 py-2 text-sm bg-white"
+            />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">{t('common.notes')}</label>
