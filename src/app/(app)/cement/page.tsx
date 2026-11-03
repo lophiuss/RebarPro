@@ -126,10 +126,12 @@ export default async function CementDashboardPage() {
   ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()).slice(0, 15)
 
   return (
-    <div className="p-4 md:p-8 max-w-7xl mx-auto space-y-8">
+    <div className="p-3 sm:p-4 md:p-8 max-w-7xl mx-auto space-y-4 md:space-y-8">
       <div>
-        <h1 className="text-3xl font-bold mb-6">Current Stock</h1>
-        <ShoutoutBoard department="cement" />
+        <div className="flex items-center justify-between mb-2 sm:mb-4">
+          <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-slate-900 leading-tight">Current Stock</h1>
+          <span className="text-xs text-slate-400 font-medium">14-day rolling window</span>
+        </div>
         {error && <p className="text-red-600 text-sm mb-4">Error loading silo stock: {error.message}</p>}
         {siloStocks.length === 0 && !error ? (
           <p className="text-gray-500">No active silos found.</p>
@@ -138,22 +140,24 @@ export default async function CementDashboardPage() {
         )}
       </div>
 
+      <ShoutoutBoard department="cement" />
+
       <div>
-        <h2 className="text-lg font-bold mb-3">Recent Activity</h2>
-        <div className="bg-white border rounded-xl shadow-sm divide-y divide-gray-100">
+        <h2 className="text-base sm:text-lg font-bold mb-2.5 text-slate-900">Recent Activity</h2>
+        <div className="bg-white border rounded-xl shadow-xs divide-y divide-gray-100">
           {activity.length === 0 && <p className="p-4 text-sm text-gray-400">No recent activity.</p>}
           {activity.map(a => (
-            <div key={a.key} className="flex items-center gap-3 px-4 py-3">
-              <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
+            <div key={a.key} className="flex items-center gap-2.5 sm:gap-3 px-3 sm:px-4 py-2.5 sm:py-3">
+              <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
                 a.icon === 'in' ? 'bg-blue-50 text-blue-600' : a.icon === 'out' ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600'
               }`}>
-                {a.icon === 'in' ? <Truck className="w-4 h-4" /> : a.icon === 'out' ? <TruckElectric className="w-4 h-4" /> : <ClipboardCheck className="w-4 h-4" />}
+                {a.icon === 'in' ? <Truck className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : a.icon === 'out' ? <TruckElectric className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> : <ClipboardCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-slate-800 truncate">{a.text}</p>
-                <p className="text-xs text-gray-500 truncate">{a.sub}</p>
+                <p className="text-xs sm:text-sm font-medium text-slate-800 truncate">{a.text}</p>
+                <p className="text-[11px] sm:text-xs text-gray-500 truncate">{a.sub}</p>
               </div>
-              <span className="text-xs text-gray-400 flex-shrink-0">{timeAgo(a.at, a.preciseTime)}</span>
+              <span className="text-[10px] sm:text-xs text-gray-400 flex-shrink-0">{timeAgo(a.at, a.preciseTime)}</span>
             </div>
           ))}
         </div>
