@@ -254,11 +254,11 @@ export default function GpsClockingPage() {
 
         <div className="flex items-center gap-1.5 shrink-0">
           {myLocation?.accuracyMeters != null && (
-            <span className="text-[10px] sm:text-xs font-mono font-medium text-slate-600 bg-slate-100 px-2 py-1 rounded-md border border-slate-200" title="GPS Accuracy">
+            <span className="text-[10px] sm:text-xs font-mono font-medium text-slate-600 bg-slate-100 px-1.5 py-0.5 sm:px-2 sm:py-1 rounded-md border border-slate-200" title="GPS Accuracy">
               ±{Math.round(myLocation.accuracyMeters)}m
             </span>
           )}
-          <LanguageSwitcher lang={lang} onChange={setLang} />
+          <LanguageSwitcher lang={lang} onChange={setLang} compact={true} />
         </div>
       </div>
 
@@ -463,9 +463,11 @@ export default function GpsClockingPage() {
                     ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
                     : 'bg-amber-50 border-amber-300 text-amber-900'
                 }`}>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-bold truncate">#{selectedCheckpoint.sequence_order} {selectedCheckpoint.name}</span>
-                    <span className={`inline-flex items-center gap-1 font-semibold px-2 py-0.5 rounded-full text-[10px] ${
+                  <div className="flex items-center justify-between mb-1 gap-2">
+                    <span className="font-bold text-sm text-slate-900 break-words">
+                      #{selectedCheckpoint.sequence_order} {selectedCheckpoint.name}
+                    </span>
+                    <span className={`inline-flex items-center gap-1 font-semibold px-2 py-0.5 rounded-full text-[10px] shrink-0 ${
                       isCurrentInRange ? 'bg-emerald-200 text-emerald-900' : 'bg-amber-200 text-amber-900'
                     }`}>
                       <span className={`w-1.5 h-1.5 rounded-full ${isCurrentInRange ? 'bg-emerald-600 animate-pulse' : 'bg-amber-600'}`} />
@@ -567,34 +569,36 @@ export default function GpsClockingPage() {
                     ? 'bg-emerald-50/90 border-emerald-400 text-emerald-950'
                     : 'bg-amber-50/90 border-amber-300 text-amber-950'
                 }`}>
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="text-[10px] uppercase font-bold tracking-wider opacity-75">
-                        {t('gps.checkpoint')} #{selectedCheckpoint.sequence_order}
-                      </div>
-                      <h2 className="text-base font-bold truncate">
-                        {selectedCheckpoint.name}
-                      </h2>
+                  {/* Top Row: Checkpoint sequence label & in-range badge */}
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <div className="text-[10px] uppercase font-bold tracking-wider opacity-75">
+                      {t('gps.checkpoint')} #{selectedCheckpoint.sequence_order}
                     </div>
+                    <span className={`inline-flex items-center gap-1 font-bold px-2 py-0.5 rounded-full text-[10px] shrink-0 ${
+                      isCurrentInRange
+                        ? 'bg-emerald-200 text-emerald-900'
+                        : 'bg-amber-200 text-amber-900'
+                    }`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${isCurrentInRange ? 'bg-emerald-600 animate-pulse' : 'bg-amber-600'}`} />
+                      {isCurrentInRange ? t('gps.inRange') : t('gps.notInRange')}
+                    </span>
+                  </div>
 
-                    <div className="text-right shrink-0">
-                      <span className={`inline-flex items-center gap-1 font-bold px-2 py-0.5 rounded-full text-[10px] ${
-                        isCurrentInRange
-                          ? 'bg-emerald-200 text-emerald-900'
-                          : 'bg-amber-200 text-amber-900'
-                      }`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${isCurrentInRange ? 'bg-emerald-600 animate-pulse' : 'bg-amber-600'}`} />
-                        {isCurrentInRange ? t('gps.inRange') : t('gps.notInRange')}
-                      </span>
-                      <div className="text-[11px] font-mono mt-0.5">
+                  {/* Middle Row: Full Checkpoint Name (no truncate!) and distance */}
+                  <div className="flex items-start justify-between gap-3 mb-1">
+                    <h2 className="text-base sm:text-lg font-extrabold text-slate-900 leading-snug break-words flex-1">
+                      {selectedCheckpoint.name}
+                    </h2>
+                    <div className="text-right shrink-0 pt-0.5">
+                      <span className="text-sm font-bold font-mono text-slate-800">
                         {currentDist !== null ? `${currentDist}m` : 'GPS...'}
-                      </div>
+                      </span>
                     </div>
                   </div>
 
                   {/* Status Helper Notice */}
-                  <div className="mt-1 pt-1 border-t border-black/5 flex items-center justify-between text-[11px]">
-                    <span className="truncate">
+                  <div className="pt-1 border-t border-black/5 flex items-center justify-between text-[11px]">
+                    <span className="leading-tight">
                       {isCurrentInRange
                         ? `✓ ${t('gps.inRange')} (≤${currentEffectiveRadius}m)`
                         : currentDist !== null
@@ -602,7 +606,7 @@ export default function GpsClockingPage() {
                         : t('gps.waitingForLocation')}
                     </span>
                     {isCurrentClocked && (
-                      <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded shrink-0">
+                      <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-100 px-1.5 py-0.2 rounded shrink-0 ml-2">
                         ✓ {t('gps.alreadyClocked')}
                       </span>
                     )}
