@@ -16,7 +16,7 @@ export default function AlertSettingPage() {
   const [logs, setLogs] = useState<LogRow[]>([])
 
   useEffect(() => {
-    supabase.from('cement_alert_settings').select('manager_email, variance_threshold_pct, monthly_variance_threshold_pct').eq('id', 1).single()
+    supabase.from('cement_alert_settings').select('manager_email, variance_threshold_pct, monthly_variance_threshold_pct').eq('id', 1).maybeSingle()
       .then(({ data }) => {
         if (data) {
           setEmail(data.manager_email || '')
@@ -31,11 +31,12 @@ export default function AlertSettingPage() {
 
   async function save() {
     if (!email.trim()) { alert('Manager email is required'); return }
-    const { error } = await supabase.from('cement_alert_settings').update({
+    const { error } = await supabase.from('cement_alert_settings').upsert({
+      id: 1,
       manager_email: email.trim(),
       variance_threshold_pct: Number(pct),
       monthly_variance_threshold_pct: Number(monthlyPct),
-    }).eq('id', 1)
+    })
     setStatus(error ? '❌ Failed to save settings' : '✅ Settings saved successfully')
     setTimeout(() => setStatus(null), 4000)
   }

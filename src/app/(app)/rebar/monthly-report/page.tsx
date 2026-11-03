@@ -49,7 +49,7 @@ export default function MonthlyReportPage() {
       supabase.from('rebar_sizes').select('*'),
       supabase.from('projects').select('id, name, project_type_id'),
       supabase.from('project_types').select('id, name'),
-      supabase.from('global_settings').select('default_unit').eq('id', 1).single(),
+      supabase.from('global_settings').select('default_unit').eq('id', 1).maybeSingle(),
     ])
     setRawSizes(sizesRes.data || [])
     setRawProjects(projRes.data || [])

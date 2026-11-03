@@ -25,7 +25,7 @@ export default async function PlantproTimesheetPage({ searchParams }: { searchPa
     supabase.from('plantpro_timesheet_days').select('worker_id, day, basic, ot').eq('month', month),
     supabase.from('plantpro_holidays').select('date, label').gte('date', `${month}-01`).lte('date', `${month}-31`),
     supabase.from('plantpro_holidays').select('date, label').order('date'),
-    supabase.from('plantpro_timesheet_multiplier').select('*').eq('id', 1).single(),
+    supabase.from('plantpro_timesheet_multiplier').select('*').eq('id', 1).maybeSingle(),
     supabase.from('plantpro_pay_columns').select('id, key, include_in_gross, include_in_net_deduct'),
     // RLS-gated: empty for a supervisor-tier viewer, by design.
     supabase.from('plantpro_worker_pay_values').select('worker_id, pay_column_id, value'),

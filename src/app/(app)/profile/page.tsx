@@ -62,7 +62,7 @@ export default function ProfilePage() {
     if (!user) return
     setUserId(user.id)
     setEmail(user.email || '')
-    const { data: profile } = await supabase.from('profiles').select('full_name, avatar_url').eq('id', user.id).single()
+    const { data: profile } = await supabase.from('profiles').select('full_name, avatar_url').eq('id', user.id).maybeSingle()
     setName(profile?.full_name || '')
     setAvatarUrl(profile?.avatar_url || null)
     setLoading(false)

@@ -50,7 +50,7 @@ export default function TransactionsPage() {
       supabase.from('projects').select('*'),
       supabase.from('project_types').select('*'),
       supabase.from('rebar_sizes').select('*'),
-      supabase.from('global_settings').select('default_unit').eq('id', 1).single()
+      supabase.from('global_settings').select('default_unit').eq('id', 1).maybeSingle()
     ])
     
     if (settingsRes.data?.default_unit) {

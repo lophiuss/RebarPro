@@ -44,7 +44,7 @@ export default function StockTakePage() {
       supabase.from('stock_takes').select('*, rebar_sizes(size), project_types(name)').order('stock_take_date', { ascending: false }),
       supabase.from('project_types').select('*'),
       supabase.from('rebar_sizes').select('*'),
-      supabase.from('global_settings').select('default_unit').eq('id', 1).single()
+      supabase.from('global_settings').select('default_unit').eq('id', 1).maybeSingle()
     ])
     
     if (settingsRes.data?.default_unit) {

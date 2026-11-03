@@ -54,7 +54,7 @@ export default function StocktakeUsagePage() {
       supabase.from('cement_daily_usage').select('silo_id, usage').eq('usage_date', date),
       supabase.from('cement_daily_stock_take').select('silo_id, actual_stock').eq('take_date', prevDate),
       supabase.from('cement_daily_usage').select('silo_id, usage').eq('usage_date', prevDate),
-      supabase.from('cement_alert_settings').select('variance_threshold_pct').eq('id', 1).single(),
+      supabase.from('cement_alert_settings').select('variance_threshold_pct').eq('id', 1).maybeSingle(),
     ])
 
     const mapped: Row[] = (silos || []).map((s: any) => {
@@ -122,7 +122,9 @@ export default function StocktakeUsagePage() {
 
     setSaving(true)
     const { data: { user } } = await supabase.auth.getUser()
-    const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', user?.id).single()
+    const { data: profile } = user
+      ? await supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle()
+      : { data: null }
     const operator = profile?.full_name || user?.email || 'unknown'
 
     const writes: any[] = []

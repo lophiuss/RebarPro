@@ -14,7 +14,7 @@ export default async function MouldSettingsPage() {
     : { data: null }
   const isAdmin = myAccess?.role === 'admin'
 
-  const { data: settings } = await supabase.from('mould_settings').select('*').eq('id', 1).single()
+  const { data: settings } = await supabase.from('mould_settings').select('*').eq('id', 1).maybeSingle()
 
   return (
     <div className="p-4 md:p-8 max-w-2xl mx-auto">

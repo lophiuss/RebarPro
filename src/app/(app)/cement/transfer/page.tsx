@@ -86,7 +86,9 @@ export default function TransferPage() {
     }
 
     const { data: { user } } = await supabase.auth.getUser()
-    const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', user?.id).single()
+    const { data: profile } = user
+      ? await supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle()
+      : { data: null }
     const operator = profile?.full_name || user?.email || 'unknown'
 
     const { error } = await supabase.from('cement_transfers').insert([{

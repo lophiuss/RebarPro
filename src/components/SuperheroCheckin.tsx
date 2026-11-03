@@ -152,6 +152,7 @@ export const SUPERHEROES: Superhero[] = [
 
 // Play a triumphant 8-bit / arcade fanfare using Web Audio API (zero external assets)
 export function playHeroFanfare() {
+  if (typeof window === 'undefined') return
   try {
     const AudioCtx = window.AudioContext || (window as any).webkitAudioContext
     if (!AudioCtx) return

@@ -39,7 +39,7 @@ export default function DashboardPage() {
     const [txRes, sizesRes, settingsRes, stRes, pTypesRes, projectsRes] = await Promise.all([
       supabase.from('transactions').select('quantity, type, transaction_date, size_id, project_type_id, project_id'),
       supabase.from('rebar_sizes').select('*'),
-      supabase.from('global_settings').select('target_coverage_days, default_unit').eq('id', 1).single(),
+      supabase.from('global_settings').select('target_coverage_days, default_unit').eq('id', 1).maybeSingle(),
       supabase.from('stock_takes').select('id, size_id, stock_take_date, physical_count, project_type_id').order('stock_take_date', { ascending: false }),
       supabase.from('project_types').select('id, name'),
       supabase.from('projects').select('id, name, project_type_id'),

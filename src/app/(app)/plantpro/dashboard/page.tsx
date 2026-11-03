@@ -37,7 +37,7 @@ export default async function PlantproDashboardPage({ searchParams }: { searchPa
   const months = Array.from({ length: 6 }, (_, i) => shiftMonth(month, i - 5))
 
   const [{ data: multiplier }, { data: payColumns }, { data: payValues }, ...monthRows] = await Promise.all([
-    supabase.from('plantpro_timesheet_multiplier').select('*').eq('id', 1).single(),
+    supabase.from('plantpro_timesheet_multiplier').select('*').eq('id', 1).maybeSingle(),
     supabase.from('plantpro_pay_columns').select('id, key, include_in_gross, include_in_net_deduct'),
     supabase.from('plantpro_worker_pay_values').select('worker_id, pay_column_id, value'),
     ...months.map(m => supabase.rpc('plantpro_month_hours', { p_month: m })),

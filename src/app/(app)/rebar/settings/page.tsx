@@ -45,7 +45,7 @@ export default function SettingsPage() {
       supabase.from('projects').select('*, project_types(name)').order('created_at', { ascending: false }),
       supabase.from('project_types').select('*').order('name'),
       supabase.from('rebar_sizes').select('*').order('size'),
-      supabase.from('global_settings').select('*').eq('id', 1).single(),
+      supabase.from('global_settings').select('*').eq('id', 1).maybeSingle(),
       supabase.from('transactions').select('size_id, quantity').eq('type', 'usage').gte('transaction_date', fourteenDaysAgoStr),
     ])
     if (pTypesRes.data) {

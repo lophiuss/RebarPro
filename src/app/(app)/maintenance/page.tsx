@@ -259,7 +259,7 @@ export default async function MaintenanceDashboardPage({ searchParams }: { searc
     supabase.from('maintenance_pm_schedule').select('id, equipment_id, planned, completed_at, assigned_to').eq('year', year).eq('week_number', weekNumber),
     supabase.from('maintenance_spare_parts_requests').select('quantity_requested, quantity_received').gte('request_date', periodStart).lte('request_date', periodEnd),
     supabase.from('maintenance_critical_issues').select('id, equipment_label, issue, lead_time_note, status, created_at, maintenance_equipment(name)').neq('status', 'completed').neq('status', 'cancelled').order('created_at', { ascending: false }),
-    supabase.from('maintenance_settings').select('default_target_repair_hours').eq('id', 1).single(),
+    supabase.from('maintenance_settings').select('default_target_repair_hours').eq('id', 1).maybeSingle(),
     supabase.from('maintenance_work_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
     supabase.auth.getUser(),
     supabase.from('maintenance_checklist_submissions').select('equipment_id').gte('submission_date', toStr(weekMonday)).lte('submission_date', toStr(weekSunday)),
