@@ -15,7 +15,7 @@ import ItemDrawer from './ItemDrawer'
 import NewItemDrawer from './NewItemDrawer'
 import Avatar from '../Avatar'
 import {
-  card, input, todayStr, Empty, NewBadge, OwnerSelect, ItemTitle, SortSelect, sortByOwner, sortNewest, SectionTitle, Segmented,
+  card, input, todayStr, Empty, NewBadge, isNew, OwnerSelect, ItemTitle, SortSelect, sortByOwner, sortNewest, SectionTitle, Segmented,
   type Headline, type Todo, type Issue, type Rating, type OtherMeetings, type SortKey,
 } from './shared'
 import { ISSUE_STATUS_LABEL, type IssueStatus } from '@/lib/meetings'
@@ -171,9 +171,19 @@ export function Todos({ todos, otherMeetings }: { todos: Todo[]; otherMeetings: 
           {shown.map(t => {
             const tDone = isDone(t)
             const overdue = !tDone && t.due_date && t.due_date < todayStr()
+            const isItemNew = isNew(t.created_at)
             return (
-              <li key={t.id} className={`flex items-start sm:items-center justify-between gap-2.5 px-3 py-2 sm:py-2.5 transition-colors ${tDone ? 'bg-gray-50/60' : ''}`}>
-                <div className="flex items-start sm:items-center gap-2.5 min-w-0 flex-1">
+              <li
+                key={t.id}
+                className={`flex items-start sm:items-center justify-between gap-2 px-2.5 sm:px-3 py-2 sm:py-2.5 transition-colors ${
+                  tDone
+                    ? 'bg-gray-50/60'
+                    : isItemNew
+                    ? 'border-l-2 border-l-emerald-500 bg-emerald-50/15'
+                    : ''
+                }`}
+              >
+                <div className="flex items-start sm:items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
                   <button
                     onClick={() => toggleDone(t)}
                     aria-label={tDone ? 'Mark not done' : 'Mark done'}
@@ -186,14 +196,16 @@ export function Todos({ todos, otherMeetings }: { todos: Todo[]; otherMeetings: 
                     <Avatar person={peopleById.get(t.owner_id ?? '')} size="sm" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <ItemTitle title={t.title} hasDetails={!!t.details} struck={tDone} onOpen={() => setOpenId(t.id)} lineClamp={2} />
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <ItemTitle title={t.title} hasDetails={!!t.details} struck={tDone} onOpen={() => setOpenId(t.id)} lineClamp={2} />
+                      <NewBadge createdAt={t.created_at} />
+                    </div>
                     {t.source_headline_id && <span className="block sm:inline text-[10px] sm:text-xs text-gray-400">from headline</span>}
                   </div>
-                  <NewBadge createdAt={t.created_at} />
                 </div>
-                <div className="flex items-center gap-2 shrink-0 self-center">
-                  <span className={`text-[11px] sm:text-xs whitespace-nowrap ${overdue ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>{t.due_date ?? ''}</span>
-                  <button onClick={async () => { if (await confirmDialog('Delete this to-do?')) { await (run(() => deleteTodo(meetingId, t.id))) } }} aria-label="Delete" className="p-1 text-gray-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" /></button>
+                <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 self-center">
+                  <span className={`text-[10px] sm:text-xs whitespace-nowrap ${overdue ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>{t.due_date ?? ''}</span>
+                  <button onClick={async () => { if (await confirmDialog('Delete this to-do?')) { await (run(() => deleteTodo(meetingId, t.id))) } }} aria-label="Delete" className="p-0.5 sm:p-1 text-gray-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" /></button>
                 </div>
               </li>
             )
@@ -272,37 +284,74 @@ export function Issues({ issues, otherMeetings }: { issues: Issue[]; otherMeetin
         <ul className={`${card} divide-y`}>
           {shown.map(i => {
             const st = statusOf(i)
+            const isItemNew = isNew(i.created_at)
             return (
-            <li key={i.id} className={`flex items-start sm:items-center justify-between gap-2 px-3 py-2 sm:py-2.5 transition-colors ${st === 'solved' ? 'bg-green-50/50' : ''}`}>
-              <div className="flex items-start sm:items-center gap-2.5 min-w-0 flex-1">
+            <li
+              key={i.id}
+              className={`flex items-start sm:items-center justify-between gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-2 sm:py-2.5 transition-colors ${
+                st === 'solved'
+                  ? 'bg-green-50/50'
+                  : isItemNew
+                  ? 'border-l-2 border-l-emerald-500 bg-emerald-50/15'
+                  : ''
+              }`}
+            >
+              <div className="flex items-start sm:items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
                 <div className="shrink-0 pt-0.5 sm:pt-0">
                   <Avatar person={peopleById.get(i.owner_id ?? '')} size="sm" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <ItemTitle title={i.title} hasDetails={!!i.details} struck={st === 'solved'} onOpen={() => setOpenId(i.id)} lineClamp={2} />
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <ItemTitle title={i.title} hasDetails={!!i.details} struck={st === 'solved'} onOpen={() => setOpenId(i.id)} lineClamp={2} />
+                    <NewBadge createdAt={i.created_at} />
+                  </div>
                   {i.source_headline_id && <span className="block sm:inline text-[10px] sm:text-xs text-gray-400">from headline</span>}
                 </div>
-                <NewBadge createdAt={i.created_at} />
               </div>
 
-              <div className="flex items-center gap-1 text-xs shrink-0 self-center">
+              <div className="flex items-center gap-0.5 sm:gap-1 text-xs shrink-0 self-center">
                 {st === 'solved' ? (
                   <div className="flex items-center gap-1">
-                    <span className="inline-flex items-center gap-1 font-semibold text-emerald-700 text-xs">
+                    <span className="inline-flex items-center gap-0.5 sm:gap-1 font-semibold text-emerald-700 text-xs">
                       <Check className="w-3.5 h-3.5" strokeWidth={3} />
                       <span className="hidden sm:inline">Solved</span>
                     </span>
-                    <button onClick={() => move(i, 'short_term')} className="px-2 py-0.5 rounded border bg-white text-gray-600 hover:bg-gray-50 text-xs">Reopen</button>
+                    <button onClick={() => move(i, 'short_term')} className="px-1.5 sm:px-2 py-0.5 rounded border bg-white text-gray-600 hover:bg-gray-50 text-[10px] sm:text-xs">Reopen</button>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => move(i, 'solved')} title="Mark solved" className="inline-flex items-center gap-0.5 px-2 py-1 rounded bg-green-50 text-green-700 font-semibold hover:bg-green-100 active:scale-95 transition text-xs">
-                      <Check className="w-3.5 h-3.5" />
+                  <div className="flex items-center gap-0.5 sm:gap-1">
+                    <button
+                      onClick={() => move(i, 'solved')}
+                      title="Mark solved"
+                      className="inline-flex items-center gap-0.5 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-200/60 font-semibold hover:bg-emerald-100 active:scale-95 transition text-[10px] sm:text-xs shrink-0"
+                    >
+                      <Check className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                       <span>Solve</span>
                     </button>
-                    {st !== 'short_term' && <button onClick={() => move(i, 'short_term')} className="px-2 py-1 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 active:scale-95 transition text-xs">Short</button>}
-                    {st !== 'parking_lot' && <button onClick={() => move(i, 'parking_lot')} title="Move to KIV / parking lot" className="px-2 py-1 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 active:scale-95 transition text-xs">KIV</button>}
-                    <button onClick={async () => { if (await confirmDialog('Delete this issue?')) { await (run(() => deleteIssue(meetingId, i.id))) } }} aria-label="Delete" className="p-1 text-gray-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" /></button>
+                    {st !== 'short_term' && (
+                      <button
+                        onClick={() => move(i, 'short_term')}
+                        className="px-1.5 sm:px-2 py-0.5 sm:py-1 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 active:scale-95 transition text-[10px] sm:text-xs font-semibold shrink-0"
+                      >
+                        Short
+                      </button>
+                    )}
+                    {st !== 'parking_lot' && (
+                      <button
+                        onClick={() => move(i, 'parking_lot')}
+                        title="Move to KIV / parking lot"
+                        className="px-1.5 sm:px-2 py-0.5 sm:py-1 rounded bg-gray-100 text-gray-700 hover:bg-gray-200 active:scale-95 transition text-[10px] sm:text-xs font-semibold shrink-0"
+                      >
+                        KIV
+                      </button>
+                    )}
+                    <button
+                      onClick={async () => { if (await confirmDialog('Delete this issue?')) { await (run(() => deleteIssue(meetingId, i.id))) } }}
+                      aria-label="Delete"
+                      className="p-0.5 sm:p-1 text-gray-400 hover:text-red-600 shrink-0"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    </button>
                   </div>
                 )}
               </div>

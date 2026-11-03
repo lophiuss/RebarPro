@@ -36,7 +36,12 @@ export function isNew(createdAt: string | undefined | null) {
 }
 export function NewBadge({ createdAt }: { createdAt: string | undefined | null }) {
   if (!isNew(createdAt)) return null
-  return <span className="shrink-0 text-xs font-bold uppercase tracking-wide rounded-full bg-green-100 text-green-700 px-1.5 py-0.5">New</span>
+  return (
+    <span className="shrink-0 inline-flex items-center" title="New item">
+      <span className="sm:hidden w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+      <span className="hidden sm:inline-block text-[10px] font-bold uppercase tracking-wide rounded-full bg-emerald-100 text-emerald-700 px-1.5 py-0.2">New</span>
+    </span>
+  )
 }
 export type Milestone = { title: string; done: boolean; done_at?: string | null }
 export type Goal = {
