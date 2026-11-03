@@ -22,11 +22,19 @@ export default function PhotoPicker({
   file,
   onChange,
   maxBytes = 195 * 1024,
+  compact = false,
+  hideLabel = false,
+  takePhotoText = 'Take Photo',
+  uploadText = 'Upload File',
 }: {
   label?: string
   file: File | null
   onChange: (file: File | null) => void
   maxBytes?: number
+  compact?: boolean
+  hideLabel?: boolean
+  takePhotoText?: string
+  uploadText?: string
 }) {
   const cameraInputRef = useRef<HTMLInputElement>(null)
   const uploadInputRef = useRef<HTMLInputElement>(null)
@@ -217,23 +225,28 @@ export default function PhotoPicker({
 
   return (
     <div>
-      <label className="block text-xs font-medium text-gray-500 mb-1">{label}</label>
-      <div className="flex gap-2">
+      {!hideLabel && <label className="block text-xs font-medium text-gray-500 mb-1">{label}</label>}
+      <div className={`flex gap-2 ${compact ? 'items-center' : ''}`}>
         <button
           type="button"
           onClick={() => startCamera(facingMode)}
-          className="flex items-center justify-center gap-2 flex-1 border-2 border-dashed border-blue-300 bg-blue-50/40 hover:bg-blue-50 rounded-lg px-4 py-3 text-sm font-medium text-blue-700 hover:border-blue-500 cursor-pointer transition shadow-2xs active:scale-[0.99]"
+          className={`flex items-center justify-center gap-2 flex-1 border-2 border-dashed border-blue-300 bg-blue-50/40 hover:bg-blue-50 rounded-lg text-blue-700 hover:border-blue-500 cursor-pointer transition shadow-2xs active:scale-[0.99] ${
+            compact ? 'px-3 py-2 text-xs font-semibold' : 'px-4 py-3 text-sm font-medium'
+          }`}
         >
-          <Camera className="w-5 h-5 text-blue-600 flex-shrink-0" />
-          <span>Take Photo</span>
+          <Camera className={`${compact ? 'w-4 h-4' : 'w-5 h-5'} text-blue-600 flex-shrink-0`} />
+          <span>{takePhotoText}</span>
         </button>
         <button
           type="button"
           onClick={() => uploadInputRef.current?.click()}
-          className="flex items-center justify-center gap-2 flex-1 border-2 border-dashed border-gray-300 hover:border-gray-400 bg-white hover:bg-gray-50 rounded-lg px-4 py-3 text-sm font-medium text-gray-700 cursor-pointer transition shadow-2xs active:scale-[0.99]"
+          className={`flex items-center justify-center gap-2 border-2 border-dashed border-gray-300 hover:border-gray-400 bg-white hover:bg-gray-50 rounded-lg text-gray-700 cursor-pointer transition shadow-2xs active:scale-[0.99] ${
+            compact ? 'px-3 py-2 text-xs font-medium' : 'flex-1 px-4 py-3 text-sm font-medium'
+          }`}
+          title={uploadText}
         >
-          <Upload className="w-5 h-5 text-slate-500 flex-shrink-0" />
-          <span>Upload File</span>
+          <Upload className={`${compact ? 'w-4 h-4' : 'w-5 h-5'} text-slate-500 flex-shrink-0`} />
+          <span>{uploadText}</span>
         </button>
       </div>
 
@@ -269,17 +282,17 @@ export default function PhotoPicker({
       )}
 
       {!compressing && file && (
-        <div className="flex items-center gap-2.5 mt-2 text-xs bg-gray-50 border border-gray-200 rounded-lg p-2 shadow-2xs">
+        <div className={`flex items-center gap-2.5 mt-2 bg-gray-50 border border-gray-200 rounded-lg shadow-2xs ${compact ? 'p-1.5 text-xs' : 'p-2 text-xs'}`}>
           {previewUrl && (
             <img
               src={previewUrl}
               alt="Thumbnail preview"
-              className="w-12 h-12 rounded-md object-cover border border-gray-300 shrink-0"
+              className={`${compact ? 'w-10 h-10' : 'w-12 h-12'} rounded-md object-cover border border-gray-300 shrink-0`}
             />
           )}
           <div className="flex-1 min-w-0">
-            <span className="truncate block font-medium text-slate-800">{file.name}</span>
-            <div className="flex items-center gap-1.5 text-[11px] mt-0.5">
+            <span className="truncate block font-medium text-slate-800 text-[11px] sm:text-xs">{file.name}</span>
+            <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] mt-0.5">
               <span className="text-slate-500 font-mono">{(file.size / 1024).toFixed(1)} KB</span>
               <span className="inline-flex items-center gap-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded">
                 <Check className="w-3 h-3 text-emerald-600" /> &lt; 200KB OK
@@ -288,11 +301,19 @@ export default function PhotoPicker({
           </div>
           <button
             type="button"
+            onClick={() => startCamera(facingMode)}
+            className="text-xs text-blue-600 hover:text-blue-800 font-medium px-2 py-1 rounded bg-blue-50 hover:bg-blue-100 transition shrink-0"
+            title="Retake photo"
+          >
+            Retake
+          </button>
+          <button
+            type="button"
             onClick={() => onChange(null)}
             className="text-gray-400 hover:text-red-600 p-1.5 rounded-md hover:bg-gray-100 transition shrink-0"
             title="Remove photo"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
       )}

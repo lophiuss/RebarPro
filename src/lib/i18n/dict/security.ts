@@ -106,6 +106,11 @@ export const securityDict: Record<Lang, Dict> = {
     'gps.noGpsSupport': 'This device/browser does not support GPS location',
     'gps.outsideGeofence': 'outside its', 'gps.geofenceMoveCloser': 'geofence. Move closer and try again.',
     'gps.tapToSelect': 'Tap to select checkpoint', 'gps.inRange': 'In Range', 'gps.resetToAuto': 'Auto-detect', 'gps.manualSelection': 'Manual',
+    'gps.tabClock': 'Clock In', 'gps.tabMap': 'Map', 'gps.tabToday': 'Today',
+    'gps.takeEvidencePhoto': 'Take Evidence Photo', 'gps.takePhotoFirst': 'Please take evidence photo first',
+    'gps.moveCloserToClock': 'Move closer to checkpoint to clock in',
+    'gps.clockSuccess': 'Clocked in successfully!', 'gps.pointsCompleted': 'completed',
+    'gps.gpsActive': 'GPS Active', 'gps.allCheckpointsDone': 'All checkpoints clocked today!',
 
     // Incidents
     'incidents.title': 'Incidents', 'incidents.reportIncident': 'Report an Incident', 'incidents.type': 'Type', 'incidents.typePlaceholder': 'e.g. Theft, Trespassing, Fire',
@@ -269,6 +274,11 @@ export const securityDict: Record<Lang, Dict> = {
     'gps.noGpsSupport': '此设备/浏览器不支持GPS定位',
     'gps.outsideGeofence': '超出其', 'gps.geofenceMoveCloser': '范围。请靠近后重试。',
     'gps.tapToSelect': '点击直接选择检查点', 'gps.inRange': '范围内', 'gps.resetToAuto': '自动检测', 'gps.manualSelection': '手动选择',
+    'gps.tabClock': '打卡', 'gps.tabMap': '巡逻地图', 'gps.tabToday': '今日记录',
+    'gps.takeEvidencePhoto': '拍照留证', 'gps.takePhotoFirst': '请先拍照留证',
+    'gps.moveCloserToClock': '请靠近检查点后再打卡',
+    'gps.clockSuccess': '打卡成功！', 'gps.pointsCompleted': '个检查点已完成',
+    'gps.gpsActive': 'GPS 正常', 'gps.allCheckpointsDone': '今日所有检查点已完成！',
 
     'incidents.title': '事件报告', 'incidents.reportIncident': '报告事件', 'incidents.type': '类型', 'incidents.typePlaceholder': '例如：盗窃、非法闯入、火警',
     'incidents.description': '描述', 'incidents.reportedBy': '报告人', 'incidents.severity': '严重程度',
@@ -428,6 +438,11 @@ export const securityDict: Record<Lang, Dict> = {
     'gps.noGpsSupport': 'Peranti/pelayar ini tidak menyokong lokasi GPS',
     'gps.outsideGeofence': 'di luar', 'gps.geofenceMoveCloser': 'nya. Dekatkan diri dan cuba lagi.',
     'gps.tapToSelect': 'Ketik untuk pilih titik semak', 'gps.inRange': 'Dalam Julat', 'gps.resetToAuto': 'Kesan Auto', 'gps.manualSelection': 'Manual',
+    'gps.tabClock': 'Rakam', 'gps.tabMap': 'Peta Rondaan', 'gps.tabToday': 'Rekod Hari Ini',
+    'gps.takeEvidencePhoto': 'Ambil Gambar Bukti', 'gps.takePhotoFirst': 'Sila ambil gambar bukti dahulu',
+    'gps.moveCloserToClock': 'Dekatkan diri ke titik semak untuk rakam',
+    'gps.clockSuccess': 'Berjaya direkodkan!', 'gps.pointsCompleted': 'selesai',
+    'gps.gpsActive': 'GPS Aktif', 'gps.allCheckpointsDone': 'Semua titik semak telah didaftar hari ini!',
 
     'incidents.title': 'Insiden', 'incidents.reportIncident': 'Laporkan Insiden', 'incidents.type': 'Jenis', 'incidents.typePlaceholder': 'cth. Kecurian, Ceroboh, Kebakaran',
     'incidents.description': 'Penerangan', 'incidents.reportedBy': 'Dilaporkan Oleh', 'incidents.severity': 'Tahap Keterukan',
