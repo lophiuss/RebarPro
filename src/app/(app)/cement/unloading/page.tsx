@@ -166,19 +166,19 @@ export default function UnloadingPage() {
         <td className="px-4 py-3 whitespace-nowrap">
           {archived ? (
             <div className="flex items-center gap-2">
-              <button onClick={() => unarchiveRow(r.id)} className="flex items-center gap-1 bg-gray-100 text-gray-700 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-gray-200"><ArchiveRestore className="w-3.5 h-3.5" /> Unarchive</button>
+              <button onClick={() => unarchiveRow(r.id)} className="flex items-center gap-1 bg-gray-100 text-gray-700 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-gray-200 cursor-pointer"><ArchiveRestore className="w-3.5 h-3.5" /> Unarchive</button>
               <span className="text-[11px] text-gray-400">by {r.archived_by || '-'}</span>
             </div>
           ) : (
             <div className="flex items-center gap-2">
               {!r.unload_start_time ? (
-                <button onClick={() => openModal(r)} className="bg-blue-600 text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-blue-700">Start Unload</button>
+                <button onClick={() => openModal(r)} className="bg-blue-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-blue-700 cursor-pointer">Start Unload</button>
               ) : !r.unload_complete_time ? (
-                <button onClick={() => completeUnload(r.id)} className="bg-green-600 text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-green-700">Complete Unload</button>
+                <button onClick={() => completeUnload(r.id)} className="bg-green-600 text-white text-xs font-semibold px-3 py-1.5 rounded-lg hover:bg-green-700 cursor-pointer">Complete Unload</button>
               ) : (
                 <button disabled className="bg-gray-400 text-white text-xs font-medium px-3 py-1.5 rounded-lg cursor-not-allowed">Completed</button>
               )}
-              <button onClick={() => archiveRow(r.id)} title="Archive — stuck/abandoned load, hide from this queue" className="text-gray-400 hover:text-amber-600 p-1.5"><Archive className="w-3.5 h-3.5" /></button>
+              <button onClick={() => archiveRow(r.id)} title="Archive — stuck/abandoned load, hide from this queue" className="text-gray-400 hover:text-amber-600 p-1.5 cursor-pointer"><Archive className="w-3.5 h-3.5" /></button>
             </div>
           )}
         </td>
@@ -186,16 +186,116 @@ export default function UnloadingPage() {
     )
   }
 
+  function renderMobileCard(r: Row, archived: boolean) {
+    const isCompleted = !!r.unload_complete_time
+    const isInProgress = !!r.unload_start_time && !isCompleted
+
+    return (
+      <div key={r.id} className="bg-white border rounded-xl p-3.5 shadow-sm space-y-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <span className="font-extrabold text-base text-slate-900 block truncate">{r.lorry_no}</span>
+            <span className="text-xs text-slate-500">{r.weigh_date} · DO: <span className="font-semibold text-slate-700">{r.do_number}</span></span>
+          </div>
+          <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full flex-shrink-0 ${
+            archived ? 'bg-amber-100 text-amber-800'
+              : isCompleted ? 'bg-emerald-100 text-emerald-800'
+              : isInProgress ? 'bg-amber-100 text-amber-800'
+              : 'bg-blue-100 text-blue-800'
+          }`}>
+            {archived ? 'Archived' : isCompleted ? 'Completed' : isInProgress ? 'In Progress' : 'Pending Unload'}
+          </span>
+        </div>
+
+        {/* Info Grid */}
+        <div className="grid grid-cols-2 gap-2 text-xs bg-slate-50/70 p-2.5 rounded-lg border border-slate-100">
+          <div>
+            <span className="text-gray-400 block text-[10px] uppercase font-semibold">Material</span>
+            <span className="font-medium text-slate-800 truncate block">{r.material || '—'}</span>
+          </div>
+          <div>
+            <span className="text-gray-400 block text-[10px] uppercase font-semibold">DO Weight</span>
+            <span className="font-bold text-slate-900">{r.do_weight} MT</span>
+          </div>
+          <div>
+            <span className="text-gray-400 block text-[10px] uppercase font-semibold">Plant</span>
+            <span className="font-medium text-slate-800 truncate block">{r.plant_name || 'Not assigned'}</span>
+          </div>
+          <div>
+            <span className="text-gray-400 block text-[10px] uppercase font-semibold">Discharge To</span>
+            <span className="font-bold text-blue-700 truncate block">{r.discharge_to || 'Not assigned'}</span>
+          </div>
+          {r.seal_no && (
+            <div className="col-span-2 text-[11px] text-slate-500 pt-1 border-t border-slate-100">
+              Seal No: <span className="font-mono font-medium text-slate-700">{r.seal_no}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Action Button */}
+        <div className="flex items-center gap-2 pt-1">
+          {archived ? (
+            <button
+              onClick={() => unarchiveRow(r.id)}
+              className="flex-1 flex items-center justify-center gap-1.5 bg-slate-100 text-slate-700 font-semibold text-xs py-2 rounded-lg hover:bg-slate-200 cursor-pointer"
+            >
+              <ArchiveRestore className="w-3.5 h-3.5" />
+              <span>Unarchive Load</span>
+            </button>
+          ) : (
+            <>
+              {!r.unload_start_time ? (
+                <button
+                  onClick={() => openModal(r)}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-2.5 rounded-lg shadow-sm transition active:scale-[0.99] cursor-pointer"
+                >
+                  🚀 Start Unload
+                </button>
+              ) : !r.unload_complete_time ? (
+                <button
+                  onClick={() => completeUnload(r.id)}
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 rounded-lg shadow-sm transition active:scale-[0.99] cursor-pointer"
+                >
+                  ✅ Complete Unload
+                </button>
+              ) : (
+                <button disabled className="flex-1 bg-gray-300 text-gray-600 font-semibold text-xs py-2 rounded-lg cursor-not-allowed">
+                  Completed
+                </button>
+              )}
+              <button
+                onClick={() => archiveRow(r.id)}
+                title="Archive load"
+                className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg border border-slate-200 transition cursor-pointer"
+              >
+                <Archive className="w-4 h-4" />
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="p-4 md:p-8 max-w-6xl mx-auto">
-      <div className="flex items-center justify-between flex-wrap gap-3 mb-6">
-        <h1 className="text-3xl font-bold flex items-center gap-2"><PackageOpen className="w-7 h-7 text-blue-600" /> Unloading In Progress</h1>
-        <button onClick={toggleArchived} className={`flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg ${showArchived ? 'bg-amber-600 text-white' : 'bg-amber-50 text-amber-700 hover:bg-amber-100'}`}>
+    <div className="p-3 sm:p-4 md:p-8 max-w-6xl mx-auto">
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-4 sm:mb-6">
+        <h1 className="text-2xl sm:text-3xl font-bold flex items-center gap-2"><PackageOpen className="w-6 h-6 sm:w-7 sm:h-7 text-blue-600" /> Unloading In Progress</h1>
+        <button onClick={toggleArchived} className={`flex items-center gap-1.5 text-xs sm:text-sm font-medium px-3 py-1.5 sm:py-2 rounded-lg cursor-pointer ${showArchived ? 'bg-amber-600 text-white' : 'bg-amber-50 text-amber-700 hover:bg-amber-100'}`}>
           <Archive className="w-4 h-4" /> {showArchived ? 'Hide' : 'View'} Archived
         </button>
       </div>
 
-      <div className="bg-white border rounded-xl shadow-sm overflow-x-auto">
+      {/* Mobile Card List (md:hidden) */}
+      <div className="space-y-3 md:hidden">
+        {rows.map(r => renderMobileCard(r, false))}
+        {!loading && rows.length === 0 && (
+          <p className="px-4 py-8 text-center text-sm text-gray-400 bg-white border rounded-xl shadow-sm">No pending unloading</p>
+        )}
+      </div>
+
+      {/* Desktop Table View (hidden md:block) */}
+      <div className="hidden md:block bg-white border rounded-xl shadow-sm overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
@@ -220,31 +320,43 @@ export default function UnloadingPage() {
       </div>
 
       {showArchived && (
-        <div className="mt-6 bg-amber-50 border border-amber-200 rounded-xl shadow-sm overflow-x-auto">
-          <div className="px-4 py-3 border-b border-amber-200">
+        <div className="mt-6">
+          <div className="px-1 py-2 mb-2">
             <h2 className="text-sm font-bold text-amber-800">Archived Loads</h2>
           </div>
-          <table className="min-w-full divide-y divide-amber-100">
-            <thead>
-              <tr>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-amber-700 uppercase">Date</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-amber-700 uppercase">Lorry No</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-amber-700 uppercase">DO Number</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-amber-700 uppercase">Material</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-amber-700 uppercase">Plant</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-amber-700 uppercase">Discharge To</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-amber-700 uppercase">Seal No</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-amber-700 uppercase">DO Weight</th>
-                <th className="px-4 py-2.5 text-left text-xs font-medium text-amber-700 uppercase">Action</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-amber-50">
-              {archivedRows.map(r => renderRow(r, true))}
-              {!loadingArchived && archivedRows.length === 0 && (
-                <tr><td colSpan={9} className="px-4 py-6 text-center text-gray-400">No archived loads</td></tr>
-              )}
-            </tbody>
-          </table>
+
+          {/* Mobile Archived Cards */}
+          <div className="space-y-3 md:hidden">
+            {archivedRows.map(r => renderMobileCard(r, true))}
+            {!loadingArchived && archivedRows.length === 0 && (
+              <p className="px-4 py-6 text-center text-xs text-gray-400 bg-amber-50/50 border border-amber-200 rounded-xl">No archived loads</p>
+            )}
+          </div>
+
+          {/* Desktop Archived Table */}
+          <div className="hidden md:block bg-amber-50 border border-amber-200 rounded-xl shadow-sm overflow-x-auto">
+            <table className="min-w-full divide-y divide-amber-100">
+              <thead>
+                <tr>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-amber-700 uppercase">Date</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-amber-700 uppercase">Lorry No</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-amber-700 uppercase">DO Number</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-amber-700 uppercase">Material</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-amber-700 uppercase">Plant</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-amber-700 uppercase">Discharge To</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-amber-700 uppercase">Seal No</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-amber-700 uppercase">DO Weight</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-medium text-amber-700 uppercase">Action</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-amber-50">
+                {archivedRows.map(r => renderRow(r, true))}
+                {!loadingArchived && archivedRows.length === 0 && (
+                  <tr><td colSpan={9} className="px-4 py-6 text-center text-gray-400">No archived loads</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

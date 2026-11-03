@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
-import { ClipboardList } from 'lucide-react'
+import { ClipboardList, ChevronLeft, ChevronRight, Save, AlertTriangle } from 'lucide-react'
 
 type Row = {
   silo_id: number
@@ -131,73 +131,176 @@ export default function StocktakeUsagePage() {
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-5xl mx-auto">
-      <h1 className="text-3xl font-bold mb-6 flex items-center gap-2"><ClipboardList className="w-7 h-7 text-blue-600" /> Daily Stock Take / Usage</h1>
+    <div className="p-3 sm:p-4 md:p-6 max-w-6xl mx-auto">
+      {/* Compact Top Header Bar with Date Navigator & Primary Save Action */}
+      <div className="bg-white border rounded-xl shadow-xs p-3.5 mb-3 flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center flex-shrink-0">
+            <ClipboardList className="w-5 h-5" />
+          </div>
+          <div>
+            <h1 className="text-base sm:text-lg font-bold text-slate-800 leading-tight">Daily Stock Take & Usage</h1>
+            <p className="text-xs text-slate-500">{formatDateLabel(date)}</p>
+          </div>
+        </div>
 
-      <div className="bg-white border rounded-xl p-5 mb-6">
-        <label className="block text-xs font-medium text-gray-500 mb-1">Date</label>
-        <input type="date" value={date} onChange={e => setDate(e.target.value)} className="border rounded-md px-3 py-2 w-48" />
-        <p className="text-xs text-gray-500 mt-1">{formatDateLabel(date)}</p>
+        {/* Date Selector & Primary Save Action */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setDate(d => addDaysIso(d, -1))}
+            className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 transition cursor-pointer"
+            title="Previous Day"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <input
+            type="date"
+            value={date}
+            onChange={e => setDate(e.target.value)}
+            className="border rounded-lg px-2.5 py-1.5 text-xs sm:text-sm font-medium bg-white"
+          />
+          <button
+            type="button"
+            onClick={() => setDate(d => addDaysIso(d, 1))}
+            className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 transition cursor-pointer"
+            title="Next Day"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setDate(yesterdayIso())}
+            className={`text-xs px-2.5 py-1.5 rounded-lg font-medium transition cursor-pointer ${
+              date === yesterdayIso() ? 'bg-blue-50 text-blue-700 font-bold' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+            }`}
+          >
+            Yesterday
+          </button>
+
+          {/* Save Button directly in top bar - no scrolling needed! */}
+          <button
+            type="button"
+            onClick={save}
+            disabled={saving}
+            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white text-xs sm:text-sm font-bold px-4 py-1.5 rounded-lg shadow-sm transition ml-auto sm:ml-2 cursor-pointer disabled:opacity-50"
+          >
+            <Save className="w-4 h-4" />
+            <span>{saving ? 'Saving...' : 'Save Record'}</span>
+          </button>
+        </div>
       </div>
 
-      <div className="bg-white border rounded-xl shadow-sm overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Plant</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Silo</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Material</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-blue-700 uppercase bg-blue-50/50">Stock Take (Closing)</th>
-              <th className="px-4 py-3 text-left text-xs font-medium text-amber-700 uppercase bg-amber-50/50">Usage</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white divide-y divide-gray-200">
-            {rows.map(r => {
-              const stockFlag = isSuspicious(stockValues[r.silo_id] ?? '', prevStock[r.silo_id])
-              const usageFlag = isSuspicious(usageValues[r.silo_id] ?? '', prevUsage[r.silo_id])
-              return (
-                <tr key={r.silo_id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-sm">{r.plant_name}</td>
-                  <td className="px-4 py-3 text-sm font-medium">{r.silo_name}</td>
-                  <td className="px-4 py-3 text-sm">
-                    <div>{r.material_name ?? '-'}</div>
-                    {r.unit_name && <div className="text-xs text-gray-500">{r.unit_name}</div>}
-                  </td>
-                  <td className="px-4 py-3 bg-blue-50/20">
-                    <input
-                      type="number" step="0.01"
-                      value={stockValues[r.silo_id] ?? ''}
-                      onChange={e => setStockValues({ ...stockValues, [r.silo_id]: e.target.value })}
-                      className={`w-28 border rounded-md px-2 py-1.5 text-sm ${stockFlag ? 'border-red-400 bg-red-50 text-red-700 font-semibold' : ''}`}
-                    />
-                    <div className="text-[11px] text-gray-400 mt-0.5">
-                      {prevStock[r.silo_id] !== undefined ? `Yesterday: ${prevStock[r.silo_id]}` : 'No prior data'}
-                    </div>
-                    {stockFlag && <div className="text-[11px] text-red-600 font-medium">⚠ Big jump vs yesterday</div>}
-                  </td>
-                  <td className="px-4 py-3 bg-amber-50/20">
-                    <input
-                      type="number" step="0.01"
-                      value={usageValues[r.silo_id] ?? ''}
-                      onChange={e => setUsageValues({ ...usageValues, [r.silo_id]: e.target.value })}
-                      className={`w-28 border rounded-md px-2 py-1.5 text-sm ${usageFlag ? 'border-red-400 bg-red-50 text-red-700 font-semibold' : ''}`}
-                    />
-                    <div className="text-[11px] text-gray-400 mt-0.5">
-                      {prevUsage[r.silo_id] !== undefined ? `Yesterday: ${prevUsage[r.silo_id]}` : 'No prior data'}
-                    </div>
-                    {usageFlag && <div className="text-[11px] text-red-600 font-medium">⚠ Big jump vs yesterday</div>}
-                  </td>
-                </tr>
-              )
-            })}
-            {rows.length === 0 && (
-              <tr><td colSpan={5} className="px-4 py-6 text-center text-gray-500">No active silos found.</td></tr>
-            )}
-          </tbody>
-        </table>
+      {/* Compact Table (One Page View) */}
+      <div className="bg-white border rounded-xl shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200 text-sm">
+            <thead className="bg-slate-50 border-b">
+              <tr>
+                <th className="px-3.5 py-2.5 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Silo & Plant</th>
+                <th className="px-3.5 py-2.5 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Material</th>
+                <th className="px-3.5 py-2.5 text-left text-xs font-semibold text-blue-800 uppercase tracking-wider bg-blue-50/50">
+                  Stock Take (Closing MT)
+                </th>
+                <th className="px-3.5 py-2.5 text-left text-xs font-semibold text-amber-800 uppercase tracking-wider bg-amber-50/50">
+                  Usage (Daily MT)
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {rows.map(r => {
+                const stockFlag = isSuspicious(stockValues[r.silo_id] ?? '', prevStock[r.silo_id])
+                const usageFlag = isSuspicious(usageValues[r.silo_id] ?? '', prevUsage[r.silo_id])
+                const pStock = prevStock[r.silo_id]
+                const pUsage = prevUsage[r.silo_id]
+
+                return (
+                  <tr key={r.silo_id} className="hover:bg-slate-50/70 transition">
+                    {/* Silo & Plant combined */}
+                    <td className="px-3.5 py-2 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-slate-900">{r.silo_name}</span>
+                        <span className="text-[10px] bg-slate-100 text-slate-700 font-semibold px-2 py-0.5 rounded-full">
+                          {r.plant_name}
+                        </span>
+                      </div>
+                    </td>
+
+                    {/* Material */}
+                    <td className="px-3.5 py-2 whitespace-nowrap">
+                      <span className="font-medium text-slate-800 text-xs">{r.material_name ?? '—'}</span>
+                      {r.unit_name && <span className="text-[10px] text-slate-400 ml-1">({r.unit_name})</span>}
+                    </td>
+
+                    {/* Stock Take Input */}
+                    <td className="px-3.5 py-2 bg-blue-50/15 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number" step="0.01"
+                          placeholder={pStock !== undefined ? `Prev: ${pStock}` : '0.00'}
+                          value={stockValues[r.silo_id] ?? ''}
+                          onChange={e => setStockValues({ ...stockValues, [r.silo_id]: e.target.value })}
+                          className={`w-28 sm:w-32 border rounded-md px-2.5 py-1 text-sm bg-white font-semibold transition ${
+                            stockFlag ? 'border-red-400 bg-red-50 text-red-700' : 'border-slate-300 focus:border-blue-500'
+                          }`}
+                        />
+                        <div className="flex flex-col text-[10px] leading-tight">
+                          <span className="text-slate-400">Y'day: <strong className="text-slate-600 font-mono">{pStock !== undefined ? pStock : '—'}</strong></span>
+                          {stockFlag && (
+                            <span className="text-red-600 font-bold flex items-center gap-0.5" title="Big jump vs yesterday">
+                              <AlertTriangle className="w-3 h-3 text-red-500" /> Jump
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* Usage Input */}
+                    <td className="px-3.5 py-2 bg-amber-50/15 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number" step="0.01"
+                          placeholder={pUsage !== undefined ? `Prev: ${pUsage}` : '0.00'}
+                          value={usageValues[r.silo_id] ?? ''}
+                          onChange={e => setUsageValues({ ...usageValues, [r.silo_id]: e.target.value })}
+                          className={`w-28 sm:w-32 border rounded-md px-2.5 py-1 text-sm bg-white font-semibold transition ${
+                            usageFlag ? 'border-red-400 bg-red-50 text-red-700' : 'border-slate-300 focus:border-amber-500'
+                          }`}
+                        />
+                        <div className="flex flex-col text-[10px] leading-tight">
+                          <span className="text-slate-400">Y'day: <strong className="text-slate-600 font-mono">{pUsage !== undefined ? pUsage : '—'}</strong></span>
+                          {usageFlag && (
+                            <span className="text-red-600 font-bold flex items-center gap-0.5" title="Big jump vs yesterday">
+                              <AlertTriangle className="w-3 h-3 text-red-500" /> Jump
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+
+              {rows.length === 0 && (
+                <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-400 text-sm">No active silos found.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      <Button onClick={save} disabled={saving} className="w-full mt-6">{saving ? 'Saving...' : 'Save Record'}</Button>
+      {/* Floating Bottom Save for mobile quick thumb access */}
+      <div className="sm:hidden fixed bottom-4 right-4 left-4 z-20">
+        <button
+          type="button"
+          onClick={save}
+          disabled={saving}
+          className="w-full bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white font-bold text-sm py-3 rounded-xl shadow-lg flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+        >
+          <Save className="w-4 h-4" />
+          <span>{saving ? 'Saving...' : 'Save Record'}</span>
+        </button>
+      </div>
     </div>
   )
 }
