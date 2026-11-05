@@ -15,6 +15,14 @@ interface Props {
   typeUsage: Record<string, any>
   projectUsage: Record<string, any>
   unit?: DefaultUnit
+  supplierIncomingRows?: Array<{
+    supplier: string
+    deliveriesCount: number
+    sizes: Record<string, number>
+    totalIncoming: number
+  }>
+  reportSizes?: any[]
+  totalIncomingSum?: number
 }
 
 export default function ExportMonthlyReportButton({
@@ -27,7 +35,10 @@ export default function ExportMonthlyReportButton({
   stockTakes,
   typeUsage,
   projectUsage,
-  unit = 'kg'
+  unit = 'kg',
+  supplierIncomingRows,
+  reportSizes,
+  totalIncomingSum
 }: Props) {
   const uLabel = unitLabel(unit)
 
@@ -94,18 +105,58 @@ export default function ExportMonthlyReportButton({
     ].join(','))
     lines.push('')
 
-    // 4. Stock Takes This Month
+    // 4. Incoming Rebar by Supplier
+    if (supplierIncomingRows && supplierIncomingRows.length > 0 && reportSizes) {
+      lines.push('"INCOMING REBAR BY SUPPLIER"')
+      lines.push([
+        '"Supplier"',
+        '"Deliveries"',
+        ...reportSizes.map(s => `"${s.size} (${uLabel})"`),
+        `"Total Incoming (${uLabel})"`,
+        '"Share %"'
+      ].join(','))
+
+      supplierIncomingRows.forEach(sr => {
+        const sharePct = (totalIncomingSum && totalIncomingSum > 0)
+          ? ((sr.totalIncoming / totalIncomingSum) * 100).toFixed(1) + '%'
+          : '0.0%'
+        lines.push([
+          `"${sr.supplier}"`,
+          `"${sr.deliveriesCount}"`,
+          ...reportSizes.map(s => `"${sr.sizes[s.id] ? fmtQtyNum(sr.sizes[s.id], unit) : '-'}"`),
+          `"${fmtQtyNum(sr.totalIncoming, unit)}"`,
+          `"${sharePct}"`
+        ].join(','))
+      })
+
+      const totalDeliv = supplierIncomingRows.reduce((sum, sr) => sum + sr.deliveriesCount, 0)
+      lines.push([
+        '"TOTAL"',
+        `"${totalDeliv}"`,
+        ...reportSizes.map(s => {
+          const sizeTotal = supplierIncomingRows.reduce((sum, sr) => sum + (sr.sizes[s.id] || 0), 0)
+          return `"${sizeTotal > 0 ? fmtQtyNum(sizeTotal, unit) : '-'}"`
+        }),
+        `"${fmtQtyNum(totalIncomingSum || 0, unit)}"`,
+        '"100.0%"'
+      ].join(','))
+      lines.push('')
+    }
+
+    // 5. Stock Takes This Month
     if (stockTakes.length > 0) {
       lines.push('"STOCK TAKES RECORDED THIS MONTH"')
-      lines.push(`"Date","Project Type","Size","Physical Count (${uLabel})","System Balance (${uLabel})","Variance (${uLabel})"`)
+      lines.push(`"Date","Project Type","Supplier","Size","Physical Count (${uLabel})","System Balance (${uLabel})","Variance (${uLabel})"`)
       stockTakes.forEach((st: any) => {
         const pTypeName = st.project_types?.name || (st.project_type_id ? 'Unknown Type' : 'Unassigned')
+        const supName = st.supplier || 'All / General'
         const phys = Number(st.physical_count)
         const sys = Number(st.system_balance)
         const v = Number(st.variance)
         lines.push([
           `"${st.stock_take_date}"`,
           `"${pTypeName}"`,
+          `"${supName}"`,
           `"${st.rebar_sizes?.size || st.size || '-'}"`,
           `"${fmtQtyNum(phys, unit)}"`,
           `"${fmtQtyNum(sys, unit)}"`,
@@ -115,7 +166,7 @@ export default function ExportMonthlyReportButton({
       lines.push('')
     }
 
-    // 5. Activity by Project Type
+    // 6. Activity by Project Type
     lines.push('"ACTIVITY BY PROJECT TYPE"')
     lines.push(`"Project Type","Incoming (${uLabel})","Usage (${uLabel})","Transfer Net (${uLabel})","Wastage (${uLabel})"`)
     Object.values(typeUsage).forEach((row: any) => {
@@ -130,7 +181,7 @@ export default function ExportMonthlyReportButton({
     })
     lines.push('')
 
-    // 6. Usage & Suspension by Project
+    // 7. Usage & Suspension by Project
     lines.push('"USAGE & SUSPENSION BY PROJECT"')
     lines.push(`"Project Name","Project Type","Usage (${uLabel})","Suspended (${uLabel})"`)
     Object.values(projectUsage).forEach((row: any) => {
@@ -159,7 +210,7 @@ export default function ExportMonthlyReportButton({
   return (
     <button
       onClick={exportReport}
-      className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition shadow-xs"
+      className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition shadow-xs cursor-pointer"
       title="Download complete detailed monthly report spreadsheet"
     >
       <Download className="w-4 h-4" />

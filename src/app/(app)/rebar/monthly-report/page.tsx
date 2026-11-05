@@ -61,9 +61,9 @@ export default function MonthlyReportPage() {
     setLoading(true)
     const [txRes, stRes, prevStRes] = await Promise.all([
       supabase.from('transactions')
-        .select('quantity, type, transaction_date, size_id, project_id, project_type_id, rebar_sizes(size), projects(name, project_type_id), project_types(name)')
+        .select('quantity, type, transaction_date, size_id, project_id, project_type_id, supplier, rebar_sizes(size), projects(name, project_type_id), project_types(name)')
         .lte('transaction_date', endDate),
-      supabase.from('stock_takes').select('id, size_id, physical_count, system_balance, variance, stock_take_date, project_type_id, project_types(name), rebar_sizes(size)')
+      supabase.from('stock_takes').select('id, size_id, physical_count, system_balance, variance, stock_take_date, project_type_id, supplier, project_types(name), rebar_sizes(size)')
         .gte('stock_take_date', startDate)
         .lte('stock_take_date', endDate)
         .order('stock_take_date', { ascending: true }),
@@ -265,6 +265,43 @@ export default function MonthlyReportPage() {
     }
   })
 
+  // Incoming Rebar by Supplier
+  const incomingTxs = txs.filter(t => t.type === 'incoming')
+  const incomingSizeIds = new Set(incomingTxs.map(t => t.size_id).filter(Boolean))
+  const incomingSizes = sizes.filter(s => incomingSizeIds.has(s.id))
+  const reportSizes = incomingSizes.length > 0 ? incomingSizes : sizes
+
+  interface SupplierIncomingRow {
+    supplier: string
+    deliveriesCount: number
+    sizes: Record<string, number>
+    totalIncoming: number
+  }
+
+  const supplierIncomingMap: Record<string, SupplierIncomingRow> = {}
+
+  incomingTxs.forEach(t => {
+    const sName = (t.supplier && String(t.supplier).trim()) ? String(t.supplier).trim() : 'Unassigned / Not Specified'
+    if (!supplierIncomingMap[sName]) {
+      supplierIncomingMap[sName] = {
+        supplier: sName,
+        deliveriesCount: 0,
+        sizes: {},
+        totalIncoming: 0,
+      }
+    }
+    supplierIncomingMap[sName].deliveriesCount += 1
+    const q = Number(t.quantity || 0)
+    if (t.size_id) {
+      supplierIncomingMap[sName].sizes[t.size_id] = (supplierIncomingMap[sName].sizes[t.size_id] || 0) + q
+    }
+    supplierIncomingMap[sName].totalIncoming += q
+  })
+
+  const supplierIncomingRows = Object.values(supplierIncomingMap).sort((a, b) => b.totalIncoming - a.totalIncoming)
+  const totalIncomingSum = supplierIncomingRows.reduce((sum, s) => sum + s.totalIncoming, 0)
+  const totalDeliveriesCount = supplierIncomingRows.reduce((sum, s) => sum + s.deliveriesCount, 0)
+
   function fmt(n: number) { return n === 0 ? '-' : fmtQtyNum(n, unit) }
 
   function applyFilters(e: React.FormEvent) {
@@ -325,6 +362,9 @@ export default function MonthlyReportPage() {
             typeUsage={typeUsage}
             projectUsage={projectUsage}
             unit={unit}
+            supplierIncomingRows={supplierIncomingRows}
+            reportSizes={reportSizes}
+            totalIncomingSum={totalIncomingSum}
           />
         </div>
       </div>
@@ -470,6 +510,104 @@ export default function MonthlyReportPage() {
         </table>
       </div>
 
+      {/* Incoming Rebar by Supplier */}
+      <div className="mb-10">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <div>
+            <h2 className="text-xl font-bold text-slate-900">Incoming Rebar by Supplier</h2>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Breakdown of incoming shipments received during <strong>{monthName}</strong> by supplier and rebar size
+            </p>
+          </div>
+          {supplierIncomingRows.length > 0 && (
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-green-50 text-green-700 border border-green-200">
+              {supplierIncomingRows.length} Supplier{supplierIncomingRows.length > 1 ? 's' : ''} • {totalDeliveriesCount} Deliver{totalDeliveriesCount > 1 ? 'ies' : 'y'}
+            </span>
+          )}
+        </div>
+
+        <div className="bg-white border rounded-xl shadow-sm overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200 text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase sticky left-0 bg-gray-50 z-10 border-r">Supplier</th>
+                <th className="px-3 py-3 text-center text-xs font-semibold text-gray-500 uppercase border-r w-24">Deliveries</th>
+                {reportSizes.map(s => (
+                  <th key={s.id} className="px-3 py-3 text-right text-xs font-semibold text-gray-600 uppercase border-r whitespace-nowrap">
+                    {s.size} <br/><span className="text-[10px] text-gray-400 font-normal">({uLabel})</span>
+                  </th>
+                ))}
+                <th className="px-4 py-3 text-right text-xs font-bold text-green-700 uppercase bg-green-50/50 border-l whitespace-nowrap">
+                  Total Incoming ({uLabel})
+                </th>
+                <th className="px-3 py-3 text-right text-xs font-bold text-slate-700 uppercase bg-slate-50 border-l whitespace-nowrap w-24">
+                  Share %
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {supplierIncomingRows.map((sr, idx) => {
+                const sharePct = totalIncomingSum > 0 ? (sr.totalIncoming / totalIncomingSum) * 100 : 0
+                return (
+                  <tr key={idx} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 font-semibold text-slate-800 sticky left-0 bg-white border-r whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-green-500 shrink-0"></span>
+                        <span>{sr.supplier}</span>
+                      </div>
+                    </td>
+                    <td className="px-3 py-3 text-center text-gray-600 font-mono text-xs border-r">{sr.deliveriesCount}</td>
+                    {reportSizes.map(s => {
+                      const qty = sr.sizes[s.id]
+                      return (
+                        <td key={s.id} className="px-3 py-3 text-right border-r font-medium whitespace-nowrap text-slate-700">
+                          {qty && qty > 0 ? fmtQtyNum(qty, unit) : <span className="text-gray-300">-</span>}
+                        </td>
+                      )
+                    })}
+                    <td className="px-4 py-3 text-right font-bold text-green-700 bg-green-50/30 border-l whitespace-nowrap">
+                      +{fmtQtyNum(sr.totalIncoming, unit)}
+                    </td>
+                    <td className="px-3 py-3 text-right font-bold text-slate-700 bg-slate-50/40 border-l text-xs whitespace-nowrap">
+                      {sharePct.toFixed(1)}%
+                    </td>
+                  </tr>
+                )
+              })}
+
+              {supplierIncomingRows.length > 0 && (
+                <tr className="bg-slate-100 font-bold border-t-2 border-slate-300">
+                  <td className="px-4 py-3 sticky left-0 bg-slate-100 border-r">TOTAL</td>
+                  <td className="px-3 py-3 text-center font-mono text-xs border-r">{totalDeliveriesCount}</td>
+                  {reportSizes.map(s => {
+                    const sizeTotal = supplierIncomingRows.reduce((sum, sr) => sum + (sr.sizes[s.id] || 0), 0)
+                    return (
+                      <td key={s.id} className="px-3 py-3 text-right border-r font-bold text-slate-800 whitespace-nowrap">
+                        {sizeTotal > 0 ? fmtQtyNum(sizeTotal, unit) : '-'}
+                      </td>
+                    )
+                  })}
+                  <td className="px-4 py-3 text-right font-bold text-green-700 bg-green-100/60 border-l whitespace-nowrap">
+                    +{fmtQtyNum(totalIncomingSum, unit)}
+                  </td>
+                  <td className="px-3 py-3 text-right font-bold text-slate-800 bg-slate-200 border-l text-xs whitespace-nowrap">
+                    100.0%
+                  </td>
+                </tr>
+              )}
+
+              {supplierIncomingRows.length === 0 && (
+                <tr>
+                  <td colSpan={reportSizes.length + 4} className="px-4 py-8 text-center text-gray-400 italic">
+                    No incoming rebar transactions recorded for this month / project type filter.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       {stockTakesThisMonth.length > 0 && (
         <div className="mb-10">
           <div className="flex items-center justify-between mb-4">
@@ -484,6 +622,7 @@ export default function MonthlyReportPage() {
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Project Type</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Supplier</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Size</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Physical Count ({uLabel})</th>
                   <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">System Balance ({uLabel})</th>
@@ -503,6 +642,15 @@ export default function MonthlyReportPage() {
                         <span className={`px-2 py-0.5 rounded text-xs font-medium ${!st.project_type_id ? 'bg-amber-100 text-amber-800' : 'text-slate-700'}`}>
                           {pTypeName}
                         </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {st.supplier ? (
+                          <span className="font-semibold text-slate-800 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded text-xs">
+                            {st.supplier}
+                          </span>
+                        ) : (
+                          <span className="text-gray-400 italic text-xs">All / General</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 font-semibold">{st.rebar_sizes?.size || '-'}</td>
                       <td className="px-4 py-3 text-right font-medium">{fmtQtyNum(phys, unit)}</td>

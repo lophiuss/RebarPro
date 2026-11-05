@@ -23,6 +23,7 @@ export default function TransactionsPage() {
   const [type, setType] = useState('incoming')
   const [date, setDate] = useState(new Date().toISOString().split('T')[0])
   const [doNumber, setDoNumber] = useState('')
+  const [supplier, setSupplier] = useState('')
   const [notes, setNotes] = useState('')
   
   // Multiple entries support
@@ -34,6 +35,16 @@ export default function TransactionsPage() {
 
   const supabase = createClient()
   const uLabel = unitLabel(unit)
+
+  const knownSuppliers = React.useMemo(() => {
+    const set = new Set<string>()
+    transactions.forEach((t: any) => {
+      if (t.supplier && String(t.supplier).trim()) {
+        set.add(String(t.supplier).trim())
+      }
+    })
+    return Array.from(set).sort()
+  }, [transactions])
 
   function showSuccess(msg: string) {
     setSuccessMessage(msg)
@@ -164,6 +175,7 @@ export default function TransactionsPage() {
         project_id: isProjectTypeLevel ? null : (projectId || null),
         project_type_id: isProjectTypeLevel ? (projectTypeId || null) : null,
         size_id: ent.sizeId ? ent.sizeId : null,
+        supplier: supplier.trim() || null,
         type,
         quantity: qtyTonnes,
         transaction_date: date,
@@ -188,6 +200,7 @@ export default function TransactionsPage() {
       showSuccess(`✓ ${savedCount} ${typeLabel} transaction${savedCount > 1 ? 's' : ''} saved successfully on ${date}!`)
       setEntries([{ sizeId: sizes.length > 0 ? sizes[0].id : '', qty: '' }])
       setDoNumber('')
+      setSupplier('')
       setNotes('')
       fetchData()
     } else {
@@ -200,6 +213,7 @@ export default function TransactionsPage() {
     setEditData({
       transaction_date: tx.transaction_date,
       type: tx.type,
+      supplier: tx.supplier || '',
       quantity: toDisplayUnit(Math.abs(tx.quantity), unit),
       do_number: tx.do_number || '',
       notes: tx.notes || '',
@@ -221,6 +235,7 @@ export default function TransactionsPage() {
     const updatePayload = {
       transaction_date: editData.transaction_date,
       type: editData.type,
+      supplier: editData.supplier?.trim() || null,
       quantity: qtyTonnes,
       do_number: editData.do_number || null,
       notes: editData.notes || null,
@@ -293,7 +308,7 @@ export default function TransactionsPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
           <div>
             <label className="block text-sm font-medium mb-1">Date</label>
             <input type="date" required value={date} onChange={(e) => setDate(e.target.value)} className="w-full border rounded-md px-3 py-2" />
@@ -303,6 +318,25 @@ export default function TransactionsPage() {
             <div>
               <label className="block text-sm font-medium mb-1">DO Number <span className="text-gray-400">(Optional)</span></label>
               <input type="text" value={doNumber} onChange={(e) => setDoNumber(e.target.value)} className="w-full border rounded-md px-3 py-2" placeholder="e.g. DO-2026-001" />
+            </div>
+          )}
+
+          {type !== 'transfer' && (
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                Supplier {type === 'incoming' ? <span className="text-green-600 font-semibold">*</span> : <span className="text-gray-400">(Optional)</span>}
+              </label>
+              <input
+                type="text"
+                list="rebar-supplier-list"
+                value={supplier}
+                onChange={(e) => setSupplier(e.target.value)}
+                className="w-full border rounded-md px-3 py-2"
+                placeholder="e.g. Ann Joo, Southern Steel, BRC..."
+              />
+              <datalist id="rebar-supplier-list">
+                {knownSuppliers.map(s => <option key={s} value={s} />)}
+              </datalist>
             </div>
           )}
         </div>
@@ -441,6 +475,7 @@ export default function TransactionsPage() {
         projectTypes={projectTypes}
         sizes={sizes}
         unit={unit}
+        knownSuppliers={knownSuppliers}
         editingId={editingId}
         editData={editData}
         setEditData={setEditData}
@@ -569,7 +604,7 @@ function HeaderCell({
 }
 
 function TransactionTable({
-  transactions, projects, projectTypes, sizes, unit,
+  transactions, projects, projectTypes, sizes, unit, knownSuppliers = [],
   editingId, editData, setEditData, startEdit, saveEdit, deleteTransaction, setEditingId
 }: any) {
   const uLabel = unitLabel(unit)
@@ -578,6 +613,7 @@ function TransactionTable({
   const [filterProject, setFilterProject] = React.useState('')
   const [filterSize, setFilterSize] = React.useState('')
   const [filterType, setFilterType] = React.useState('')
+  const [filterSupplier, setFilterSupplier] = React.useState('')
   const [filterMinQty, setFilterMinQty] = React.useState('')
   const [filterMaxQty, setFilterMaxQty] = React.useState('')
   const [filterDO, setFilterDO] = React.useState('')
@@ -603,6 +639,7 @@ function TransactionTable({
     Boolean(filterProject),
     Boolean(filterSize),
     Boolean(filterType),
+    Boolean(filterSupplier),
     Boolean(filterMinQty !== '' || filterMaxQty !== ''),
     Boolean(filterDO),
     Boolean(filterNotes),
@@ -614,6 +651,7 @@ function TransactionTable({
     setFilterProject('')
     setFilterSize('')
     setFilterType('')
+    setFilterSupplier('')
     setFilterMinQty('')
     setFilterMaxQty('')
     setFilterDO('')
@@ -635,6 +673,7 @@ function TransactionTable({
         if (!s.includes(filterSize.toLowerCase())) return false
       }
       if (filterType && t.type !== filterType) return false
+      if (filterSupplier && !(t.supplier || '').toLowerCase().includes(filterSupplier.toLowerCase())) return false
       if (filterMinQty !== '' && Math.abs(Number(t.quantity || 0)) < Math.abs(toTonnes(Number(filterMinQty), unit))) return false
       if (filterMaxQty !== '' && Math.abs(Number(t.quantity || 0)) > Math.abs(toTonnes(Number(filterMaxQty), unit))) return false
       if (filterDO && !(t.do_number || '').toLowerCase().includes(filterDO.toLowerCase())) return false
@@ -661,6 +700,8 @@ function TransactionTable({
         cmp = aNum !== bNum ? aNum - bNum : aSize.localeCompare(bSize)
       } else if (sortKey === 'type') {
         cmp = (a.type || '').localeCompare(b.type || '')
+      } else if (sortKey === 'supplier') {
+        cmp = (a.supplier || '').localeCompare(b.supplier || '')
       } else if (sortKey === 'qty') {
         cmp = Number(a.quantity || 0) - Number(b.quantity || 0)
       } else if (sortKey === 'do') {
@@ -670,22 +711,23 @@ function TransactionTable({
       }
       return sortDir === 'asc' ? cmp : -cmp
     })
-  }, [transactions, filterFrom, filterTo, filterProject, filterSize, filterType, filterMinQty, filterMaxQty, filterDO, filterNotes, sortKey, sortDir, unit])
+  }, [transactions, filterFrom, filterTo, filterProject, filterSize, filterType, filterSupplier, filterMinQty, filterMaxQty, filterDO, filterNotes, sortKey, sortDir, unit])
 
   // Reset to page 1 whenever filters change
-  React.useEffect(() => { setPage(1) }, [filterFrom, filterTo, filterProject, filterSize, filterType, filterMinQty, filterMaxQty, filterDO, filterNotes, sortKey, sortDir])
+  React.useEffect(() => { setPage(1) }, [filterFrom, filterTo, filterProject, filterSize, filterType, filterSupplier, filterMinQty, filterMaxQty, filterDO, filterNotes, sortKey, sortDir])
 
   const totalPages = Math.max(1, Math.ceil(sortedAndFiltered.length / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
   const filtered = sortedAndFiltered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
   function exportCSV() {
-    const headers = ['Date', 'Project/Type', 'Size', 'Transaction Type', `Qty (${uLabel})`, 'DO Number', 'Notes']
+    const headers = ['Date', 'Project/Type', 'Size', 'Transaction Type', 'Supplier', `Qty (${uLabel})`, 'DO Number', 'Notes']
     const rows = sortedAndFiltered.map((t: any) => [
       t.transaction_date,
       t.project_types?.name ? `[Type] ${t.project_types.name}` : (t.projects?.name || ''),
       t.rebar_sizes?.size || '(Overall Combine)',
       t.type,
+      t.supplier || '',
       fmtQtyNum(t.quantity, unit),
       t.do_number || '',
       t.notes || ''
@@ -976,7 +1018,59 @@ function TransactionTable({
               </div>
             </HeaderCell>
 
-            {/* 5. Qty Header with Sort & Filter */}
+            {/* 5. Supplier Header with Sort & Filter */}
+            <HeaderCell
+              title="Supplier"
+              colKey="supplier"
+              currentSortKey={sortKey}
+              currentSortDir={sortDir}
+              onSort={handleSort}
+              isFiltered={Boolean(filterSupplier)}
+              isPopoverOpen={openPopover === 'supplier'}
+              onTogglePopover={() => setOpenPopover(p => p === 'supplier' ? null : 'supplier')}
+              onClosePopover={() => setOpenPopover(null)}
+            >
+              <div className="space-y-2">
+                <input
+                  type="text"
+                  value={filterSupplier}
+                  onChange={e => setFilterSupplier(e.target.value)}
+                  placeholder="Search supplier..."
+                  className="w-full border rounded px-2 py-1 text-xs"
+                  autoFocus
+                />
+                <div className="max-h-36 overflow-y-auto space-y-1 pr-1">
+                  {knownSuppliers.map((sName: string) => (
+                    <button
+                      key={sName}
+                      type="button"
+                      onClick={() => setFilterSupplier(filterSupplier === sName ? '' : sName)}
+                      className={`w-full text-left px-2 py-1 rounded text-[11px] truncate transition ${
+                        filterSupplier === sName
+                          ? 'bg-blue-600 text-white font-semibold'
+                          : 'hover:bg-slate-100 text-slate-700'
+                      }`}
+                    >
+                      {sName}
+                    </button>
+                  ))}
+                  {knownSuppliers.length === 0 && (
+                    <p className="text-[11px] text-gray-400 py-1 italic">No suppliers recorded yet.</p>
+                  )}
+                </div>
+                {filterSupplier && (
+                  <button
+                    type="button"
+                    onClick={() => setFilterSupplier('')}
+                    className="text-[10px] text-red-600 hover:underline block pt-1 border-t"
+                  >
+                    Clear Supplier Filter
+                  </button>
+                )}
+              </div>
+            </HeaderCell>
+
+            {/* 6. Qty Header with Sort & Filter */}
             <HeaderCell
               title={`Qty (${uLabel})`}
               colKey="qty"
@@ -1131,6 +1225,16 @@ function TransactionTable({
                       <option value="wastage">Wastage</option>
                     </select>
                   </td>
+                  <td className="px-4 py-2">
+                    <input
+                      type="text"
+                      list="rebar-supplier-list"
+                      value={editData.supplier || ''}
+                      onChange={e => setEditData({...editData, supplier: e.target.value})}
+                      placeholder="Supplier"
+                      className="border rounded px-2 py-1 w-full text-sm"
+                    />
+                  </td>
                   <td className="px-4 py-2"><input type="number" step="0.01" value={editData.quantity} onChange={e => setEditData({...editData, quantity: e.target.value})} className="border rounded px-2 py-1 w-20 text-sm" /></td>
                   <td className="px-4 py-2"><input type="text" value={editData.do_number} onChange={e => setEditData({...editData, do_number: e.target.value})} className="border rounded px-2 py-1 w-full text-sm" /></td>
                   <td className="px-4 py-2"><input type="text" value={editData.notes} onChange={e => setEditData({...editData, notes: e.target.value})} className="border rounded px-2 py-1 w-full text-sm" /></td>
@@ -1159,6 +1263,15 @@ function TransactionTable({
                       {t.type === 'unsuspend' ? 'Unsuspend' : t.type}
                     </span>
                   </td>
+                  <td className="px-3.5 py-2.5 whitespace-nowrap text-sm">
+                    {t.supplier ? (
+                      <span className="font-semibold text-slate-800 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded text-xs">
+                        {t.supplier}
+                      </span>
+                    ) : (
+                      <span className="text-gray-400 italic text-xs">-</span>
+                    )}
+                  </td>
                   <td className={`px-3.5 py-2.5 whitespace-nowrap text-sm font-semibold text-right ${t.quantity < 0 ? 'text-red-600' : 'text-green-600'}`}>
                     {fmtQtyNum(t.quantity, unit)}
                   </td>
@@ -1173,7 +1286,7 @@ function TransactionTable({
             </tr>
           ))}
           {filtered.length === 0 && (
-            <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-500">No transactions match the current filters.</td></tr>
+            <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-500">No transactions match the current filters.</td></tr>
           )}
         </tbody>
       </table>
