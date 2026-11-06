@@ -24,6 +24,8 @@ export default function MonthlyReportPage() {
   const [monthInput, setMonthInput] = useState(defaultMonthStr())
   const [selectedProjectType, setSelectedProjectType] = useState('all')
   const [projectTypeInput, setProjectTypeInput] = useState('all')
+  const [selectedSupplier, setSelectedSupplier] = useState('all')
+  const [supplierInput, setSupplierInput] = useState('all')
 
   const [unit, setUnit] = useState<DefaultUnit>('kg')
   const [rawSizes, setRawSizes] = useState<any[]>([])
@@ -67,7 +69,7 @@ export default function MonthlyReportPage() {
         .gte('stock_take_date', startDate)
         .lte('stock_take_date', endDate)
         .order('stock_take_date', { ascending: true }),
-      supabase.from('stock_takes').select('size_id, physical_count, stock_take_date, project_type_id')
+      supabase.from('stock_takes').select('size_id, physical_count, stock_take_date, project_type_id, supplier')
         .lt('stock_take_date', startDate)
         .order('stock_take_date', { ascending: false }),
     ])
@@ -96,7 +98,22 @@ export default function MonthlyReportPage() {
     ? projectTypes.find(pt => pt.id === selectedProjectType)?.name
     : undefined
 
-  const filteredAllTxs = allRawTxs.filter(t => {
+  // Supplier switch: 'all' = whole month as before; '__none__' = rows with no supplier;
+  // otherwise only transactions / stock takes tagged with that supplier.
+  const isSupplierFiltered = selectedSupplier !== 'all'
+  const matchesSupplier = (row: any) => {
+    if (!isSupplierFiltered) return true
+    const s = (row.supplier && String(row.supplier).trim()) || ''
+    return selectedSupplier === '__none__' ? s === '' : s === selectedSupplier
+  }
+  const scopedRawTxs = isSupplierFiltered ? allRawTxs.filter(matchesSupplier) : allRawTxs
+  const knownSuppliers = Array.from(new Set(
+    [...allRawTxs, ...rawStockTakesThisMonth, ...rawPrevSTs]
+      .map((r: any) => (r.supplier && String(r.supplier).trim()) || '')
+      .filter(Boolean)
+  )).sort()
+
+  const filteredAllTxs = scopedRawTxs.filter(t => {
     if (!isTypeFiltered) return true
     if (t.project_type_id === selectedProjectType) return true
     if (t.project_id && activeProjectIds.includes(t.project_id)) return true
@@ -105,13 +122,11 @@ export default function MonthlyReportPage() {
 
   const txs = filteredAllTxs.filter(t => t.transaction_date >= startDate && t.transaction_date <= endDate)
 
-  const stockTakesThisMonth = isTypeFiltered
-    ? rawStockTakesThisMonth.filter(st => st.project_type_id === selectedProjectType)
-    : rawStockTakesThisMonth
+  const stockTakesThisMonth = (isSupplierFiltered ? rawStockTakesThisMonth.filter(matchesSupplier) : rawStockTakesThisMonth)
+    .filter(st => !isTypeFiltered || st.project_type_id === selectedProjectType)
 
-  const allPrevSTs = isTypeFiltered
-    ? rawPrevSTs.filter(st => st.project_type_id === selectedProjectType)
-    : rawPrevSTs
+  const allPrevSTs = (isSupplierFiltered ? rawPrevSTs.filter(matchesSupplier) : rawPrevSTs)
+    .filter(st => !isTypeFiltered || st.project_type_id === selectedProjectType)
 
   function getOpeningBalance(sizeId: string): { balance: number; source: string } {
     let balance = 0
@@ -119,7 +134,7 @@ export default function MonthlyReportPage() {
 
     for (const pt of activeProjectTypes) {
       const pIds = projects.filter(p => p.project_type_id === pt.id).map(p => p.id)
-      const ptTxs = allRawTxs.filter(t =>
+      const ptTxs = scopedRawTxs.filter(t =>
         t.size_id === sizeId &&
         (t.project_type_id === pt.id || (t.project_id && pIds.includes(t.project_id)))
       )
@@ -148,7 +163,7 @@ export default function MonthlyReportPage() {
 
     if (!isTypeFiltered) {
       const knownProjectIds = projects.map(p => p.id)
-      const unassignedTxs = allRawTxs.filter(t =>
+      const unassignedTxs = scopedRawTxs.filter(t =>
         t.size_id === sizeId &&
         !t.project_type_id &&
         (!t.project_id || !knownProjectIds.includes(t.project_id)) &&
@@ -308,6 +323,7 @@ export default function MonthlyReportPage() {
     e.preventDefault()
     setSelectedMonth(monthInput)
     setSelectedProjectType(projectTypeInput)
+    setSelectedSupplier(supplierInput)
   }
 
   return (
@@ -320,6 +336,11 @@ export default function MonthlyReportPage() {
             {selectedProjectTypeName && (
               <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">
                 Type: {selectedProjectTypeName}
+              </span>
+            )}
+            {isSupplierFiltered && (
+              <span className="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-800">
+                Supplier: {selectedSupplier === '__none__' ? 'No supplier recorded' : selectedSupplier}
               </span>
             )}
           </p>
@@ -342,6 +363,17 @@ export default function MonthlyReportPage() {
               {projectTypes.map(pt => (
                 <option key={pt.id} value={pt.id}>{pt.name}</option>
               ))}
+            </select>            <select
+              value={supplierInput}
+              onChange={e => setSupplierInput(e.target.value)}
+              className="border rounded-lg px-3 py-1.5 text-sm bg-white font-medium text-slate-800"
+              title="Switch the month summary between suppliers"
+            >
+              <option value="all">All Suppliers</option>
+              {knownSuppliers.map(s => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+              <option value="__none__">No supplier recorded</option>
             </select>
             <button
               type="submit"
