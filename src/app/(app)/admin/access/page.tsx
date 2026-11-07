@@ -25,8 +25,8 @@ const ROLES: Record<Department, string[]> = {
   mould: ['admin', 'manager', 'supervisor'],
   qaqc: ['admin', 'manager', 'qaqc', 'purchaser', 'account'],
   // admin/manager/hr can all see wage amounts (plantpro_can_see_wages());
-  // supervisor sees hours/allocation only. See v39's RLS design.
-  plantpro: ['admin', 'manager', 'hr', 'supervisor'],
+  // supervisor sees hours/allocation only; worker can clock attendance, OT and leave.
+  plantpro: ['admin', 'manager', 'hr', 'supervisor', 'worker'],
   // admin: edits the default agenda (Settings). manager/member: run and
   // attend meetings.
   meetings: ['admin', 'manager', 'member'],

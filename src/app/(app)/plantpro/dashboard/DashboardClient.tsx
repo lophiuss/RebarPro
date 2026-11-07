@@ -2,7 +2,8 @@
 
 import { useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, Loader2, Users, Clock, TrendingUp, Wallet, Gauge } from 'lucide-react'
+import Link from 'next/link'
+import { ChevronLeft, ChevronRight, Loader2, Users, Clock, TrendingUp, Wallet, Gauge, Navigation, Flame, CalendarDays, BarChart3, ArrowLeftRight } from 'lucide-react'
 
 export type MonthStat = { month: string; workers: number; basic: number; ot: number; forecastOt: number; salary: number }
 export type DeptStat = { name: string; workers: number; salary: number; ot: number; forecastOt: number; hours: number }
@@ -92,6 +93,74 @@ export default function DashboardClient({ month, stats, depts }: { month: string
         <span className="font-semibold px-2 w-40 text-center flex items-center justify-center gap-1.5">{monthLabel(month)}{pending && <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />}</span>
         <button onClick={() => go(shiftMonth(month, 1))} className="p-1.5 hover:bg-gray-100 rounded"><ChevronRight className="w-5 h-5" /></button>
         <input type="month" value={month} onChange={e => e.target.value && go(e.target.value)} className="ml-3 border rounded-md px-2 py-1 text-sm" />
+      </div>
+
+      {/* Quick Launch Hub */}
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-6">
+        <Link
+          href="/plantpro/clock"
+          className="flex items-center gap-2 p-3 bg-white border border-slate-200 rounded-xl hover:border-blue-400 hover:shadow-xs transition group"
+        >
+          <div className="p-2 rounded-lg bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white transition">
+            <Navigation className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="text-xs font-bold text-slate-800">Clock In/Out</div>
+            <div className="text-[10px] text-slate-400">BLE &amp; GPS Presence</div>
+          </div>
+        </Link>
+
+        <Link
+          href="/plantpro/ot-live"
+          className="flex items-center gap-2 p-3 bg-white border border-slate-200 rounded-xl hover:border-amber-400 hover:shadow-xs transition group"
+        >
+          <div className="p-2 rounded-lg bg-amber-50 text-amber-600 group-hover:bg-amber-600 group-hover:text-white transition">
+            <Flame className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="text-xs font-bold text-slate-800">Live OT</div>
+            <div className="text-[10px] text-slate-400">Cap &amp; Approvals</div>
+          </div>
+        </Link>
+
+        <Link
+          href="/plantpro/leave"
+          className="flex items-center gap-2 p-3 bg-white border border-slate-200 rounded-xl hover:border-indigo-400 hover:shadow-xs transition group"
+        >
+          <div className="p-2 rounded-lg bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition">
+            <CalendarDays className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="text-xs font-bold text-slate-800">Leave</div>
+            <div className="text-[10px] text-slate-400">MC &amp; Approvals</div>
+          </div>
+        </Link>
+
+        <Link
+          href="/plantpro/workforce-analytics"
+          className="flex items-center gap-2 p-3 bg-white border border-slate-200 rounded-xl hover:border-emerald-400 hover:shadow-xs transition group"
+        >
+          <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white transition">
+            <BarChart3 className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="text-xs font-bold text-slate-800">Labor Hours</div>
+            <div className="text-[10px] text-slate-400">Hour &amp; Project Costs</div>
+          </div>
+        </Link>
+
+        <Link
+          href="/plantpro/transfers"
+          className="flex items-center gap-2 p-3 bg-white border border-slate-200 rounded-xl hover:border-purple-400 hover:shadow-xs transition group"
+        >
+          <div className="p-2 rounded-lg bg-purple-50 text-purple-600 group-hover:bg-purple-600 group-hover:text-white transition">
+            <ArrowLeftRight className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="text-xs font-bold text-slate-800">Transfers</div>
+            <div className="text-[10px] text-slate-400">Org &amp; Supervisor</div>
+          </div>
+        </Link>
       </div>
 
       <div className="grid gap-3 grid-cols-2 lg:grid-cols-5 mb-6">

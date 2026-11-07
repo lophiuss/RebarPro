@@ -129,8 +129,13 @@ export const NAV_ITEMS: Record<Department, NavItem[]> = {
     { href: '/mould/settings', label: 'Settings', icon: Settings },
   ],
   plantpro: [
+    { href: '/plantpro/clock', label: 'Clock In / Out', icon: Navigation },
+    { href: '/plantpro/ot-live', label: 'Live OT & Approvals', icon: Clock },
+    { href: '/plantpro/leave', label: 'Leave & Balances', icon: CalendarDays },
+    { href: '/plantpro/workforce-analytics', label: 'Workforce Analytics', icon: BarChart3 },
+    { href: '/plantpro/transfers', label: 'Worker Transfers', icon: ArrowLeftRight },
     { href: '/plantpro/dashboard', label: 'HR Dashboard', icon: LayoutDashboard },
-    { href: '/plantpro/ot', label: 'OT & Allocation', icon: Clock },
+    { href: '/plantpro/ot', label: 'OT Forecast Grid', icon: CalendarClock },
     { href: '/plantpro/timesheet', label: 'Timesheet', icon: ClipboardCheck },
     { href: '/plantpro/hr', label: 'HR Pay Input', icon: DollarSign },
     { href: '/plantpro/hostel', label: 'Hostel', icon: BedDouble },
@@ -638,9 +643,67 @@ export default function AppNavigation({ userEmail, fullName, departments, navPer
       </div>
 
       {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto min-w-0">
+      <main className="flex-1 overflow-y-auto min-w-0 pb-16 md:pb-0">
         {children}
       </main>
+
+      {/* Sticky Mobile Bottom Navigation for HR / Plantpro on Phone Viewports */}
+      {activeDept === 'plantpro' && (
+        <nav
+          aria-label="Mobile Bottom Navigation"
+          className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 flex items-center justify-around px-2 py-2 shadow-lg"
+        >
+          <Link
+            href="/plantpro/clock"
+            className={`flex flex-col items-center gap-1 px-3 py-1 rounded-xl text-[11px] font-medium transition ${
+              pathname === '/plantpro/clock' ? 'text-blue-400 font-bold' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Navigation className="w-5 h-5" />
+            <span>Clock</span>
+          </Link>
+
+          <Link
+            href="/plantpro/ot-live"
+            className={`flex flex-col items-center gap-1 px-3 py-1 rounded-xl text-[11px] font-medium transition ${
+              pathname === '/plantpro/ot-live' ? 'text-blue-400 font-bold' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Clock className="w-5 h-5" />
+            <span>OT</span>
+          </Link>
+
+          <Link
+            href="/plantpro/leave"
+            className={`flex flex-col items-center gap-1 px-3 py-1 rounded-xl text-[11px] font-medium transition ${
+              pathname === '/plantpro/leave' ? 'text-blue-400 font-bold' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <CalendarDays className="w-5 h-5" />
+            <span>Leave</span>
+          </Link>
+
+          <Link
+            href="/plantpro/workforce-analytics"
+            className={`flex flex-col items-center gap-1 px-3 py-1 rounded-xl text-[11px] font-medium transition ${
+              pathname === '/plantpro/workforce-analytics' ? 'text-blue-400 font-bold' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <BarChart3 className="w-5 h-5" />
+            <span>Hours</span>
+          </Link>
+
+          <Link
+            href="/plantpro/dashboard"
+            className={`flex flex-col items-center gap-1 px-3 py-1 rounded-xl text-[11px] font-medium transition ${
+              pathname === '/plantpro/dashboard' ? 'text-blue-400 font-bold' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <LayoutDashboard className="w-5 h-5" />
+            <span>HR</span>
+          </Link>
+        </nav>
+      )}
     </div>
   )
 }
