@@ -18,29 +18,22 @@ export default async function ClockPage() {
     supabase.rpc('plantpro_my_worker_id'),
   ])
 
+  const todayIso = new Date().toISOString().slice(0, 10)
+
   const [
     { data: workers },
     { data: sites },
     { data: projects },
+    { data: activeSessions },
   ] = await Promise.all([
     supabase.from('plantpro_workers').select('id, worker_no, name, line, supervisor_id').neq('status', 'Inactive').order('name'),
     supabase.from('plantpro_clock_sites').select('id, name, latitude, longitude, radius_meters').eq('is_active', true),
     supabase.from('plantpro_projects').select('id, name').eq('status', 'Active').eq('archived', false).order('name'),
-  ])
-
-  // Check today's active session for the user's linked worker (if worker)
-  let initialActiveSession = null
-  if (myWorkerId) {
-    const todayIso = new Date().toISOString().slice(0, 10)
-    const { data: active } = await supabase
-      .from('plantpro_attendance_sessions')
+    supabase.from('plantpro_attendance_sessions')
       .select('id, worker_id, work_date, clock_in_at, clock_out_at, in_method, is_outstation, outstation_location, in_distance_m, in_photo_drive_id')
-      .eq('worker_id', myWorkerId)
       .eq('work_date', todayIso)
-      .is('clock_out_at', null)
-      .maybeSingle()
-    initialActiveSession = active
-  }
+      .is('clock_out_at', null),
+  ])
 
   return (
     <ClockClient
@@ -49,7 +42,7 @@ export default async function ClockPage() {
       projects={projects || []}
       myWorkerId={myWorkerId ? Number(myWorkerId) : null}
       isStaff={!!isStaff}
-      initialActiveSession={initialActiveSession}
+      initialActiveSessions={activeSessions || []}
     />
   )
 }

@@ -1,19 +1,18 @@
 'use client'
 
-import React, { useEffect, useState, useTransition } from 'react'
+import React, { useEffect, useMemo, useState, useTransition } from 'react'
 import {
   Navigation, MapPin, CheckCircle2, Loader2, AlertCircle, Clock,
-  Smartphone, Users, Shield, Camera, Building2, Check, RefreshCw
+  Smartphone, Users, Shield, Camera, Building2, Check, RefreshCw, AlertTriangle
 } from 'lucide-react'
 import BleScannerButton from '@/components/BleScannerButton'
 import LiveCameraCapture from '@/components/LiveCameraCapture'
-import CheckpointMap from '@/components/CheckpointMap'
 import { clockInAttendance, clockOutAttendance, uploadAttendancePhoto, verifyWorkerKioskPin } from '../attendance-actions'
 
 type Worker = { id: number; worker_no: string | null; name: string; line: string | null; supervisor_id: number | null }
 type ClockSite = { id: number; name: string; latitude: number; longitude: number; radius_meters: number }
 type Project = { id: number; name: string }
-type ActiveSession = {
+export type ActiveSession = {
   id: number
   worker_id: number
   work_date: string
@@ -35,26 +34,37 @@ function haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
+const STANDARD_SHIFT_MINUTES = 8 * 60 // 480 minutes (8 hours)
+
 export default function ClockClient({
   workers,
   sites,
   projects,
   myWorkerId,
   isStaff,
-  initialActiveSession,
+  initialActiveSessions,
 }: {
   workers: Worker[]
   sites: ClockSite[]
   projects: Project[]
   myWorkerId: number | null
   isStaff: boolean
-  initialActiveSession: ActiveSession | null
+  initialActiveSessions: ActiveSession[]
 }) {
   const [isPending, startTransition] = useTransition()
+  const [activeSessions, setActiveSessions] = useState<ActiveSession[]>(initialActiveSessions)
+
+  // Default worker: personal worker id, or if staff, pick worker who is currently active (e.g. Abdul Malek) or first worker
+  const defaultWorkerId = myWorkerId || (initialActiveSessions[0]?.worker_id ?? workers[0]?.id ?? null)
   const [mode, setMode] = useState<'personal' | 'assisted'>(myWorkerId ? 'personal' : 'assisted')
-  const [selectedWorkerId, setSelectedWorkerId] = useState<number | null>(myWorkerId || (workers[0]?.id ?? null))
+  const [selectedWorkerId, setSelectedWorkerId] = useState<number | null>(defaultWorkerId)
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(projects[0]?.id ?? null)
-  const [activeSession, setActiveSession] = useState<ActiveSession | null>(initialActiveSession)
+
+  // Active session for currently selected worker
+  const activeSession = useMemo(() => {
+    if (!selectedWorkerId) return null
+    return activeSessions.find(s => s.worker_id === selectedWorkerId && !s.clock_out_at) || null
+  }, [activeSessions, selectedWorkerId])
 
   // Geolocation
   const [userLoc, setUserLoc] = useState<{ lat: number; lng: number; accuracyMeters: number } | null>(null)
@@ -76,27 +86,31 @@ export default function ClockClient({
   // Camera
   const [cameraOpen, setCameraOpen] = useState(false)
   const [cameraStage, setCameraStage] = useState<'in' | 'out'>('in')
-  const [capturedPhotoDriveId, setCapturedPhotoDriveId] = useState<string | null>(null)
   const [actionMsg, setActionMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
-  // Elapsed timer for active session
-  const [elapsedStr, setElapsedStr] = useState('00:00:00')
+  // Running elapsed timer & progress state
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
 
   useEffect(() => {
     refreshLocation()
   }, [])
 
+  // Timer loop for active session
   useEffect(() => {
-    if (!activeSession?.clock_in_at || activeSession.clock_out_at) return
-    const updateElapsed = () => {
-      const diff = Math.max(Date.now() - new Date(activeSession.clock_in_at).getTime(), 0)
-      const h = Math.floor(diff / 3600000)
-      const m = Math.floor((diff % 3600000) / 60000)
-      const s = Math.floor((diff % 60000) / 1000)
-      setElapsedStr(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`)
+    if (!activeSession?.clock_in_at || activeSession.clock_out_at) {
+      setElapsedSeconds(0)
+      return
     }
-    updateElapsed()
-    const timer = setInterval(updateElapsed, 1000)
+
+    const calcElapsed = () => {
+      const clockInMs = new Date(activeSession.clock_in_at).getTime()
+      const nowMs = Date.now()
+      const sec = Math.max(Math.floor((nowMs - clockInMs) / 1000), 0)
+      setElapsedSeconds(sec)
+    }
+
+    calcElapsed()
+    const timer = setInterval(calcElapsed, 1000)
     return () => clearInterval(timer)
   }, [activeSession])
 
@@ -145,7 +159,6 @@ export default function ClockClient({
 
   function handlePhotoCaptured(file: File, exceptionReason?: string) {
     if (exceptionReason) {
-      // Camera exception
       if (cameraStage === 'in') {
         doClockIn(null)
       } else {
@@ -159,7 +172,6 @@ export default function ClockClient({
       fd.set('photo', file)
       const res = await uploadAttendancePhoto(fd)
       if (res.ok && res.id) {
-        setCapturedPhotoDriveId(res.id)
         if (cameraStage === 'in') {
           await doClockIn(res.id)
         } else {
@@ -176,23 +188,23 @@ export default function ClockClient({
     const method = isOutstation ? 'outstation' : bleBeacon ? 'ble_beacon' : 'gps_geofence'
     const entry = mode === 'assisted' ? 'supervisor_assisted' : 'self_phone'
 
-    try {
-      const res = await clockInAttendance({
-        workerId: selectedWorkerId || undefined,
-        inMethod: method,
-        entryMode: entry,
-        siteId: selectedSite?.id || null,
-        inLat: userLoc?.lat || null,
-        inLng: userLoc?.lng || null,
-        inAccuracyM: userLoc?.accuracyMeters || null,
-        isOutstation,
-        outstationLocation: isOutstation ? outstationLocation : null,
-        outstationReason: isOutstation ? outstationReason : null,
-        inPhotoDriveId: photoId,
-        projectId: selectedProjectId,
-      })
+    const res = await clockInAttendance({
+      workerId: selectedWorkerId || undefined,
+      inMethod: method,
+      entryMode: entry,
+      siteId: selectedSite?.id || null,
+      inLat: userLoc?.lat || null,
+      inLng: userLoc?.lng || null,
+      inAccuracyM: userLoc?.accuracyMeters || null,
+      isOutstation,
+      outstationLocation: isOutstation ? outstationLocation : null,
+      outstationReason: isOutstation ? outstationReason : null,
+      inPhotoDriveId: photoId,
+      projectId: selectedProjectId,
+    })
 
-      setActiveSession({
+    if (res.ok) {
+      const newSession: ActiveSession = {
         id: res.sessionId,
         worker_id: selectedWorkerId || 0,
         work_date: new Date().toISOString().slice(0, 10),
@@ -203,12 +215,13 @@ export default function ClockClient({
         outstation_location: outstationLocation,
         in_distance_m: distanceToSite ? Math.round(distanceToSite) : null,
         in_photo_drive_id: photoId,
-      })
+      }
+      setActiveSessions(prev => [newSession, ...prev.filter(s => s.worker_id !== selectedWorkerId)])
       setActionMsg({ type: 'success', text: 'Clock-in recorded successfully!' })
       setPinVerified(false)
       setKioskPin('')
-    } catch (err: any) {
-      setActionMsg({ type: 'error', text: err?.message || 'Clock-in failed.' })
+    } else {
+      setActionMsg({ type: 'error', text: res.error })
     }
   }
 
@@ -217,28 +230,40 @@ export default function ClockClient({
     setActionMsg(null)
     const method = isOutstation ? 'outstation' : bleBeacon ? 'ble_beacon' : 'gps_geofence'
 
-    try {
-      const res = await clockOutAttendance({
-        sessionId: activeSession.id,
-        workerId: activeSession.worker_id,
-        outMethod: method,
-        outLat: userLoc?.lat || null,
-        outLng: userLoc?.lng || null,
-        outPhotoDriveId: photoId,
-        projectSplits: selectedProjectId ? [{ projectId: selectedProjectId, percentage: 100 }] : undefined,
-      })
+    const res = await clockOutAttendance({
+      sessionId: activeSession.id,
+      workerId: activeSession.worker_id,
+      outMethod: method,
+      outLat: userLoc?.lat || null,
+      outLng: userLoc?.lng || null,
+      outPhotoDriveId: photoId,
+      projectSplits: selectedProjectId ? [{ projectId: selectedProjectId, percentage: 100 }] : undefined,
+    })
 
-      setActiveSession(null)
+    if (res.ok) {
+      setActiveSessions(prev => prev.filter(s => s.id !== activeSession.id))
       setActionMsg({
         type: 'success',
         text: `Clock-out recorded! Worked ${(res.workedMinutes / 60).toFixed(1)}h (${res.basicHoursCredited}h basic credited).`,
       })
       setPinVerified(false)
       setKioskPin('')
-    } catch (err: any) {
-      setActionMsg({ type: 'error', text: err?.message || 'Clock-out failed.' })
+    } else {
+      setActionMsg({ type: 'error', text: res.error })
     }
   }
+
+  // Progress Bar Calculations
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60)
+  const isExceeded = elapsedMinutes > STANDARD_SHIFT_MINUTES
+  const progressPercent = Math.min((elapsedMinutes / STANDARD_SHIFT_MINUTES) * 100, 100)
+
+  const hoursDisplay = Math.floor(elapsedSeconds / 3600)
+  const minsDisplay = Math.floor((elapsedSeconds % 3600) / 60)
+  const secsDisplay = elapsedSeconds % 60
+  const formattedElapsed = `${String(hoursDisplay).padStart(2, '0')}:${String(minsDisplay).padStart(2, '0')}:${String(secsDisplay).padStart(2, '0')}`
+
+  const selectedWorker = workers.find(w => w.id === selectedWorkerId)
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-20">
@@ -279,6 +304,42 @@ export default function ClockClient({
           </div>
         )}
       </div>
+
+      {/* Currently Clocked-In Quick Bar */}
+      {activeSessions.length > 0 && (
+        <div className="bg-blue-50/80 border border-blue-200 rounded-2xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-2 text-blue-900 font-semibold">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+            <span>Currently Clocked In Today ({activeSessions.length} workers):</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {activeSessions.map(s => {
+              const w = workers.find(x => x.id === s.worker_id)
+              const isSelected = s.worker_id === selectedWorkerId
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedWorkerId(s.worker_id)
+                    setPinVerified(true)
+                  }}
+                  className={`px-2.5 py-1 rounded-lg font-medium text-xs transition border flex items-center gap-1.5 ${
+                    isSelected
+                      ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                      : 'bg-white text-blue-800 border-blue-200 hover:bg-blue-100'
+                  }`}
+                >
+                  <span>{w?.name || `Worker #${s.worker_id}`}</span>
+                  <span className="text-[10px] opacity-80">
+                    ({new Date(s.clock_in_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {actionMsg && (
         <div
@@ -390,22 +451,31 @@ export default function ClockClient({
         {/* Center / Right Column: Active Punch & Worker Card */}
         <div className="md:col-span-2 space-y-4">
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs flex flex-col items-center justify-center text-center">
-            {/* Assisted Worker Picker & PIN Pad */}
+            {/* Worker Selector */}
+            <div className="w-full max-w-sm mb-4 text-left">
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                {mode === 'assisted' ? 'Assisted Worker Clocking' : 'Clocking Profile'}
+              </label>
+              <select
+                value={selectedWorkerId || ''}
+                onChange={e => {
+                  const wid = Number(e.target.value) || null
+                  setSelectedWorkerId(wid)
+                  setPinVerified(false)
+                }}
+                className="w-full text-xs border border-slate-300 rounded-xl p-2.5 bg-white font-medium"
+              >
+                {workers.map(w => (
+                  <option key={w.id} value={w.id}>
+                    {w.name} {w.worker_no ? `(${w.worker_no})` : ''} · {w.line || 'Unassigned'}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Assisted PIN Pad if not verified and not clocked in */}
             {mode === 'assisted' && !pinVerified && !activeSession && (
               <div className="w-full max-w-sm mb-6 space-y-3">
-                <label className="block text-xs font-semibold text-slate-700 text-left">Select Worker</label>
-                <select
-                  value={selectedWorkerId || ''}
-                  onChange={e => setSelectedWorkerId(Number(e.target.value) || null)}
-                  className="w-full text-xs border border-slate-300 rounded-xl p-2.5 bg-white"
-                >
-                  {workers.map(w => (
-                    <option key={w.id} value={w.id}>
-                      {w.name} {w.worker_no ? `(${w.worker_no})` : ''} · {w.line || 'Unassigned'}
-                    </option>
-                  ))}
-                </select>
-
                 <div className="flex gap-2">
                   <input
                     type="password"
@@ -424,26 +494,84 @@ export default function ClockClient({
                   </button>
                 </div>
                 {pinError && <p className="text-xs text-red-500 text-left">{pinError}</p>}
-                <p className="text-[11px] text-slate-400 text-left">Default PIN is 1234 if not customized in Access Control.</p>
+                <p className="text-[11px] text-slate-400 text-left">Default PIN is 1234 if not customized.</p>
               </div>
             )}
 
-            {/* Current Active Status */}
+            {/* Current Active Status & Progress Bar */}
             {activeSession ? (
-              <div className="w-full flex flex-col items-center py-4">
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 text-xs font-semibold mb-4">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                  Currently Clocked In
+              <div className="w-full flex flex-col items-center py-2">
+                <div
+                  className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold mb-3 ${
+                    isExceeded
+                      ? 'bg-red-100 text-red-800 border border-red-300'
+                      : 'bg-emerald-100 text-emerald-800'
+                  }`}
+                >
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      isExceeded ? 'bg-red-600 animate-ping' : 'bg-emerald-500 animate-pulse'
+                    }`}
+                  />
+                  {isExceeded ? 'Shift Exceeded 8h (Overtime Alert)' : 'Currently Clocked In'}
                 </div>
 
-                <div className="text-5xl font-extrabold font-mono text-slate-900 tracking-tight mb-2">
-                  {elapsedStr}
+                <div className="text-xs font-medium text-slate-500 mb-1">
+                  Worker: <span className="font-bold text-slate-900">{selectedWorker?.name}</span>
                 </div>
-                <p className="text-xs text-slate-500 mb-6">
+
+                {/* Digital Timer */}
+                <div
+                  className={`text-5xl font-extrabold font-mono tracking-tight mb-2 ${
+                    isExceeded ? 'text-red-600' : 'text-slate-900'
+                  }`}
+                >
+                  {formattedElapsed}
+                </div>
+
+                <p className="text-xs text-slate-500 mb-4">
                   Clocked in at {new Date(activeSession.clock_in_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} via{' '}
                   <span className="font-semibold capitalize">{activeSession.in_method.replace('_', ' ')}</span>
                   {activeSession.is_outstation && ` (${activeSession.outstation_location || 'Outstation'})`}
                 </p>
+
+                {/* PROGRESS BAR LOADING */}
+                <div className="w-full max-w-md bg-slate-50 border border-slate-200 rounded-2xl p-4 mb-6 text-left space-y-2">
+                  <div className="flex items-center justify-between text-xs font-semibold">
+                    <span className={isExceeded ? 'text-red-700 font-bold flex items-center gap-1' : 'text-slate-700'}>
+                      {isExceeded ? (
+                        <>
+                          <AlertTriangle className="w-3.5 h-3.5 text-red-600" />
+                          Exceeded 8h Limit (+{Math.floor((elapsedMinutes - STANDARD_SHIFT_MINUTES) / 60)}h{' '}
+                          {(elapsedMinutes - STANDARD_SHIFT_MINUTES) % 60}m)
+                        </>
+                      ) : (
+                        `Shift Progress: ${Math.floor(elapsedMinutes / 60)}h ${elapsedMinutes % 60}m / 8h 00m`
+                      )}
+                    </span>
+                    <span className={`font-mono ${isExceeded ? 'text-red-600 font-extrabold' : 'text-slate-500'}`}>
+                      {progressPercent.toFixed(1)}%
+                    </span>
+                  </div>
+
+                  {/* Visual Bar: Blue when normal, Red when exceeded */}
+                  <div className="w-full bg-slate-200 h-3 rounded-full overflow-hidden p-0.5 relative">
+                    <div
+                      className={`h-full rounded-full transition-all duration-1000 ease-linear ${
+                        isExceeded
+                          ? 'bg-red-600 shadow-md shadow-red-500/50 animate-pulse'
+                          : 'bg-gradient-to-r from-blue-500 to-indigo-600'
+                      }`}
+                      style={{ width: `${progressPercent}%` }}
+                    />
+                  </div>
+
+                  {isExceeded && (
+                    <p className="text-[11px] text-red-600 bg-red-50 p-2 rounded-lg border border-red-200 mt-2 font-medium">
+                      ⚠️ Worker has exceeded the standard 8-hour shift. Please clock out or allocate an authorized overtime session.
+                    </p>
+                  )}
+                </div>
 
                 <button
                   type="button"
@@ -461,7 +589,9 @@ export default function ClockClient({
                   <Clock className="w-10 h-10" />
                 </div>
 
-                <h2 className="text-lg font-bold text-slate-900 mb-1">Ready to Start Shift</h2>
+                <h2 className="text-lg font-bold text-slate-900 mb-1">
+                  Ready to Start Shift {selectedWorker ? `for ${selectedWorker.name}` : ''}
+                </h2>
                 <p className="text-xs text-slate-500 max-w-xs mb-6">
                   {isOutstation
                     ? 'Outstation mode selected. Live GPS & site photo will be recorded.'

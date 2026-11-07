@@ -3,7 +3,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { getSignedInUser } from '@/lib/supabase/user'
 import { uploadToDrive } from '@/lib/google-drive'
-import { Readable } from 'node:stream'
 import { revalidatePath } from 'next/cache'
 
 async function requirePlantproAuth() {
@@ -42,20 +41,22 @@ export async function uploadAttendancePhoto(fd: FormData): Promise<{ ok: boolean
 }
 
 export async function verifyWorkerKioskPin(workerId: number, pin: string): Promise<boolean> {
-  const { supabase } = await requirePlantproAuth()
-  const { data: worker } = await supabase
-    .from('plantpro_workers')
-    .select('clock_pin_hash')
-    .eq('id', workerId)
-    .single()
+  try {
+    const { supabase } = await requirePlantproAuth()
+    const { data: worker } = await supabase
+      .from('plantpro_workers')
+      .select('clock_pin_hash')
+      .eq('id', workerId)
+      .single()
 
-  if (!worker || !worker.clock_pin_hash) {
-    // If no pin is set yet, 1234 or empty is accepted for onboarding
-    return pin === '1234' || pin === '0000' || !pin
+    if (!worker || !worker.clock_pin_hash) {
+      return pin === '1234' || pin === '0000' || !pin
+    }
+
+    return worker.clock_pin_hash === pin || worker.clock_pin_hash === `hash:${pin}`
+  } catch {
+    return false
   }
-
-  // Simple clean hash or plain compare for factory floor PIN
-  return worker.clock_pin_hash === pin || worker.clock_pin_hash === `hash:${pin}`
 }
 
 export type ClockInPayload = {
@@ -75,97 +76,112 @@ export type ClockInPayload = {
   qrToken?: string | null
 }
 
-export async function clockInAttendance(payload: ClockInPayload) {
-  const { supabase, user, isStaff, myWorkerId } = await requirePlantproAuth()
-  const targetWorkerId = payload.workerId ? Number(payload.workerId) : myWorkerId
-  if (!targetWorkerId) throw new Error('Worker ID is required')
+export type ClockInResult =
+  | { ok: true; sessionId: number; message?: string }
+  | { ok: false; error: string }
 
-  if (!isStaff && targetWorkerId !== myWorkerId) {
-    throw new Error('You may only clock in for yourself.')
-  }
+export async function clockInAttendance(payload: ClockInPayload): Promise<ClockInResult> {
+  try {
+    const { supabase, user, isStaff, myWorkerId } = await requirePlantproAuth()
+    const targetWorkerId = payload.workerId ? Number(payload.workerId) : myWorkerId
+    if (!targetWorkerId) {
+      return { ok: false, error: 'Worker ID is required.' }
+    }
 
-  const todayIso = new Date().toISOString().slice(0, 10)
+    if (!isStaff && targetWorkerId !== myWorkerId) {
+      return { ok: false, error: 'You may only clock in for yourself.' }
+    }
 
-  // Check if already clocked in today without clocking out
-  const { data: existingActive } = await supabase
-    .from('plantpro_attendance_sessions')
-    .select('id, clock_in_at')
-    .eq('worker_id', targetWorkerId)
-    .eq('work_date', todayIso)
-    .is('clock_out_at', null)
-    .maybeSingle()
+    const todayIso = new Date().toISOString().slice(0, 10)
 
-  if (existingActive) {
-    throw new Error('Worker is already clocked in today without clocking out.')
-  }
+    // Check if already clocked in today without clocking out
+    const { data: existingActive } = await supabase
+      .from('plantpro_attendance_sessions')
+      .select('id, clock_in_at')
+      .eq('worker_id', targetWorkerId)
+      .eq('work_date', todayIso)
+      .is('clock_out_at', null)
+      .maybeSingle()
 
-  // Geofence distance calculation if site provided
-  let distanceMeters: number | null = null
-  const exceptionFlags: string[] = []
-
-  if (payload.siteId && payload.inLat && payload.inLng) {
-    const { data: site } = await supabase
-      .from('plantpro_clock_sites')
-      .select('latitude, longitude, radius_meters')
-      .eq('id', payload.siteId)
-      .single()
-
-    if (site) {
-      distanceMeters = haversineMeters(payload.inLat, payload.inLng, site.latitude, site.longitude)
-      const allowedRadius = Math.max(site.radius_meters + Math.min(payload.inAccuracyM || 0, 30), 40)
-      if (distanceMeters > allowedRadius && !payload.isOutstation) {
-        exceptionFlags.push('outside_geofence')
+    if (existingActive) {
+      return {
+        ok: false,
+        error: `Worker is already clocked in today (since ${new Date(existingActive.clock_in_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}). Please clock out first.`,
       }
     }
+
+    // Geofence distance calculation if site provided
+    let distanceMeters: number | null = null
+    const exceptionFlags: string[] = []
+
+    if (payload.siteId && payload.inLat && payload.inLng) {
+      const { data: site } = await supabase
+        .from('plantpro_clock_sites')
+        .select('latitude, longitude, radius_meters')
+        .eq('id', payload.siteId)
+        .single()
+
+      if (site) {
+        distanceMeters = haversineMeters(payload.inLat, payload.inLng, site.latitude, site.longitude)
+        const allowedRadius = Math.max(site.radius_meters + Math.min(payload.inAccuracyM || 0, 30), 40)
+        if (distanceMeters > allowedRadius && !payload.isOutstation) {
+          exceptionFlags.push('outside_geofence')
+        }
+      }
+    }
+
+    if (payload.isOutstation) {
+      exceptionFlags.push('outstation')
+    }
+
+    if (payload.inAccuracyM && payload.inAccuracyM > 150) {
+      exceptionFlags.push('location_low_accuracy')
+    }
+
+    const { data: session, error } = await supabase
+      .from('plantpro_attendance_sessions')
+      .insert({
+        worker_id: targetWorkerId,
+        work_date: todayIso,
+        clock_in_at: new Date().toISOString(),
+        entry_mode: payload.entryMode,
+        in_method: payload.inMethod,
+        site_id: payload.siteId || null,
+        beacon_id: payload.beaconId || null,
+        in_lat: payload.inLat || null,
+        in_lng: payload.inLng || null,
+        in_accuracy_m: payload.inAccuracyM || null,
+        in_distance_m: distanceMeters ? Math.round(distanceMeters) : null,
+        is_outstation: !!payload.isOutstation,
+        outstation_location: payload.outstationLocation || null,
+        outstation_reason: payload.outstationReason || null,
+        outstation_status: payload.isOutstation ? 'pending' : 'not_applicable',
+        in_photo_drive_id: payload.inPhotoDriveId || null,
+        exception_flags: exceptionFlags,
+        recorded_by: user.id,
+      })
+      .select('id')
+      .single()
+
+    if (error) {
+      return { ok: false, error: error.message || 'Database error creating clock-in record.' }
+    }
+
+    // If initial project specified, record in project splits
+    if (payload.projectId) {
+      await supabase.from('plantpro_attendance_project_splits').insert({
+        attendance_id: session.id,
+        project_id: payload.projectId,
+        minutes: 0,
+        percentage: 100,
+      })
+    }
+
+    revalidatePath('/plantpro/clock')
+    return { ok: true, sessionId: session.id }
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'Unexpected clock-in failure.' }
   }
-
-  if (payload.isOutstation) {
-    exceptionFlags.push('outstation')
-  }
-
-  if (payload.inAccuracyM && payload.inAccuracyM > 150) {
-    exceptionFlags.push('location_low_accuracy')
-  }
-
-  const { data: session, error } = await supabase
-    .from('plantpro_attendance_sessions')
-    .insert({
-      worker_id: targetWorkerId,
-      work_date: todayIso,
-      clock_in_at: new Date().toISOString(),
-      entry_mode: payload.entryMode,
-      in_method: payload.inMethod,
-      site_id: payload.siteId || null,
-      beacon_id: payload.beaconId || null,
-      in_lat: payload.inLat || null,
-      in_lng: payload.inLng || null,
-      in_accuracy_m: payload.inAccuracyM || null,
-      in_distance_m: distanceMeters ? Math.round(distanceMeters) : null,
-      is_outstation: !!payload.isOutstation,
-      outstation_location: payload.outstationLocation || null,
-      outstation_reason: payload.outstationReason || null,
-      outstation_status: payload.isOutstation ? 'pending' : 'not_applicable',
-      in_photo_drive_id: payload.inPhotoDriveId || null,
-      exception_flags: exceptionFlags,
-      recorded_by: user.id,
-    })
-    .select('id')
-    .single()
-
-  if (error) throw error
-
-  // If initial project specified, record in project splits
-  if (payload.projectId) {
-    await supabase.from('plantpro_attendance_project_splits').insert({
-      attendance_id: session.id,
-      project_id: payload.projectId,
-      minutes: 0,
-      percentage: 100,
-    })
-  }
-
-  revalidatePath('/plantpro/clock')
-  return { ok: true, sessionId: session.id }
 }
 
 export type ClockOutPayload = {
@@ -178,106 +194,125 @@ export type ClockOutPayload = {
   projectSplits?: { projectId: number; percentage: number; minutes?: number; taskNote?: string }[]
 }
 
-export async function clockOutAttendance(payload: ClockOutPayload) {
-  const { supabase, user, isStaff, myWorkerId } = await requirePlantproAuth()
-  const now = new Date()
-  const todayIso = now.toISOString().slice(0, 10)
+export type ClockOutResult =
+  | { ok: true; workedMinutes: number; basicHoursCredited: number }
+  | { ok: false; error: string }
 
-  let sessionQuery = supabase.from('plantpro_attendance_sessions').select('*')
-  if (payload.sessionId) {
-    sessionQuery = sessionQuery.eq('id', payload.sessionId)
-  } else {
-    const targetWorkerId = payload.workerId ? Number(payload.workerId) : myWorkerId
-    if (!targetWorkerId) throw new Error('Worker ID is required')
-    sessionQuery = sessionQuery.eq('worker_id', targetWorkerId).is('clock_out_at', null).order('clock_in_at', { ascending: false }).limit(1)
+export async function clockOutAttendance(payload: ClockOutPayload): Promise<ClockOutResult> {
+  try {
+    const { supabase, isStaff, myWorkerId } = await requirePlantproAuth()
+    const now = new Date()
+
+    let sessionQuery = supabase.from('plantpro_attendance_sessions').select('*')
+    if (payload.sessionId) {
+      sessionQuery = sessionQuery.eq('id', payload.sessionId)
+    } else {
+      const targetWorkerId = payload.workerId ? Number(payload.workerId) : myWorkerId
+      if (!targetWorkerId) return { ok: false, error: 'Worker ID is required.' }
+      sessionQuery = sessionQuery
+        .eq('worker_id', targetWorkerId)
+        .is('clock_out_at', null)
+        .order('clock_in_at', { ascending: false })
+        .limit(1)
+    }
+
+    const { data: session, error: findErr } = await sessionQuery.maybeSingle()
+    if (findErr || !session) {
+      return { ok: false, error: 'No active clock-in session found to clock out.' }
+    }
+
+    if (!isStaff && session.worker_id !== myWorkerId) {
+      return { ok: false, error: 'You may only clock out for yourself.' }
+    }
+
+    const clockInTime = new Date(session.clock_in_at).getTime()
+    const clockOutTime = now.getTime()
+    const totalMinutes = Math.max(Math.round((clockOutTime - clockInTime) / (1000 * 60)), 0)
+
+    // Standard break deduction (60m if worked > 5h)
+    const breakMinutes = totalMinutes > 300 ? 60 : 0
+    const workedMinutes = Math.max(totalMinutes - breakMinutes, 0)
+    const basicHoursCredited = Math.min(Math.round((workedMinutes / 60) * 100) / 100, 8)
+
+    const exceptionFlags = [...(session.exception_flags || [])]
+    if (totalMinutes < 240) {
+      exceptionFlags.push('short_day')
+    }
+
+    const { error: updateErr } = await supabase
+      .from('plantpro_attendance_sessions')
+      .update({
+        clock_out_at: now.toISOString(),
+        out_method: payload.outMethod,
+        out_lat: payload.outLat || null,
+        out_lng: payload.outLng || null,
+        out_photo_drive_id: payload.outPhotoDriveId || null,
+        break_minutes: breakMinutes,
+        worked_minutes: workedMinutes,
+        basic_hours_credited: basicHoursCredited,
+        exception_flags: Array.from(new Set(exceptionFlags)),
+      })
+      .eq('id', session.id)
+
+    if (updateErr) {
+      return { ok: false, error: updateErr.message || 'Failed to update clock-out.' }
+    }
+
+    // Save project splits if provided
+    if (payload.projectSplits && payload.projectSplits.length > 0) {
+      await supabase.from('plantpro_attendance_project_splits').delete().eq('attendance_id', session.id)
+      const splits = payload.projectSplits.map(s => ({
+        attendance_id: session.id,
+        project_id: s.projectId,
+        minutes: Math.round((workedMinutes * s.percentage) / 100),
+        percentage: s.percentage,
+        task_note: s.taskNote || null,
+      }))
+      await supabase.from('plantpro_attendance_project_splits').insert(splits)
+    }
+
+    // Auto-sync basic hours to plantpro_timesheet_days if not pending outstation review
+    if (session.outstation_status !== 'pending') {
+      await syncWorkerDayBasicToTimesheet(supabase, session.worker_id, session.work_date, basicHoursCredited)
+    }
+
+    revalidatePath('/plantpro/clock')
+    revalidatePath('/plantpro/timesheet')
+    return { ok: true, workedMinutes, basicHoursCredited }
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'Unexpected clock-out failure.' }
   }
-
-  const { data: session, error: findErr } = await sessionQuery.maybeSingle()
-  if (findErr || !session) throw new Error('No active clock-in session found to clock out.')
-
-  if (!isStaff && session.worker_id !== myWorkerId) {
-    throw new Error('You may only clock out for yourself.')
-  }
-
-  const clockInTime = new Date(session.clock_in_at).getTime()
-  const clockOutTime = now.getTime()
-  const totalMinutes = Math.max(Math.round((clockOutTime - clockInTime) / (1000 * 60)), 0)
-
-  // Standard break deduction (60m if worked > 5h)
-  const breakMinutes = totalMinutes > 300 ? 60 : 0
-  const workedMinutes = Math.max(totalMinutes - breakMinutes, 0)
-  const basicHoursCredited = Math.min(Math.round((workedMinutes / 60) * 100) / 100, 8)
-
-  const exceptionFlags = [...(session.exception_flags || [])]
-  if (totalMinutes < 240) {
-    exceptionFlags.push('short_day')
-  }
-
-  const { error: updateErr } = await supabase
-    .from('plantpro_attendance_sessions')
-    .update({
-      clock_out_at: now.toISOString(),
-      out_method: payload.outMethod,
-      out_lat: payload.outLat || null,
-      out_lng: payload.outLng || null,
-      out_photo_drive_id: payload.outPhotoDriveId || null,
-      break_minutes: breakMinutes,
-      worked_minutes: workedMinutes,
-      basic_hours_credited: basicHoursCredited,
-      exception_flags: Array.from(new Set(exceptionFlags)),
-    })
-    .eq('id', session.id)
-
-  if (updateErr) throw updateErr
-
-  // Save project splits if provided
-  if (payload.projectSplits && payload.projectSplits.length > 0) {
-    await supabase.from('plantpro_attendance_project_splits').delete().eq('attendance_id', session.id)
-    const splits = payload.projectSplits.map(s => ({
-      attendance_id: session.id,
-      project_id: s.projectId,
-      minutes: Math.round((workedMinutes * s.percentage) / 100),
-      percentage: s.percentage,
-      task_note: s.taskNote || null,
-    }))
-    await supabase.from('plantpro_attendance_project_splits').insert(splits)
-  }
-
-  // Auto-sync basic hours to plantpro_timesheet_days if not pending outstation review
-  if (session.outstation_status !== 'pending') {
-    await syncWorkerDayBasicToTimesheet(supabase, session.worker_id, session.work_date, basicHoursCredited)
-  }
-
-  revalidatePath('/plantpro/clock')
-  revalidatePath('/plantpro/timesheet')
-  return { ok: true, workedMinutes, basicHoursCredited }
 }
 
 export async function reviewOutstationAttendance(id: number, decision: 'approved' | 'rejected', reason?: string) {
-  const { supabase, user, isStaff } = await requirePlantproAuth()
-  if (!isStaff) throw new Error('Only supervisors or managers can review outstation attendance.')
+  try {
+    const { supabase, user, isStaff } = await requirePlantproAuth()
+    if (!isStaff) return { ok: false, error: 'Only supervisors or managers can review outstation attendance.' }
 
-  const { data: session } = await supabase.from('plantpro_attendance_sessions').select('*').eq('id', id).single()
-  if (!session) throw new Error('Attendance session not found')
+    const { data: session } = await supabase.from('plantpro_attendance_sessions').select('*').eq('id', id).single()
+    if (!session) return { ok: false, error: 'Attendance session not found.' }
 
-  const { error } = await supabase
-    .from('plantpro_attendance_sessions')
-    .update({
-      outstation_status: decision,
-      outstation_reviewed_by: user.id,
-      adjustment_reason: reason || null,
-    })
-    .eq('id', id)
+    const { error } = await supabase
+      .from('plantpro_attendance_sessions')
+      .update({
+        outstation_status: decision,
+        outstation_reviewed_by: user.id,
+        adjustment_reason: reason || null,
+      })
+      .eq('id', id)
 
-  if (error) throw error
+    if (error) return { ok: false, error: error.message }
 
-  // If approved and has clocked out, sync basic hours
-  if (decision === 'approved' && session.clock_out_at && session.basic_hours_credited > 0) {
-    await syncWorkerDayBasicToTimesheet(supabase, session.worker_id, session.work_date, session.basic_hours_credited)
+    // If approved and has clocked out, sync basic hours
+    if (decision === 'approved' && session.clock_out_at && session.basic_hours_credited > 0) {
+      await syncWorkerDayBasicToTimesheet(supabase, session.worker_id, session.work_date, session.basic_hours_credited)
+    }
+
+    revalidatePath('/plantpro/clock')
+    return { ok: true }
+  } catch (err: any) {
+    return { ok: false, error: err?.message || 'Review failed.' }
   }
-
-  revalidatePath('/plantpro/clock')
-  return { ok: true }
 }
 
 async function syncWorkerDayBasicToTimesheet(supabase: any, workerId: number, workDate: string, basicHours: number) {
