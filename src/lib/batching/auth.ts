@@ -8,7 +8,7 @@ import { timingSafeEqual } from 'node:crypto'
  *   3. Query param: `?api_key=<key>` or `?apiKey=<key>`
  */
 export function validateBatchingApiKey(req: Request): { authorized: boolean; error?: string } {
-  const configuredKey = process.env.BATCHING_API_KEY || 'bp_live_8f39a7b42c90e118c47f92b77a64e10d'
+  const configuredKey = process.env.REBAR_API_KEY || process.env.BATCHING_API_KEY || 'bp_live_8f39a7b42c90e118c47f92b77a64e10d'
   const serviceKey = process.env.SUPABASE_SECRET_KEY
 
   // 1. Try x-api-key header
