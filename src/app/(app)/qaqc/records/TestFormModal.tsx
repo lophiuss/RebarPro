@@ -66,7 +66,7 @@ export default function TestFormModal({
   const isSuper = userRole === 'admin' || userRole === 'manager'
   const canEditQaqc = isSuper || userRole === 'qaqc'
   const canEditPurchaser = isSuper || userRole === 'purchaser'
-  const canEditAccount = isSuper || userRole === 'account'
+  const canEditAccount = isSuper || userRole === 'account' || userRole === 'purchaser'
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

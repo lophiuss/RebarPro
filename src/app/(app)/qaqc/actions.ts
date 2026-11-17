@@ -511,7 +511,7 @@ export async function batchAssignQaqcInvoice(
     account_remarks?: string | null
   }
 ) {
-  const { supabase } = await requireQaqcRole(['account', 'manager', 'admin'])
+  const { supabase } = await requireQaqcRole(['account', 'purchaser', 'manager', 'admin'])
   if (!ids.length) return { ok: true, count: 0 }
 
   const invNo = invData.invoice_no.trim()

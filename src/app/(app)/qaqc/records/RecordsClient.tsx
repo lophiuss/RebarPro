@@ -358,7 +358,7 @@ export default function RecordsClient({
   const isSuper = userRole === 'admin' || userRole === 'manager'
   const canEditQaqc = isSuper || userRole === 'qaqc'
   const canEditPurchaser = isSuper || userRole === 'purchaser'
-  const canEditAccount = isSuper || userRole === 'account'
+  const canEditAccount = isSuper || userRole === 'account' || userRole === 'purchaser'
 
   // Distinct master lists
   const allProjects = useMemo(() => {
