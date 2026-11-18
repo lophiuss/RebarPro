@@ -9,10 +9,10 @@ import {
   ArrowLeftRight, ClipboardList, AlertTriangle, Factory, DoorClosed, KeyRound,
   Radio, Siren, ClipboardEdit, User, Sparkles, Wrench, CalendarClock,
   PackageSearch, Inbox, History, HelpCircle, Navigation, Hammer,
-  Users, Lock, FileBarChart, Clock, BedDouble, FileText, Upload, Target, Receipt, DollarSign, LayoutDashboard, CalendarDays, ListChecks, Network, MessagesSquare, UserCheck, LifeBuoy, PanelLeftClose, PanelLeftOpen, PenTool, UserPlus, LayoutGrid, ArrowRight
+  Users, Lock, FileBarChart, Clock, BedDouble, FileText, Upload, Target, Receipt, DollarSign, LayoutDashboard, CalendarDays, ListChecks, Network, MessagesSquare, UserCheck, LifeBuoy, PanelLeftClose, PanelLeftOpen, PenTool, UserPlus, LayoutGrid, ArrowRight, TrendingUp
 } from 'lucide-react'
 
-export type Department = 'rebar' | 'cement' | 'security' | 'maintenance' | 'mould' | 'plantpro' | 'meetings' | 'qaqc'
+export type Department = 'rebar' | 'cement' | 'security' | 'maintenance' | 'mould' | 'plantpro' | 'meetings' | 'qaqc' | 'dler'
 export type DepartmentAccess = { department: Department; role: string }
 export type NavPermission = { department: Department; role: string; nav_key: string }
 
@@ -41,6 +41,7 @@ export const DEPARTMENT_LABEL: Record<Department, string> = {
   plantpro: 'HR',
   meetings: 'Meetings',
   qaqc: 'QAQC',
+  dler: 'DLER',
 }
 
 export const DEPARTMENT_ICON: Record<Department, React.ElementType> = {
@@ -52,6 +53,7 @@ export const DEPARTMENT_ICON: Record<Department, React.ElementType> = {
   plantpro: Users,
   meetings: CalendarDays,
   qaqc: ClipboardCheck,
+  dler: TrendingUp,
 }
 
 export const DEPARTMENT_HOME: Record<Department, string> = {
@@ -63,6 +65,7 @@ export const DEPARTMENT_HOME: Record<Department, string> = {
   plantpro: '/plantpro/ot',
   meetings: '/meetings/workspace',
   qaqc: '/qaqc/records',
+  dler: '/dler',
 }
 
 const SETTINGS_HREF: Record<Department, string> = {
@@ -74,6 +77,7 @@ const SETTINGS_HREF: Record<Department, string> = {
   plantpro: '/plantpro/config',
   meetings: '/meetings/settings',
   qaqc: '/qaqc/settings',
+  dler: '/dler/config',
 }
 
 type NavItem = { href: string; label: string; icon: any }
@@ -167,6 +171,15 @@ export const NAV_ITEMS: Record<Department, NavItem[]> = {
     { href: '/qaqc/targets', label: 'Targets', icon: Target },
     { href: '/qaqc/settings', label: 'Settings', icon: Settings },
   ],
+  dler: [
+    { href: '/dler/dashboard', label: 'DLER Dashboard', icon: LayoutDashboard },
+    { href: '/dler/org-chart', label: 'Org Chart & Project %', icon: Network },
+    { href: '/dler/workers', label: 'Worker Pay & OT (Anim)', icon: Users },
+    { href: '/dler/staff', label: 'Staff Pay & OT (Laily)', icon: UserCheck },
+    { href: '/dler/m3', label: 'Daily m³ Input (David)', icon: Boxes },
+    { href: '/dler/gp', label: 'Gross Profit Input (Khai)', icon: DollarSign },
+    { href: '/dler/config', label: 'Config & Settings', icon: Settings },
+  ],
 }
 
 const SIDEBAR_KEY = 'av-sidebar-collapsed'
@@ -207,6 +220,8 @@ export default function AppNavigation({ userEmail, fullName, departments, navPer
     ? 'meetings'
     : pathname.startsWith('/qaqc')
     ? 'qaqc'
+    : pathname.startsWith('/dler')
+    ? 'dler'
     : isPortal
     ? null
     : departments[0]?.department ?? null

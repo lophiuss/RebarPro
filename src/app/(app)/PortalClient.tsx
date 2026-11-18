@@ -272,6 +272,33 @@ const MODULE_DEFINITIONS: Record<Department, ModuleInfo> = {
       { label: 'Org Chart', href: '/meetings/org-chart' },
     ],
   },
+  dler: {
+    department: 'dler',
+    name: 'DLER & Productivity',
+    category: 'corporate',
+    categoryLabel: 'Corporate & People',
+    description: 'Daily & monthly Direct Labour Efficiency Ratio (GP and m³), isolated HR pay & OT inputs, and DLER Org Chart % assignment.',
+    lightColor: {
+      bg: 'bg-teal-50 text-teal-700 border-teal-200',
+      text: 'text-teal-600',
+      border: 'border-teal-200',
+      badge: 'bg-teal-50 text-teal-700 border-teal-200',
+      hoverBorder: 'hover:border-teal-400',
+    },
+    darkColor: {
+      bg: 'bg-teal-500/10 text-teal-400 border-teal-500/30',
+      text: 'text-teal-400',
+      border: 'border-teal-500/20',
+      badge: 'bg-teal-500/10 text-teal-400 border-teal-500/30',
+      hoverBorder: 'hover:border-teal-500/50',
+    },
+    quickLinks: [
+      { label: 'Open DLER', href: '/dler' },
+      { label: 'Org Chart & %', href: '/dler/org-chart' },
+      { label: 'Daily m³', href: '/dler/m3' },
+      { label: 'Gross Profit', href: '/dler/gp' },
+    ],
+  },
 }
 
 const CATEGORY_TABS: { id: ModuleCategory; label: string }[] = [

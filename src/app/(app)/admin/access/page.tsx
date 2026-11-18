@@ -13,7 +13,7 @@ import { compressImageToTarget } from '@/lib/compressImage'
 type AccessRow = { user_id: string; department: Department; role: string }
 type NavPermRow = { department: Department; role: string; nav_key: string }
 
-const DEPT_LABEL: Record<Department, string> = { rebar: 'Rebar', cement: 'Cement', security: 'Security', maintenance: 'Maintenance', mould: 'Mould', plantpro: 'HR', meetings: 'Meetings', qaqc: 'QAQC' }
+const DEPT_LABEL: Record<Department, string> = { rebar: 'Rebar', cement: 'Cement', security: 'Security', maintenance: 'Maintenance', mould: 'Mould', plantpro: 'HR', meetings: 'Meetings', qaqc: 'QAQC', dler: 'DLER' }
 
 const ROLES: Record<Department, string[]> = {
   rebar: ['admin', 'manager', 'user'],
@@ -30,12 +30,21 @@ const ROLES: Record<Department, string[]> = {
   // admin: edits the default agenda (Settings). manager/member: run and
   // attend meetings.
   meetings: ['admin', 'manager', 'member'],
+  dler: ['admin', 'viewer', 'hr_worker', 'hr_staff', 'm3_input', 'gp_input'],
 }
 
 // Every department's top role is stored as 'admin' (so is_dept_admin() works
 // everywhere unchanged), but Security's own vocabulary calls that role "Boss".
 const ROLE_LABEL: Partial<Record<Department, Record<string, string>>> = {
   security: { admin: 'Boss' },
+  dler: {
+    admin: 'Admin',
+    viewer: 'Viewer (Dashboard)',
+    hr_worker: 'HR Worker (Anim)',
+    hr_staff: 'HR Staff (Laily)',
+    m3_input: 'm³ Input (David)',
+    gp_input: 'GP Input (Khai)',
+  },
 }
 function roleLabel(dept: Department, role: string) {
   return ROLE_LABEL[dept]?.[role] ?? role
@@ -45,7 +54,7 @@ function roleLabel(dept: Department, role: string) {
 // isn't exported (same reasoning as this page's own DEPT_LABEL/ROLES above).
 const SETTINGS_HREF: Record<Department, string> = {
   rebar: '/rebar/settings', cement: '/cement/settings', security: '/security/settings', maintenance: '/maintenance/settings',
-  mould: '/mould/settings', plantpro: '/plantpro/config', meetings: '/meetings/settings', qaqc: '/qaqc/settings',
+  mould: '/mould/settings', plantpro: '/plantpro/config', meetings: '/meetings/settings', qaqc: '/qaqc/settings', dler: '/dler/config',
 }
 
 export default function AccessControlPage() {

@@ -6,7 +6,7 @@ import { useSearchParams } from 'next/navigation'
 import {
   HelpCircle, Boxes, Factory, ShieldCheck, Wrench, Hammer,
   Users, CalendarDays, ClipboardCheck, LayoutGrid, Gauge,
-  ArrowRight, Search, CheckCircle2, AlertTriangle, BookOpen, ExternalLink
+  ArrowRight, Search, CheckCircle2, AlertTriangle, BookOpen, ExternalLink, TrendingUp
 } from 'lucide-react'
 import {
   type Department,
@@ -408,6 +408,45 @@ const MANUAL_DATA: Record<ManualSection, ModuleManual> = {
       'Inline editing allows quick updates to Marking, Date Cast, and Quantity without opening modals.',
     ],
   },
+  dler: {
+    id: 'dler',
+    title: 'DLER & Productivity Tracker',
+    subtitle: 'Daily and monthly Direct Labour Efficiency Ratio by GP and m³, with role-isolated pay & OT inputs and Org Chart project % split.',
+    icon: TrendingUp,
+    color: {
+      bg: 'bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-500/10 dark:text-teal-400 dark:border-teal-500/20',
+      text: 'text-teal-600 dark:text-teal-400',
+      border: 'border-teal-200 dark:border-teal-800',
+    },
+    roles: [
+      { role: 'Admin / Viewer', desc: 'View aggregated daily and monthly DLER by GP and m³ across departments and projects.' },
+      { role: 'HR Worker (Anim) / HR Staff (Laily)', desc: 'Maintain isolated worker or staff pay, daily OT hours, and Org Chart project % splits.' },
+      { role: 'm³ Input (David) / GP Input (Khai)', desc: 'Enter daily m³ output and monthly or daily gross profit by project and department.' },
+    ],
+    keyFeatures: [
+      {
+        title: 'Daily & Monthly DLER Dashboard',
+        steps: [
+          'Switch between GP Mode (DLER = GP / Labour Cost) and m³ Mode (Cost per m³ and m³ per RM 1k).',
+          'Toggle Daily View for single-day departmental and project performance or Monthly View for 6-month trends.',
+        ],
+        link: '/dler/dashboard',
+        linkText: 'Open DLER Dashboard',
+      },
+      {
+        title: 'DLER Org Chart & Project %',
+        steps: [
+          'Switch between Overall, By Department, and By Project views to inspect reporting hierarchy and % allocation.',
+          'Edit staff or worker reporting lines, home departments, and project % splits in Visual Tree or Matrix Table mode.',
+        ],
+        link: '/dler/org-chart',
+        linkText: 'Open Org Chart & Project %',
+      },
+    ],
+    tips: [
+      'Worker and Staff salary figures are isolated by Postgres RLS so Anim, Laily, David, and Khai never see unauthorized inputs.',
+    ],
+  },
 }
 
 function ManualContent() {
@@ -426,7 +465,7 @@ function ManualContent() {
 
   const sectionsList: ManualSection[] = [
     'portal', 'rebar', 'cement', 'security', 'maintenance',
-    'mould', 'plantpro', 'meetings', 'qaqc'
+    'mould', 'plantpro', 'meetings', 'qaqc', 'dler'
   ]
 
   const currentManual = MANUAL_DATA[activeSection] || MANUAL_DATA.portal
