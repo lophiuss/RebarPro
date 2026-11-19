@@ -1,10 +1,10 @@
 'use client'
 
-import React, { useMemo, useState, useTransition } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Network, Table2, Plus, Search, RefreshCw, Pencil, Trash2, X,
-  Building2, FolderKanban, Users, ChevronDown, ChevronRight, Minus, Maximize2, CheckCircle2, AlertTriangle,
+  Building2, FolderKanban, Users, ChevronDown, ChevronRight, Minus, Maximize2, Minimize2, Crosshair, Scan, CheckCircle2, AlertTriangle,
   ArrowUp, ArrowDown, UserPlus, Unlink, Check
 } from 'lucide-react'
 import type { DlerRole } from '../guard'
@@ -61,6 +61,19 @@ export default function OrgChartClient({
   const [showUnplacedInTree, setShowUnplacedInTree] = useState(false)
   const [unplacedExpanded, setUnplacedExpanded] = useState(true)
   const [unplacedQuery, setUnplacedQuery] = useState('')
+  const [compactTree, setCompactTree] = useState(false)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [isPanning, setIsPanning] = useState(false)
+  const canvasRef = useRef<HTMLDivElement | null>(null)
+  const treeContentRef = useRef<HTMLDivElement | null>(null)
+  const panRef = useRef<{
+    active: boolean
+    moved: boolean
+    startX: number
+    startY: number
+    scrollLeft: number
+    scrollTop: number
+  }>({ active: false, moved: false, startX: 0, startY: 0, scrollLeft: 0, scrollTop: 0 })
   const [hierarchyBusy, setHierarchyBusy] = useState(false)
   const [hierarchyError, setHierarchyError] = useState<string | null>(null)
 
@@ -408,7 +421,6 @@ export default function OrgChartClient({
       .filter(r => r.staffChildren.length === 0 && r.workers.length === 0)
       .map(r => r.person)
 
-    const displayedRoots = showUnplacedInTree ? allRootNodes : connectedRoots
     const collapsible: number[] = []
     const collectCollapsible = (n: StaffNode) => {
       if (n.staffChildren.length > 0) {
@@ -416,15 +428,109 @@ export default function OrgChartClient({
         n.staffChildren.forEach(collectCollapsible)
       }
     }
-    displayedRoots.forEach(collectCollapsible)
+    connectedRoots.forEach(collectCollapsible)
 
     return {
-      treeRoots: displayedRoots,
+      treeRoots: connectedRoots,
       unplacedStaff: isolatedStaff,
       unassignedWorkers: orphanWorkers,
       collapsibleNodeIds: collapsible,
     }
-  }, [filteredPeople, people, personMap, showUnplacedInTree])
+  }, [filteredPeople, people, personMap])
+
+  const centerCanvas = useCallback(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    canvas.scrollLeft = Math.max(0, (canvas.scrollWidth - canvas.clientWidth) / 2)
+  }, [])
+
+  const fitToScreen = useCallback(() => {
+    const canvas = canvasRef.current
+    const content = treeContentRef.current
+    if (!canvas || !content) return
+    const currentFactor = Math.max(0.1, zoom / 100)
+    const naturalWidth = content.getBoundingClientRect().width / currentFactor
+    if (!naturalWidth || naturalWidth <= 0) return
+    const availableWidth = Math.max(200, canvas.clientWidth - 64)
+    const nextZoom = Math.max(30, Math.min(100, Math.floor((availableWidth / naturalWidth) * 100)))
+    setZoom(nextZoom)
+    requestAnimationFrame(() => requestAnimationFrame(centerCanvas))
+  }, [zoom, centerCanvas])
+
+  useEffect(() => {
+    if (viewStyle !== 'tree') return
+    const raf = requestAnimationFrame(() => centerCanvas())
+    return () => cancelAnimationFrame(raf)
+  }, [viewStyle, scope, selectedDeptId, selectedProjId, typeFilter, compactTree, isFullscreen, centerCanvas])
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      const p = panRef.current
+      if (!p.active) return
+      const dx = e.clientX - p.startX
+      const dy = e.clientY - p.startY
+      if (!p.moved && Math.hypot(dx, dy) > 4) {
+        p.moved = true
+        setIsPanning(true)
+      }
+      if (p.moved && canvasRef.current) {
+        canvasRef.current.scrollLeft = p.scrollLeft - dx
+        canvasRef.current.scrollTop = p.scrollTop - dy
+      }
+    }
+    const onMouseUp = () => {
+      if (panRef.current.active) {
+        panRef.current.active = false
+        panRef.current.moved = false
+        setIsPanning(false)
+      }
+    }
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (viewStyle !== 'tree') return
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return
+      e.preventDefault()
+      const delta = e.deltaY < 0 ? 10 : -10
+      setZoom(z => Math.max(30, Math.min(130, z + delta)))
+    }
+    canvas.addEventListener('wheel', onWheel, { passive: false })
+    return () => canvas.removeEventListener('wheel', onWheel)
+  }, [viewStyle, isFullscreen])
+
+  useEffect(() => {
+    if (!isFullscreen || modalPerson || aboveModal || underModal) return
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsFullscreen(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [isFullscreen, modalPerson, aboveModal, underModal])
+
+  function handleCanvasMouseDown(e: React.MouseEvent<HTMLDivElement>) {
+    if (e.button !== 0) return
+    const target = e.target as HTMLElement | null
+    if (target?.closest('button, a, input, select, textarea, label')) return
+    const canvas = canvasRef.current
+    if (!canvas) return
+    panRef.current = {
+      active: true,
+      moved: false,
+      startX: e.clientX,
+      startY: e.clientY,
+      scrollLeft: canvas.scrollLeft,
+      scrollTop: canvas.scrollTop,
+    }
+  }
 
   function openAddModal(pt: 'STAFF' | 'WORKER', defaultParentId?: number | null) {
     setModalPerson({
@@ -756,70 +862,155 @@ export default function OrgChartClient({
 
       {/* VIEW 1: Visual Org Tree */}
       {viewStyle === 'tree' && (
-        <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
-          <div className="px-4 py-2.5 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs text-slate-500">
-              Use <strong className="text-slate-700">↑ Above</strong> or <strong className="text-slate-700">↓ Under</strong> on any card to build reporting lines without cycles.
-            </span>
-            <div className="flex flex-wrap items-center gap-2">
-              {unplacedStaff.length > 0 && (
+        <div className="space-y-5">
+          {isFullscreen && (
+            <div
+              className="fixed inset-0 z-30 bg-slate-900/40 backdrop-blur-[1px]"
+              onClick={() => setIsFullscreen(false)}
+            />
+          )}
+
+          {/* Card 1: Interactive Org Tree Canvas */}
+          <div
+            className={
+              isFullscreen
+                ? 'fixed inset-3 z-40 flex flex-col bg-white border border-slate-300 rounded-2xl shadow-2xl overflow-hidden'
+                : 'bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden flex flex-col'
+            }
+          >
+            <div className="px-4 py-2.5 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2 shrink-0">
+              <span className="text-xs text-slate-500">
+                Drag background to pan · Scroll or Ctrl+Wheel to zoom · Use <strong className="text-slate-700">↑ Above</strong> / <strong className="text-slate-700">↓ Under</strong> on cards.
+              </span>
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setShowUnplacedInTree(v => !v)}
+                  onClick={() => setCompactTree(v => !v)}
                   className={`px-2.5 py-1 text-xs rounded-lg border font-medium transition ${
-                    showUnplacedInTree
-                      ? 'bg-indigo-600 text-white border-indigo-600'
+                    compactTree
+                      ? 'bg-teal-600 text-white border-teal-600'
                       : 'bg-white text-slate-700 hover:bg-slate-100 border-slate-300'
                   }`}
+                  title="Switch between Detailed and Compact cards"
                 >
-                  {showUnplacedInTree ? 'Hide Unplaced in Tree' : `Show Unplaced in Tree (${unplacedStaff.length})`}
+                  {compactTree ? 'Compact: On' : 'Compact'}
                 </button>
-              )}
-              {collapsibleNodeIds.length > 0 && (
-                <div className="inline-flex items-center rounded-lg border bg-white text-xs overflow-hidden">
+                {unplacedStaff.length > 0 && (
                   <button
                     type="button"
-                    onClick={() => setCollapsedIds(new Set())}
-                    className="px-2.5 py-1 hover:bg-slate-50 border-r border-slate-200"
+                    onClick={() => setShowUnplacedInTree(v => !v)}
+                    className={`px-2.5 py-1 text-xs rounded-lg border font-medium transition ${
+                      showUnplacedInTree
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white text-slate-700 hover:bg-slate-100 border-slate-300'
+                    }`}
                   >
-                    Expand All
+                    {showUnplacedInTree ? 'Hide Unplaced in Tree' : `Show Unplaced in Tree (${unplacedStaff.length})`}
                   </button>
+                )}
+                {collapsibleNodeIds.length > 0 && (
+                  <div className="inline-flex items-center rounded-lg border border-slate-300 bg-white text-xs overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => setCollapsedIds(new Set())}
+                      className="px-2.5 py-1 hover:bg-slate-50 border-r border-slate-200"
+                    >
+                      Expand All
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCollapsedIds(new Set(collapsibleNodeIds))}
+                      className="px-2.5 py-1 hover:bg-slate-50"
+                    >
+                      Collapse All
+                    </button>
+                  </div>
+                )}
+                <div className="inline-flex items-center rounded-lg border border-slate-300 bg-white text-xs overflow-hidden">
                   <button
                     type="button"
-                    onClick={() => setCollapsedIds(new Set(collapsibleNodeIds))}
-                    className="px-2.5 py-1 hover:bg-slate-50"
+                    onClick={() => setZoom(z => Math.max(30, z - 10))}
+                    className="px-2 py-1 hover:bg-slate-50"
+                    title="Zoom Out"
                   >
-                    Collapse All
+                    <Minus className="w-3.5 h-3.5" />
+                  </button>
+                  <span className="px-2 tabular-nums font-medium">{zoom}%</span>
+                  <button
+                    type="button"
+                    onClick={() => setZoom(z => Math.min(130, z + 10))}
+                    className="px-2 py-1 hover:bg-slate-50"
+                    title="Zoom In"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
                   </button>
                 </div>
-              )}
-              <div className="inline-flex items-center rounded-lg border bg-white text-xs overflow-hidden">
-                <button type="button" onClick={() => setZoom(z => Math.max(50, z - 10))} className="px-2 py-1 hover:bg-slate-50"><Minus className="w-3.5 h-3.5" /></button>
-                <span className="px-2 tabular-nums font-medium">{zoom}%</span>
-                <button type="button" onClick={() => setZoom(z => Math.min(130, z + 10))} className="px-2 py-1 hover:bg-slate-50"><Plus className="w-3.5 h-3.5" /></button>
+                <button
+                  type="button"
+                  onClick={fitToScreen}
+                  className="px-2.5 py-1 text-xs rounded-lg border border-slate-300 bg-white hover:bg-slate-50 flex items-center gap-1"
+                  title="Auto-fit full tree horizontally"
+                >
+                  <Scan className="w-3 h-3" /> Fit
+                </button>
+                <button
+                  type="button"
+                  onClick={centerCanvas}
+                  className="px-2.5 py-1 text-xs rounded-lg border border-slate-300 bg-white hover:bg-slate-50 flex items-center gap-1"
+                  title="Scroll tree back to center"
+                >
+                  <Crosshair className="w-3 h-3" /> Center
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsFullscreen(v => !v)}
+                  className={`px-2.5 py-1 text-xs rounded-lg border font-medium flex items-center gap-1 transition ${
+                    isFullscreen
+                      ? 'bg-slate-900 text-white border-slate-900'
+                      : 'bg-white text-slate-700 hover:bg-slate-50 border-slate-300'
+                  }`}
+                  title={isFullscreen ? 'Exit Fullscreen (Esc)' : 'Expand Tree to Fullscreen'}
+                >
+                  {isFullscreen ? <Minimize2 className="w-3 h-3" /> : <Maximize2 className="w-3 h-3" />}
+                  {isFullscreen ? 'Exit' : 'Fullscreen'}
+                </button>
               </div>
-              <button type="button" onClick={() => setZoom(100)} className="px-2.5 py-1 text-xs rounded-lg border bg-white hover:bg-slate-50 flex items-center gap-1">
-                <Maximize2 className="w-3 h-3" /> Reset
-              </button>
             </div>
-          </div>
 
-          <div
-            className="overflow-auto p-6 min-h-[420px] bg-slate-50"
-            style={{ backgroundImage: 'radial-gradient(#cbd5e1 1px, transparent 1px)', backgroundSize: '18px 18px' }}
-          >
-            <div style={{ zoom: zoom / 100 }} className="space-y-8">
-              {treeRoots.length === 0 && unplacedStaff.length === 0 && unassignedWorkers.length === 0 ? (
-                <div className="text-center py-16 text-sm text-slate-400">No people match this filter.</div>
-              ) : (
-                <>
-                  {treeRoots.length > 0 ? (
-                    <div className="flex flex-wrap items-start justify-center gap-8">
+            <div
+              ref={canvasRef}
+              onMouseDown={handleCanvasMouseDown}
+              className={`org-chart-canvas overflow-auto bg-slate-50 ${
+                isFullscreen ? 'flex-1 min-h-0' : 'h-[68vh] min-h-[460px] max-h-[820px]'
+              } ${isPanning ? 'cursor-grabbing select-none' : 'cursor-grab'}`}
+              style={{ backgroundImage: 'radial-gradient(#cbd5e1 1px, transparent 1px)', backgroundSize: '18px 18px' }}
+            >
+              <div className="org-chart-stage p-8">
+                <div ref={treeContentRef} style={{ zoom: zoom / 100 }} className="w-max flex flex-col items-center gap-8">
+                  {treeRoots.length === 0 && !(showUnplacedInTree && unplacedStaff.length > 0) ? (
+                    unplacedStaff.length > 0 ? (
+                      <div className="w-[min(560px,85vw)] rounded-2xl border border-dashed border-indigo-300 bg-white/95 px-6 py-8 text-center">
+                        <Network className="w-8 h-8 text-indigo-500 mx-auto mb-2" />
+                        <div className="text-sm font-bold text-slate-800">No Org Tree Hierarchy Configured Yet</div>
+                        <p className="text-xs text-slate-500 mt-1">
+                          All {unplacedStaff.length} staff sit in the Unplaced Staff Pool below so the canvas stays tidy. Use <strong className="text-slate-700">↑ Above</strong> or <strong className="text-slate-700">↓ Under</strong> on any Staff card below — or click <strong className="text-slate-700">Show Unplaced in Tree</strong> — to build your reporting tree.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="py-16 text-center text-sm text-slate-400">
+                        No org tree branches match this filter.
+                      </div>
+                    )
+                  ) : null}
+
+                  {treeRoots.length > 0 && (
+                    <div className="flex items-start gap-8">
                       {treeRoots.map(root => (
                         <TreeNodeBlock
                           key={root.person.id}
                           node={root}
                           depth={0}
+                          compact={compactTree}
                           deptMap={deptMap}
                           personAllocsList={personAllocsList}
                           collapsedIds={collapsedIds}
@@ -837,177 +1028,203 @@ export default function OrgChartClient({
                         />
                       ))}
                     </div>
-                  ) : unplacedStaff.length > 0 ? (
-                    <div className="max-w-2xl mx-auto rounded-2xl border border-dashed border-indigo-300 bg-white/90 px-6 py-8 text-center">
-                      <Network className="w-8 h-8 text-indigo-500 mx-auto mb-2" />
-                      <div className="text-sm font-bold text-slate-800">No Org Tree Hierarchy Configured Yet</div>
-                      <p className="text-xs text-slate-500 mt-1">
-                        All {unplacedStaff.length} staff sit in the Unplaced Staff Pool below so the canvas stays tidy. Use <strong className="text-slate-700">↑ Above</strong> or <strong className="text-slate-700">↓ Under</strong> on any Staff card below — or click <strong className="text-slate-700">Show Unplaced in Tree</strong> — to build your reporting tree.
-                      </p>
-                    </div>
-                  ) : null}
+                  )}
 
-                  {!showUnplacedInTree && unplacedStaff.length > 0 && (() => {
-                    const uq = unplacedQuery.trim().toLowerCase()
-                    const visibleUnplaced = uq
-                      ? unplacedStaff.filter(
-                          s =>
-                            s.name.toLowerCase().includes(uq) ||
-                            s.emp_no.toLowerCase().includes(uq) ||
-                            emailOf(s).toLowerCase().includes(uq) ||
-                            (s.designation ?? '').toLowerCase().includes(uq) ||
-                            (s.department_id ? deptMap.get(s.department_id)?.name.toLowerCase().includes(uq) : false)
-                        )
-                      : unplacedStaff
-                    return (
-                      <div className="max-w-6xl mx-auto bg-white border border-slate-200 rounded-2xl p-4 shadow-xs">
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <button
-                            type="button"
-                            onClick={() => setUnplacedExpanded(v => !v)}
-                            className="flex items-center gap-2 text-left"
-                          >
-                            {unplacedExpanded ? <ChevronDown className="w-4 h-4 text-slate-500" /> : <ChevronRight className="w-4 h-4 text-slate-500" />}
-                            <div>
-                              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
-                                Unplaced Staff &amp; Logins ({visibleUnplaced.length}{uq ? ` of ${unplacedStaff.length}` : ''})
-                              </h3>
-                              <p className="text-[11px] text-slate-400">
-                                Top-level staff with no manager and no subordinates yet. Assign above/under to move them into the tree.
-                              </p>
-                            </div>
-                          </button>
-                          {unplacedExpanded && (
-                            <div className="relative">
-                              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-                              <input
-                                type="text"
-                                value={unplacedQuery}
-                                onChange={e => setUnplacedQuery(e.target.value)}
-                                placeholder="Filter unplaced staff…"
-                                className="pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:bg-white w-56"
-                              />
-                            </div>
-                          )}
-                        </div>
-                        {unplacedExpanded && (
-                          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5">
-                            {visibleUnplaced.map(s => {
-                              const deptName = s.department_id ? deptMap.get(s.department_id)?.name : null
-                              const sAllocs = personAllocsList(s.id)
-                              return (
-                                <div key={s.id} className="rounded-xl border border-slate-200 bg-slate-50/70 p-2.5 flex flex-col justify-between gap-2 hover:border-indigo-300 transition">
-                                  <div className="min-w-0">
-                                    <div className="flex items-start justify-between gap-1">
-                                      <div className="text-[10px] font-mono text-slate-500 truncate">{s.emp_no} · STAFF</div>
-                                      {canEditType('STAFF') && (
-                                        <button
-                                          type="button"
-                                          onClick={() => openEditModal(s)}
-                                          className="p-0.5 text-slate-400 hover:text-indigo-600 shrink-0"
-                                          title="Edit Staff"
-                                        >
-                                          <Pencil className="w-3 h-3" />
-                                        </button>
-                                      )}
-                                    </div>
-                                    <div className="font-bold text-xs text-slate-900 truncate">{s.name}</div>
-                                    {s.designation && <div className="text-[10px] text-slate-500 truncate">{s.designation}</div>}
-                                    {emailOf(s) ? (
-                                      <div className="text-[10px] text-sky-600 truncate">{emailOf(s)}</div>
-                                    ) : (
-                                      <div className="text-[10px] text-amber-600">no login linked</div>
-                                    )}
-                                    <div className="flex flex-wrap gap-1 mt-1.5">
-                                      {deptName && (
-                                        <span className="px-1.5 py-0.5 rounded bg-white border border-slate-200 text-[10px] font-medium text-slate-600">
-                                          {deptName}
-                                        </span>
-                                      )}
-                                      {sAllocs.map(a => (
-                                        <span
-                                          key={a.projectId}
-                                          className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                                            scope === 'project' && a.projectId === selectedProjId
-                                              ? 'bg-sky-600 text-white'
-                                              : 'bg-sky-50 text-sky-800 border border-sky-200'
-                                          }`}
-                                        >
-                                          {a.name} {a.pct}%
-                                        </span>
-                                      ))}
-                                    </div>
-                                  </div>
-                                  {(canEditType('STAFF') || canEditType('WORKER')) && (
-                                    <div className="flex items-center gap-1.5 pt-1.5 border-t border-slate-200/80">
-                                      {canEditType('STAFF') && (
-                                        <button
-                                          type="button"
-                                          onClick={() => openAboveModal(s)}
-                                          className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded-md border border-slate-200 bg-white hover:bg-indigo-50 hover:border-indigo-300 text-[10px] font-semibold text-slate-700 hover:text-indigo-700"
-                                          title="Assign Manager Above"
-                                        >
-                                          <ArrowUp className="w-3 h-3" /> Above
-                                        </button>
-                                      )}
-                                      <button
-                                        type="button"
-                                        onClick={() => openUnderModal(s)}
-                                        className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded-md border border-slate-200 bg-white hover:bg-teal-50 hover:border-teal-300 text-[10px] font-semibold text-slate-700 hover:text-teal-700"
-                                        title="Assign Staff or Workers Under"
-                                      >
-                                        <ArrowDown className="w-3 h-3" /> Under
-                                      </button>
-                                    </div>
-                                  )}
-                                </div>
-                              )
-                            })}
-                            {visibleUnplaced.length === 0 && (
-                              <div className="col-span-full text-center py-6 text-xs text-slate-400">
-                                No unplaced staff match &ldquo;{unplacedQuery}&rdquo;.
-                              </div>
-                            )}
-                          </div>
-                        )}
+                  {showUnplacedInTree && unplacedStaff.length > 0 && (
+                    <div className={treeRoots.length > 0 ? 'border-t border-dashed border-slate-300 pt-6' : ''}>
+                      <div className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-3 text-center">
+                        Unplaced Staff ({unplacedStaff.length})
                       </div>
-                    )
-                  })()}
-
-                  {unassignedWorkers.length > 0 && (
-                    <div className="max-w-5xl mx-auto bg-white border border-amber-200 rounded-2xl p-4 shadow-xs">
-                      <div className="flex items-center justify-between mb-3">
-                        <h3 className="text-xs font-bold uppercase tracking-wider text-amber-800">
-                          Workers Not Assigned to a Supervisor ({unassignedWorkers.length})
-                        </h3>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                        {unassignedWorkers.map(w => (
-                          <WorkerMiniCard
-                            key={w.id}
-                            worker={w}
-                            deptName={w.department_id ? deptMap.get(w.department_id)?.name : undefined}
-                            allocs={personAllocsList(w.id)}
-                            canEdit={canEditType('WORKER')}
-                            onEdit={() => openEditModal(w)}
-                            onAssignAbove={canEditType('WORKER') ? () => openAboveModal(w) : undefined}
-                            highlightProjId={scope === 'project' ? selectedProjId : undefined}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 justify-items-center">
+                        {unplacedStaff.map(s => (
+                          <TreeNodeBlock
+                            key={s.id}
+                            node={{ person: s, staffChildren: [], workers: [] }}
+                            depth={0}
+                            compact={compactTree}
+                            deptMap={deptMap}
+                            personAllocsList={personAllocsList}
+                            collapsedIds={collapsedIds}
+                            setCollapsedIds={setCollapsedIds}
+                            expandedCrews={expandedCrews}
+                            setExpandedCrews={setExpandedCrews}
+                            canEditType={canEditType}
+                            onAddChild={parentId => openAddModal(canAddStaff ? 'STAFF' : 'WORKER', parentId)}
+                            onEdit={openEditModal}
+                            onAssignAbove={openAboveModal}
+                            onAssignUnder={openUnderModal}
+                            scope={scope}
+                            selectedProjId={selectedProjId}
+                            emailOf={emailOf}
                           />
                         ))}
                       </div>
                     </div>
                   )}
-                </>
-              )}
+                </div>
+              </div>
             </div>
           </div>
+
+          {/* Card 2: Unplaced Staff Pool (Normal 100% Scale Outside Zoomed Canvas) */}
+          {!showUnplacedInTree && unplacedStaff.length > 0 && (() => {
+            const uq = unplacedQuery.trim().toLowerCase()
+            const visibleUnplaced = uq
+              ? unplacedStaff.filter(
+                  s =>
+                    s.name.toLowerCase().includes(uq) ||
+                    s.emp_no.toLowerCase().includes(uq) ||
+                    emailOf(s).toLowerCase().includes(uq) ||
+                    (s.designation ?? '').toLowerCase().includes(uq) ||
+                    (s.department_id ? deptMap.get(s.department_id)?.name.toLowerCase().includes(uq) : false)
+                )
+              : unplacedStaff
+            return (
+              <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setUnplacedExpanded(v => !v)}
+                    className="flex items-center gap-2 text-left"
+                  >
+                    {unplacedExpanded ? <ChevronDown className="w-4 h-4 text-slate-500" /> : <ChevronRight className="w-4 h-4 text-slate-500" />}
+                    <div>
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                        Unplaced Staff &amp; Logins ({visibleUnplaced.length}{uq ? ` of ${unplacedStaff.length}` : ''})
+                      </h3>
+                      <p className="text-[11px] text-slate-400">
+                        Top-level staff with no manager and no subordinates yet. Assign above/under to move them into the tree.
+                      </p>
+                    </div>
+                  </button>
+                  {unplacedExpanded && (
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={unplacedQuery}
+                        onChange={e => setUnplacedQuery(e.target.value)}
+                        placeholder="Filter unplaced staff…"
+                        className="pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50 focus:bg-white w-56"
+                      />
+                    </div>
+                  )}
+                </div>
+                {unplacedExpanded && (
+                  <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5">
+                    {visibleUnplaced.map(s => {
+                      const deptName = s.department_id ? deptMap.get(s.department_id)?.name : null
+                      const sAllocs = personAllocsList(s.id)
+                      return (
+                        <div key={s.id} className="rounded-xl border border-slate-200 bg-slate-50/70 p-2.5 flex flex-col justify-between gap-2 hover:border-indigo-300 transition">
+                          <div className="min-w-0">
+                            <div className="flex items-start justify-between gap-1">
+                              <div className="text-[10px] font-mono text-slate-500 truncate">{s.emp_no} · STAFF</div>
+                              {canEditType('STAFF') && (
+                                <button
+                                  type="button"
+                                  onClick={() => openEditModal(s)}
+                                  className="p-0.5 text-slate-400 hover:text-indigo-600 shrink-0"
+                                  title="Edit Staff"
+                                >
+                                  <Pencil className="w-3 h-3" />
+                                </button>
+                              )}
+                            </div>
+                            <div className="font-bold text-xs text-slate-900 truncate">{s.name}</div>
+                            {s.designation && <div className="text-[10px] text-slate-500 truncate">{s.designation}</div>}
+                            {emailOf(s) ? (
+                              <div className="text-[10px] text-sky-600 truncate">{emailOf(s)}</div>
+                            ) : (
+                              <div className="text-[10px] text-amber-600">no login linked</div>
+                            )}
+                            <div className="flex flex-wrap gap-1 mt-1.5">
+                              {deptName && (
+                                <span className="px-1.5 py-0.5 rounded bg-white border border-slate-200 text-[10px] font-medium text-slate-600">
+                                  {deptName}
+                                </span>
+                              )}
+                              {sAllocs.map(a => (
+                                <span
+                                  key={a.projectId}
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                    scope === 'project' && a.projectId === selectedProjId
+                                      ? 'bg-sky-600 text-white'
+                                      : 'bg-sky-50 text-sky-800 border border-sky-200'
+                                  }`}
+                                >
+                                  {a.name} {a.pct}%
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                          {(canEditType('STAFF') || canEditType('WORKER')) && (
+                            <div className="flex items-center gap-1.5 pt-1.5 border-t border-slate-200/80">
+                              {canEditType('STAFF') && (
+                                <button
+                                  type="button"
+                                  onClick={() => openAboveModal(s)}
+                                  className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded-md border border-slate-200 bg-white hover:bg-indigo-50 hover:border-indigo-300 text-[10px] font-semibold text-slate-700 hover:text-indigo-700"
+                                  title="Assign Manager Above"
+                                >
+                                  <ArrowUp className="w-3 h-3" /> Above
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => openUnderModal(s)}
+                                className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1 rounded-md border border-slate-200 bg-white hover:bg-teal-50 hover:border-teal-300 text-[10px] font-semibold text-slate-700 hover:text-teal-700"
+                                title="Assign Staff or Workers Under"
+                              >
+                                <ArrowDown className="w-3 h-3" /> Under
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                    {visibleUnplaced.length === 0 && (
+                      <div className="col-span-full text-center py-6 text-xs text-slate-400">
+                        No unplaced staff match &ldquo;{unplacedQuery}&rdquo;.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
+          {/* Card 3: Unassigned Workers (Normal 100% Scale Outside Zoomed Canvas) */}
+          {unassignedWorkers.length > 0 && (
+            <div className="bg-white border border-amber-200 rounded-2xl p-4 shadow-xs">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-amber-800">
+                  Workers Not Assigned to a Supervisor ({unassignedWorkers.length})
+                </h3>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {unassignedWorkers.map(w => (
+                  <WorkerMiniCard
+                    key={w.id}
+                    worker={w}
+                    deptName={w.department_id ? deptMap.get(w.department_id)?.name : undefined}
+                    allocs={personAllocsList(w.id)}
+                    canEdit={canEditType('WORKER')}
+                    onEdit={() => openEditModal(w)}
+                    onAssignAbove={canEditType('WORKER') ? () => openAboveModal(w) : undefined}
+                    highlightProjId={scope === 'project' ? selectedProjId : undefined}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       {/* VIEW 2: Allocation Matrix Table */}
       {viewStyle === 'matrix' && (
         <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
-          <div className="overflow-auto max-h-[70vh]">
+          <div className="org-chart-canvas overflow-auto max-h-[70vh]">
             <table className="text-xs border-collapse w-full">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase text-[10px] font-bold">
@@ -1950,6 +2167,7 @@ export default function OrgChartClient({
 function TreeNodeBlock({
   node,
   depth,
+  compact = false,
   deptMap,
   personAllocsList,
   collapsedIds,
@@ -1967,6 +2185,7 @@ function TreeNodeBlock({
 }: {
   node: StaffNode
   depth: number
+  compact?: boolean
   deptMap: Map<number, DlerDepartment>
   personAllocsList: (pid: number) => { projectId: number; name: string; pct: number }[]
   collapsedIds: Set<number>
@@ -1984,22 +2203,24 @@ function TreeNodeBlock({
 }) {
   const { person, staffChildren, workers } = node
   const isCollapsed = collapsedIds.has(person.id)
-  const crewExpanded = expandedCrews.has(person.id) || workers.length <= 6 || scope !== 'overall'
+  const crewExpanded = compact
+    ? expandedCrews.has(person.id)
+    : expandedCrews.has(person.id) || workers.length <= 6 || scope !== 'overall'
   const allocs = personAllocsList(person.id)
   const deptName = person.department_id ? deptMap.get(person.department_id)?.name : null
   const headerColours = ['bg-slate-900', 'bg-indigo-700', 'bg-teal-700', 'bg-cyan-700']
   const headerBg = headerColours[depth % headerColours.length]
 
   return (
-    <div className="flex flex-col items-center">
+    <div className="flex flex-col items-center shrink-0">
       {/* Staff Card */}
-      <div className="w-64 rounded-xl border border-slate-300 bg-white shadow-sm overflow-hidden">
-        <div className={`${headerBg} text-white px-3 py-2 flex items-start justify-between gap-2`}>
+      <div className={`${compact ? 'w-44' : 'w-64'} rounded-xl border border-slate-300 bg-white shadow-sm overflow-hidden`}>
+        <div className={`${headerBg} text-white ${compact ? 'px-2.5 py-1.5' : 'px-3 py-2'} flex items-start justify-between gap-2`}>
           <div className="min-w-0">
-            <div className="text-[10px] font-mono text-white/75">{person.emp_no} · STAFF</div>
-            <div className="font-bold text-sm truncate">{person.name}</div>
-            {person.designation && <div className="text-[11px] text-white/80 truncate">{person.designation}</div>}
-            {emailOf(person) && <div className="text-[10px] text-white/70 truncate">{emailOf(person)}</div>}
+            <div className="text-[10px] font-mono text-white/75 truncate">{person.emp_no}{compact ? '' : ' · STAFF'}</div>
+            <div className={`font-bold ${compact ? 'text-xs' : 'text-sm'} truncate`}>{person.name}</div>
+            {!compact && person.designation && <div className="text-[11px] text-white/80 truncate">{person.designation}</div>}
+            {!compact && emailOf(person) && <div className="text-[10px] text-white/70 truncate">{emailOf(person)}</div>}
           </div>
           {canEditType('STAFF') && (
             <button
@@ -2013,7 +2234,7 @@ function TreeNodeBlock({
           )}
         </div>
 
-        <div className="p-2.5 space-y-2 text-xs">
+        <div className={`${compact ? 'p-2 space-y-1.5' : 'p-2.5 space-y-2'} text-xs`}>
           <div className="flex flex-wrap items-center gap-1">
             <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-semibold text-[10px]">
               {deptName ?? 'No Dept'}
@@ -2078,7 +2299,8 @@ function TreeNodeBlock({
                   className="px-1.5 py-0.5 rounded border border-slate-200 bg-slate-50 hover:bg-indigo-50 hover:border-indigo-300 text-[10px] font-semibold text-slate-700 hover:text-indigo-700 flex items-center gap-0.5"
                   title="Assign Manager Above"
                 >
-                  <ArrowUp className="w-2.5 h-2.5" /> Above
+                  <ArrowUp className="w-2.5 h-2.5" />
+                  {!compact && <span>Above</span>}
                 </button>
               )}
               {(canEditType('STAFF') || canEditType('WORKER')) && (
@@ -2089,7 +2311,8 @@ function TreeNodeBlock({
                     className="px-1.5 py-0.5 rounded border border-slate-200 bg-slate-50 hover:bg-teal-50 hover:border-teal-300 text-[10px] font-semibold text-slate-700 hover:text-teal-700 flex items-center gap-0.5"
                     title="Assign Existing Staff or Workers Under"
                   >
-                    <ArrowDown className="w-2.5 h-2.5" /> Under
+                    <ArrowDown className="w-2.5 h-2.5" />
+                    {!compact && <span>Under</span>}
                   </button>
                   <button
                     type="button"
@@ -2116,7 +2339,7 @@ function TreeNodeBlock({
                 className="ml-auto text-[10px] font-semibold text-slate-500 hover:text-slate-800 flex items-center gap-0.5"
               >
                 {isCollapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                {staffChildren.length} sub-seats
+                {compact ? staffChildren.length : `${staffChildren.length} sub-seats`}
               </button>
             )}
           </div>
@@ -2129,7 +2352,10 @@ function TreeNodeBlock({
           <div className="w-0.5 h-5 bg-slate-300" />
           <div className="flex items-start">
             {staffChildren.map((child, idx) => (
-              <div key={child.person.id} className="relative flex flex-col items-center px-3 pt-4">
+              <div
+                key={child.person.id}
+                className={`relative flex flex-col items-center shrink-0 ${compact ? 'px-1.5 pt-3.5' : 'px-3 pt-4'}`}
+              >
                 {staffChildren.length > 1 && idx > 0 && (
                   <div className="absolute top-0 left-0 right-1/2 h-0.5 bg-slate-300" />
                 )}
@@ -2140,6 +2366,7 @@ function TreeNodeBlock({
                 <TreeNodeBlock
                   node={child}
                   depth={depth + 1}
+                  compact={compact}
                   deptMap={deptMap}
                   personAllocsList={personAllocsList}
                   collapsedIds={collapsedIds}
