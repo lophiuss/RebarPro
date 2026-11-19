@@ -79,21 +79,92 @@ const EMPTY_LINES_BOX = (lines: LineSeg[]): Lay => ({
   maxY: -Infinity,
 })
 
+type NodeCfg = {
+  cw: number
+  cx: number
+  sib: number
+  drop: number
+  indent: number
+  stack: number
+  rowGap: number
+}
+
+function placeSingleRow(
+  row: Lay[],
+  rowTop: number,
+  spineStartY: number,
+  cfg: NodeCfg
+): { parts: Lay[]; lines: LineSeg[] } {
+  const { cx, sib, drop } = cfg
+  const placed: { k: Lay; dx: number }[] = []
+  let cursor = 0
+  for (const k of row) {
+    placed.push({ k, dx: cursor - k.minX })
+    cursor += k.maxX - k.minX + sib
+  }
+  const c0 = placed[0].dx + cx
+  const cN = placed[placed.length - 1].dx + cx
+  const sx = cx - (c0 + cN) / 2
+  for (const p of placed) p.dx += sx
+
+  const busY = rowTop - drop / 2
+  const cs = placed.map(p => p.dx + cx)
+  const lines: LineSeg[] = [{ x1: cx, y1: spineStartY, x2: cx, y2: busY }]
+  const minBus = Math.min(...cs, cx)
+  const maxBus = Math.max(...cs, cx)
+  if (maxBus > minBus) {
+    lines.push({ x1: minBus, y1: busY, x2: maxBus, y2: busY })
+  }
+  for (const c of cs) {
+    lines.push({ x1: c, y1: busY, x2: c, y2: rowTop })
+  }
+
+  const parts = placed.map(p => shiftLay(p.k, p.dx, rowTop - p.k.minY))
+  return { parts, lines }
+}
+
+function placeBalancedBoth(
+  items: Lay[],
+  startY: number,
+  opts: LayoutOpts,
+  cfg: NodeCfg
+): { placed: Lay[]; lines: LineSeg[]; lastMid: number; bottom: number } {
+  const { cw, cx, indent, stack } = cfg
+  const placed: Lay[] = []
+  const lines: LineSeg[] = []
+  let leftCursor = startY
+  let rightCursor = startY
+  let lastMid = 0
+
+  for (const k of items) {
+    const side: 'l' | 'r' = leftCursor <= rightCursor ? 'l' : 'r'
+    const y = side === 'l' ? leftCursor : rightCursor
+    const dx = side === 'r' ? cx + indent - k.minX : cx - indent - k.maxX
+    const dy = y - k.minY
+    placed.push(shiftLay(k, dx, dy))
+    const mid = dy + opts.getHeight(k.cards[0].id) / 2
+    lastMid = Math.max(lastMid, mid)
+    lines.push(
+      side === 'r'
+        ? { x1: cx, y1: mid, x2: dx, y2: mid }
+        : { x1: cx, y1: mid, x2: dx + cw, y2: mid }
+    )
+    const h = k.maxY - k.minY
+    if (side === 'l') leftCursor += h + stack
+    else rightCursor += h + stack
+  }
+
+  const bottom = Math.max(leftCursor, rightCursor) - stack
+  return { placed, lines, lastMid, bottom }
+}
+
 function layoutNode(
   node: LayoutTreeNode,
   depth: number,
   opts: LayoutOpts,
-  cfg: {
-    cw: number
-    cx: number
-    sib: number
-    drop: number
-    indent: number
-    stack: number
-    rowGap: number
-  }
+  cfg: NodeCfg
 ): Lay {
-  const { cw, cx, sib, drop, indent, stack, rowGap } = cfg
+  const { cw, cx, drop, indent, stack, rowGap } = cfg
   const H = opts.getHeight(node.id)
   const self: Lay = {
     cards: [{ id: node.id, x: 0, y: 0 }],
@@ -106,76 +177,50 @@ function layoutNode(
   if (!opts.isOpen(node, depth) || node.children.length === 0) return self
 
   const kids = node.children.map(c => layoutNode(c, depth + 1, opts, cfg))
-  let mode = opts.getMode(node.id)
-  const autoCompact = mode === 'auto'
+  const mode = opts.getMode(node.id)
+
   if (mode === 'auto') {
-    mode =
-      node.children.length >= 3 && node.children.every(c => !opts.isOpen(c, depth + 1))
-        ? 'both'
-        : 'v'
+    const leafKids: Lay[] = []
+    const branchKids: Lay[] = []
+    node.children.forEach((childNode, idx) => {
+      if (opts.isOpen(childNode, depth + 1)) branchKids.push(kids[idx])
+      else leafKids.push(kids[idx])
+    })
+
+    // Case 1: Only leaves -> balanced 2-column hanging if 3+, else single horizontal row
+    if (branchKids.length === 0) {
+      if (kids.length >= 3) {
+        const pack = placeBalancedBoth(kids, H + 18, opts, cfg)
+        return join([
+          self,
+          ...pack.placed,
+          EMPTY_LINES_BOX([{ x1: cx, y1: H, x2: cx, y2: Math.max(H, pack.lastMid) }, ...pack.lines]),
+        ])
+      }
+      const rowPack = placeSingleRow(kids, H + drop, H, cfg)
+      return join([self, ...rowPack.parts, EMPTY_LINES_BOX(rowPack.lines)])
+    }
+
+    // Case 2: Mixed 2+ leaves + open branches -> hang leaves in 2 balanced columns, open branches in 1 clean row below
+    if (leafKids.length >= 2) {
+      const leafPack = placeBalancedBoth(leafKids, H + 18, opts, cfg)
+      const branchPack = placeSingleRow(branchKids, leafPack.bottom + drop, H, cfg)
+      return join([
+        self,
+        ...leafPack.placed,
+        ...branchPack.parts,
+        EMPTY_LINES_BOX([...leafPack.lines, ...branchPack.lines]),
+      ])
+    }
+
+    // Case 3: <2 leaves with open branches -> keep all siblings aligned on one horizontal row
+    const rowPack = placeSingleRow(kids, H + drop, H, cfg)
+    return join([self, ...rowPack.parts, EMPTY_LINES_BOX(rowPack.lines)])
   }
 
   if (mode === 'v') {
-    const perRow = autoCompact ? 4 : Infinity
-    const rows: Lay[][] = []
-    const step = perRow === Infinity ? kids.length : perRow
-    for (let i = 0; i < kids.length; i += step) {
-      rows.push(kids.slice(i, i + step))
-    }
-    const multi = rows.length > 1
-    const parts: Lay[] = [self]
-    const lines: LineSeg[] = []
-    let rowTop = H + drop
-    let lastBus = H + drop / 2
-
-    for (const row of rows) {
-      const placed: { k: Lay; dx: number }[] = []
-      if (!multi) {
-        let cursor = 0
-        for (const k of row) {
-          placed.push({ k, dx: cursor - k.minX })
-          cursor += k.maxX - k.minX + sib
-        }
-        const c0 = placed[0].dx + cx
-        const cN = placed[placed.length - 1].dx + cx
-        const sx = cx - (c0 + cN) / 2
-        for (const p of placed) p.dx += sx
-      } else {
-        const half = Math.ceil(row.length / 2)
-        let right = cx - sib
-        for (const k of row.slice(0, half).reverse()) {
-          placed.unshift({ k, dx: right - k.maxX })
-          right -= k.maxX - k.minX + sib
-        }
-        let left = cx + sib
-        for (const k of row.slice(half)) {
-          placed.push({ k, dx: left - k.minX })
-          left += k.maxX - k.minX + sib
-        }
-      }
-
-      const busY = rowTop - drop / 2
-      const cs = placed.map(p => p.dx + cx)
-      lines.push({
-        x1: Math.min(cs[0], cx),
-        y1: busY,
-        x2: Math.max(cs[cs.length - 1], cx),
-        y2: busY,
-      })
-      for (const c of cs) {
-        lines.push({ x1: c, y1: busY, x2: c, y2: rowTop })
-      }
-      let bottom = rowTop
-      for (const p of placed) {
-        parts.push(shiftLay(p.k, p.dx, rowTop - p.k.minY))
-        bottom = Math.max(bottom, rowTop + (p.k.maxY - p.k.minY))
-      }
-      lastBus = busY
-      rowTop = bottom + drop
-    }
-
-    lines.unshift({ x1: cx, y1: H, x2: cx, y2: lastBus })
-    return join([...parts, EMPTY_LINES_BOX(lines)])
+    const rowPack = placeSingleRow(kids, H + drop, H, cfg)
+    return join([self, ...rowPack.parts, EMPTY_LINES_BOX(rowPack.lines)])
   }
 
   if (mode === 'h') {
@@ -204,36 +249,33 @@ function layoutNode(
     return join([self, ...kidsL, EMPTY_LINES_BOX(lines)])
   }
 
-  // Hanging layouts ('l', 'r', 'both'): whole branches remain on their assigned side of the spine
+  if (mode === 'both') {
+    const pack = placeBalancedBoth(kids, H + 18, opts, cfg)
+    return join([
+      self,
+      ...pack.placed,
+      EMPTY_LINES_BOX([{ x1: cx, y1: H, x2: cx, y2: Math.max(H, pack.lastMid) }, ...pack.lines]),
+    ])
+  }
+
+  // Hanging single-side layouts ('l' or 'r'): whole branches remain on their assigned side of the spine
   const placed: Lay[] = []
   const lines: LineSeg[] = []
   let lastMid = H
   let cursor = H + 18
 
-  const place = (k: Lay, side: 'l' | 'r', y: number) => {
-    const dx = side === 'r' ? cx + indent - k.minX : cx - indent - k.maxX
-    const dy = y - k.minY
+  for (const k of kids) {
+    const dx = mode === 'r' ? cx + indent - k.minX : cx - indent - k.maxX
+    const dy = cursor - k.minY
     placed.push(shiftLay(k, dx, dy))
     const mid = dy + opts.getHeight(k.cards[0].id) / 2
     lastMid = Math.max(lastMid, mid)
     lines.push(
-      side === 'r'
+      mode === 'r'
         ? { x1: cx, y1: mid, x2: dx, y2: mid }
         : { x1: cx, y1: mid, x2: dx + cw, y2: mid }
     )
-    return k.maxY - k.minY
-  }
-
-  if (mode === 'both') {
-    for (let i = 0; i < kids.length; i += 2) {
-      const hl = place(kids[i], 'l', cursor)
-      const hr = kids[i + 1] ? place(kids[i + 1], 'r', cursor) : 0
-      cursor += Math.max(hl, hr) + stack
-    }
-  } else {
-    for (const k of kids) {
-      cursor += place(k, mode as 'l' | 'r', cursor) + stack
-    }
+    cursor += k.maxY - k.minY + stack
   }
 
   lines.unshift({ x1: cx, y1: H, x2: cx, y2: lastMid })
