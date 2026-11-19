@@ -155,6 +155,26 @@ export async function getDlerDashboardData(monthInput: string, dateInput: string
 // Org Chart & Project % Allocations (Admin, HR Worker -> WORKER, HR Staff -> STAFF)
 // ============================================================================
 
+function wouldCreateCycle(
+  people: { id: number; reports_to_id: number | null }[],
+  childId: number,
+  newParentId: number | null | undefined
+): boolean {
+  if (!newParentId) return false
+  if (childId === newParentId) return true
+  const parentMap = new Map<number, number | null>()
+  for (const p of people) parentMap.set(p.id, p.reports_to_id)
+  let cur: number | null | undefined = newParentId
+  const seen = new Set<number>()
+  while (cur != null) {
+    if (cur === childId) return true
+    if (seen.has(cur)) break
+    seen.add(cur)
+    cur = parentMap.get(cur) ?? null
+  }
+  return false
+}
+
 export async function saveDlerPerson(input: {
   id?: number | null
   person_type: 'STAFF' | 'WORKER'
@@ -181,6 +201,15 @@ export async function saveDlerPerson(input: {
 
   if (input.id && input.reports_to_id === input.id) {
     throw new Error('A person cannot report to themselves')
+  }
+  if (input.id && input.reports_to_id != null) {
+    const { data: allPeople, error: listErr } = await supabase
+      .from('dler_people')
+      .select('id, reports_to_id')
+    if (listErr) throw listErr
+    if (wouldCreateCycle((allPeople ?? []) as { id: number; reports_to_id: number | null }[], input.id, input.reports_to_id)) {
+      throw new Error('Circular reporting hierarchy is not allowed')
+    }
   }
 
   const payload = {
@@ -240,9 +269,136 @@ export async function updatePersonParentAndDept(
   if (role === 'hr_worker' && existing.person_type !== 'WORKER') throw new Error('Forbidden')
   if (role === 'hr_staff' && existing.person_type !== 'STAFF') throw new Error('Forbidden')
   if (patch.reports_to_id === personId) throw new Error('Cannot report to self')
+  if (patch.reports_to_id != null) {
+    const { data: allPeople, error: listErr } = await supabase
+      .from('dler_people')
+      .select('id, reports_to_id')
+    if (listErr) throw listErr
+    if (wouldCreateCycle((allPeople ?? []) as { id: number; reports_to_id: number | null }[], personId, patch.reports_to_id)) {
+      throw new Error('Circular reporting hierarchy is not allowed')
+    }
+  }
 
   const { error } = await supabase.from('dler_people').update(patch).eq('id', personId)
   if (error) throw error
+  revalidateDlerAll()
+}
+
+export async function assignPeopleUnder(managerId: number, childIds: number[]) {
+  const { supabase, role } = await requireDlerRole(['admin', 'hr_staff', 'hr_worker'])
+  const uniqueChildIds = Array.from(new Set(childIds.filter(id => Number.isInteger(id) && id > 0)))
+  if (uniqueChildIds.length === 0) return { updated: 0 }
+
+  const { data: rows, error: fetchErr } = await supabase
+    .from('dler_people')
+    .select('id, person_type, reports_to_id')
+  if (fetchErr) throw fetchErr
+  const allPeople = (rows ?? []) as { id: number; person_type: 'STAFF' | 'WORKER'; reports_to_id: number | null }[]
+  const byId = new Map(allPeople.map(p => [p.id, p]))
+
+  const manager = byId.get(managerId)
+  if (!manager) throw new Error('Supervisor not found')
+  if (manager.person_type !== 'STAFF') {
+    throw new Error('Supervisor / manager must be a Staff member')
+  }
+
+  for (const cid of uniqueChildIds) {
+    const child = byId.get(cid)
+    if (!child) throw new Error(`Person #${cid} not found`)
+    if (role === 'hr_staff' && child.person_type !== 'STAFF') {
+      throw new Error('HR Staff can only assign Staff members')
+    }
+    if (role === 'hr_worker' && child.person_type !== 'WORKER') {
+      throw new Error('HR Worker can only assign Workers')
+    }
+    if (wouldCreateCycle(allPeople, cid, managerId)) {
+      throw new Error('Circular reporting hierarchy is not allowed')
+    }
+  }
+
+  const { error } = await supabase
+    .from('dler_people')
+    .update({ reports_to_id: managerId })
+    .in('id', uniqueChildIds)
+  if (error) throw error
+  revalidateDlerAll()
+  return { updated: uniqueChildIds.length }
+}
+
+export async function assignStaffAbove(
+  personId: number,
+  managerId: number | null,
+  mode: 'set_manager' | 'insert_above'
+) {
+  const { supabase, role } = await requireDlerRole(['admin', 'hr_staff', 'hr_worker'])
+  const { data: rows, error: fetchErr } = await supabase
+    .from('dler_people')
+    .select('id, person_type, reports_to_id')
+  if (fetchErr) throw fetchErr
+  const allPeople = (rows ?? []) as { id: number; person_type: 'STAFF' | 'WORKER'; reports_to_id: number | null }[]
+  const byId = new Map(allPeople.map(p => [p.id, p]))
+
+  const person = byId.get(personId)
+  if (!person) throw new Error('Person not found')
+  if (role === 'hr_staff' && person.person_type !== 'STAFF') {
+    throw new Error('HR Staff can only modify Staff reporting lines')
+  }
+  if (role === 'hr_worker' && person.person_type !== 'WORKER') {
+    throw new Error('HR Worker can only modify Worker reporting lines')
+  }
+
+  if (managerId === null) {
+    const { error } = await supabase
+      .from('dler_people')
+      .update({ reports_to_id: null })
+      .eq('id', personId)
+    if (error) throw error
+    revalidateDlerAll()
+    return
+  }
+
+  const manager = byId.get(managerId)
+  if (!manager) throw new Error('Supervisor not found')
+  if (manager.person_type !== 'STAFF') {
+    throw new Error('Assigned manager must be a Staff member')
+  }
+
+  if (mode === 'set_manager') {
+    if (wouldCreateCycle(allPeople, personId, managerId)) {
+      throw new Error('Circular reporting hierarchy is not allowed')
+    }
+    const { error } = await supabase
+      .from('dler_people')
+      .update({ reports_to_id: managerId })
+      .eq('id', personId)
+    if (error) throw error
+    revalidateDlerAll()
+    return
+  }
+
+  // mode === 'insert_above': place managerId directly between person's previous manager and personId
+  if (role === 'hr_worker') {
+    throw new Error('HR Worker cannot re-link a Staff member\'s manager; use "Move under manager" instead')
+  }
+  if (managerId === personId || wouldCreateCycle(allPeople, personId, managerId)) {
+    throw new Error('Circular reporting hierarchy is not allowed')
+  }
+  if (wouldCreateCycle(allPeople, managerId, person.reports_to_id)) {
+    throw new Error('Circular reporting hierarchy is not allowed')
+  }
+
+  const { error: mgrErr } = await supabase
+    .from('dler_people')
+    .update({ reports_to_id: person.reports_to_id })
+    .eq('id', managerId)
+  if (mgrErr) throw mgrErr
+
+  const { error: personErr } = await supabase
+    .from('dler_people')
+    .update({ reports_to_id: managerId })
+    .eq('id', personId)
+  if (personErr) throw personErr
+
   revalidateDlerAll()
 }
 
