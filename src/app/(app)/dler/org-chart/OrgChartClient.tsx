@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   Network, Table2, Plus, Search, RefreshCw, Pencil, Trash2, X,
   Building2, FolderKanban, Users, ChevronDown, ChevronRight, Minus, Maximize2, Minimize2, Crosshair, Scan, CheckCircle2, AlertTriangle,
-  ArrowUp, ArrowDown, UserPlus, Unlink, Check, Tag, Tags
+  ArrowUp, ArrowDown, UserPlus, Unlink, Check, Tag, Tags, Printer
 } from 'lucide-react'
 import type { DlerRole } from '../guard'
 import type { DlerAllocation, DlerDepartment, DlerPerson, DlerProject } from '@/lib/dler-math'
@@ -13,6 +13,7 @@ import {
   saveDlerPerson,
   deleteDlerPerson,
   updatePersonParentAndDept,
+  updatePersonEmpNo,
   savePersonProjectAllocations,
   bulkTagDepartment,
   bulkTagProjects,
@@ -249,7 +250,14 @@ export default function OrgChartClient({
     filter: 'UNPLACED_STAFF' | 'ALL_STAFF' | 'WORKERS'
     query: string
     selectedIds: number[]
+    asAssistant: boolean
   } | null>(null)
+  const [printModal, setPrintModal] = useState<{
+    paper: 'A3' | 'A4'
+    landscape: boolean
+    fit: 'page' | 'width'
+  } | null>(null)
+  const [printBusy, setPrintBusy] = useState(false)
 
   const [tagModal, setTagModal] = useState<{
     person: DlerPerson
@@ -282,6 +290,7 @@ export default function OrgChartClient({
     designation: string
     department_id: string
     reports_to_id: string
+    is_assistant: boolean
     status: 'Active' | 'Inactive' | 'On Leave'
     remarks: string
     profile_id: string
@@ -367,6 +376,7 @@ export default function OrgChartClient({
       filter: canEditType('STAFF') ? 'UNPLACED_STAFF' : 'WORKERS',
       query: '',
       selectedIds: [],
+      asAssistant: false,
     })
   }
 
@@ -457,6 +467,24 @@ export default function OrgChartClient({
     }
   }
 
+  async function handleToggleAssistant(child: DlerPerson) {
+    setHierarchyBusy(true)
+    setHierarchyError(null)
+    try {
+      const next = !child.is_assistant
+      await updatePersonParentAndDept(child.id, { is_assistant: next })
+      setFeedback({
+        kind: 'ok',
+        text: `${child.name} set as ${next ? 'Assistant seat' : 'Regular direct report'}`,
+      })
+      router.refresh()
+    } catch (err: unknown) {
+      setHierarchyError(err instanceof Error ? err.message : 'Failed to update seat type')
+    } finally {
+      setHierarchyBusy(false)
+    }
+  }
+
   async function handleAssignSelectedUnder() {
     if (!underModal || underModal.selectedIds.length === 0) return
     const mgr = personMap.get(underModal.manager.id) ?? underModal.manager
@@ -464,8 +492,11 @@ export default function OrgChartClient({
     setHierarchyBusy(true)
     setHierarchyError(null)
     try {
-      await assignPeopleUnder(mgr.id, underModal.selectedIds)
-      setFeedback({ kind: 'ok', text: `Assigned ${count} ${count === 1 ? 'person' : 'people'} under ${mgr.name}` })
+      await assignPeopleUnder(mgr.id, underModal.selectedIds, { asAssistant: underModal.asAssistant })
+      setFeedback({
+        kind: 'ok',
+        text: `Assigned ${count} ${count === 1 ? 'person' : 'people'} ${underModal.asAssistant ? 'as assistant ' : ''}under ${mgr.name}`,
+      })
       setUnderModal(prev => (prev ? { ...prev, selectedIds: [] } : null))
       router.refresh()
     } catch (err: unknown) {
@@ -797,6 +828,7 @@ export default function OrgChartClient({
       depths.set(n.person.id, depth)
       return {
         id: n.person.id,
+        isAssistant: Boolean(n.person.is_assistant),
         children: n.staffChildren.map(c => convert(c, depth + 1)),
       }
     }
@@ -935,13 +967,82 @@ export default function OrgChartClient({
   }, [viewStyle, isFullscreen])
 
   useEffect(() => {
-    if (!isFullscreen || modalPerson || aboveModal || underModal || tagModal || bulkTagModal) return
+    if (!isFullscreen || modalPerson || aboveModal || underModal || tagModal || bulkTagModal || printModal) return
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setIsFullscreen(false)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [isFullscreen, modalPerson, aboveModal, underModal, tagModal, bulkTagModal])
+  }, [isFullscreen, modalPerson, aboveModal, underModal, tagModal, bulkTagModal, printModal])
+
+  async function handlePrintChart(opts: { paper: 'A3' | 'A4'; landscape: boolean; fit: 'page' | 'width' }) {
+    const el = positionedTreeRef.current
+    if (!el || !placement.w) return
+    setPrintBusy(true)
+    const iframe = document.createElement('iframe')
+    iframe.setAttribute('aria-hidden', 'true')
+    iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'
+    document.body.appendChild(iframe)
+    const doc = iframe.contentDocument
+    if (!doc) {
+      iframe.remove()
+      setPrintBusy(false)
+      return
+    }
+    const head =
+      [...document.querySelectorAll('link[rel="stylesheet"]')]
+        .map(l => `<link rel="stylesheet" href="${(l as HTMLLinkElement).href}">`)
+        .join('') +
+      [...document.querySelectorAll('style')].map(s => s.outerHTML).join('')
+    const sheet = opts.paper === 'A3' ? { w: 420, h: 297 } : { w: 297, h: 210 }
+    const [pw, ph] = opts.landscape ? [sheet.w, sheet.h] : [sheet.h, sheet.w]
+    const mm = (v: number) => (v * 96) / 25.4
+    const availW = mm(pw - 16)
+    const availH = mm(ph - 16 - 12)
+    const scopeLabel =
+      scope === 'department'
+        ? selectedDeptId === -1
+          ? 'Department: Untagged'
+          : `Department: ${deptMap.get(selectedDeptId)?.name ?? ''}`
+        : scope === 'project'
+        ? selectedProjId === -1
+          ? 'Project: Untagged'
+          : `Project: ${projMap.get(selectedProjId)?.name ?? ''}`
+        : 'Overall'
+    const stamp = new Date().toLocaleDateString('en-GB', { dateStyle: 'long' })
+    doc.open()
+    doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>DLER Organizational Chart</title>${head}<style>
+      @page{size:${opts.paper} ${opts.landscape ? 'landscape' : 'portrait'};margin:8mm}
+      html,body{background:#fff!important;margin:0;padding:0}
+      *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      .dler-print-hide{display:none!important}
+      #dler-pt{font:700 15px Arial,sans-serif;margin:0 0 8px;color:#0f172a}
+      #dler-pt span{font-weight:400;color:#64748b;font-size:11px;margin-left:8px}
+    </style></head><body><div id="dler-pt">DLER Organizational Chart<span>${scopeLabel} · ${TREE_MODE_LABEL[layoutMode]} · ${stamp}</span></div><div id="dler-tree" style="width:${placement.w}px;margin:0 auto">${el.outerHTML}</div></body></html>`)
+    doc.close()
+
+    await new Promise(r => setTimeout(r, 850))
+    try {
+      await doc.fonts?.ready
+    } catch {
+      /* fonts optional */
+    }
+    const treeWrap = doc.getElementById('dler-tree') as HTMLElement | null
+    if (treeWrap) {
+      const natW = Math.max(treeWrap.scrollWidth, placement.w)
+      const natH = Math.max(treeWrap.scrollHeight, placement.h)
+      const z =
+        opts.fit === 'page'
+          ? Math.max(0.15, Math.min(availW / natW, availH / natH, 1))
+          : Math.max(0.15, Math.min(availW / natW, 1))
+      ;(treeWrap.style as unknown as { zoom: string }).zoom = String(z)
+    }
+    iframe.contentWindow?.focus()
+    iframe.contentWindow?.print()
+    setPrintBusy(false)
+    setPrintModal(null)
+    setTimeout(() => iframe.remove(), 60000)
+  }
 
   function handleCanvasMouseDown(e: React.MouseEvent<HTMLDivElement>) {
     if (e.button !== 0) return
@@ -959,18 +1060,19 @@ export default function OrgChartClient({
     }
   }
 
-  function openAddModal(pt: 'STAFF' | 'WORKER', defaultParentId?: number | null) {
+  function openAddModal(pt: 'STAFF' | 'WORKER', defaultParentId?: number | null, asAssistant = false) {
     setModalPerson({
       person_type: pt,
       emp_no: '',
       name: '',
       designation: '',
-      department_id: scope === 'department' && selectedDeptId ? String(selectedDeptId) : '',
+      department_id: scope === 'department' && selectedDeptId > 0 ? String(selectedDeptId) : '',
       reports_to_id: defaultParentId ? String(defaultParentId) : '',
+      is_assistant: Boolean(defaultParentId && asAssistant),
       status: 'Active',
       remarks: '',
       profile_id: '',
-      allocs: scope === 'project' && selectedProjId ? { [selectedProjId]: '100' } : {},
+      allocs: scope === 'project' && selectedProjId > 0 ? { [selectedProjId]: '100' } : {},
     })
   }
 
@@ -990,6 +1092,7 @@ export default function OrgChartClient({
       designation: p.designation ?? '',
       department_id: p.department_id != null ? String(p.department_id) : '',
       reports_to_id: p.reports_to_id != null ? String(p.reports_to_id) : '',
+      is_assistant: Boolean(p.is_assistant),
       status: p.status,
       remarks: p.remarks ?? '',
       profile_id: p.profile_id ?? '',
@@ -1020,6 +1123,7 @@ export default function OrgChartClient({
           designation: modalPerson.designation || null,
           department_id: modalPerson.department_id ? Number(modalPerson.department_id) : null,
           reports_to_id: modalPerson.reports_to_id ? Number(modalPerson.reports_to_id) : null,
+          is_assistant: modalPerson.reports_to_id ? modalPerson.is_assistant : false,
           status: modalPerson.status,
           remarks: modalPerson.remarks || null,
           profile_id: modalPerson.profile_id || null,
@@ -1075,6 +1179,26 @@ export default function OrgChartClient({
         router.refresh()
       } catch (err: any) {
         setFeedback({ kind: 'err', text: err?.message ?? 'Update failed' })
+      }
+    })
+  }
+
+  function handleAmendMatrixId(p: DlerPerson, el: HTMLInputElement) {
+    const trimmed = el.value.trim()
+    if (!trimmed) {
+      el.value = p.emp_no
+      return
+    }
+    if (trimmed === p.emp_no) return
+    setFeedback(null)
+    startTransition(async () => {
+      try {
+        await updatePersonEmpNo(p.id, trimmed)
+        setFeedback({ kind: 'ok', text: `ID updated to ${trimmed}` })
+        router.refresh()
+      } catch (err: any) {
+        el.value = p.emp_no
+        setFeedback({ kind: 'err', text: err?.message ?? 'ID update failed' })
       }
     })
   }
@@ -1480,6 +1604,15 @@ export default function OrgChartClient({
                 </button>
                 <button
                   type="button"
+                  disabled={treeRoots.length === 0 || printBusy}
+                  onClick={() => setPrintModal({ paper: 'A3', landscape: true, fit: 'page' })}
+                  className="px-2.5 py-1 text-xs rounded-lg border border-slate-300 bg-white hover:bg-slate-50 flex items-center gap-1 font-medium text-slate-700 disabled:opacity-40"
+                  title="Print or Save Org Chart as PDF"
+                >
+                  <Printer className="w-3 h-3" /> Print
+                </button>
+                <button
+                  type="button"
                   onClick={() => setIsFullscreen(v => !v)}
                   className={`px-2.5 py-1 text-xs rounded-lg border font-medium flex items-center gap-1 transition ${
                     isFullscreen
@@ -1567,6 +1700,7 @@ export default function OrgChartClient({
                               setExpandedCrews={setExpandedCrews}
                               canEditType={canEditType}
                               onAddChild={parentId => openAddModal(canAddStaff ? 'STAFF' : 'WORKER', parentId)}
+                              onAddAssistant={parentId => openAddModal('STAFF', parentId, true)}
                               onEdit={openEditModal}
                               onAssignAbove={openAboveModal}
                               onAssignUnder={openUnderModal}
@@ -1604,6 +1738,7 @@ export default function OrgChartClient({
                             setExpandedCrews={setExpandedCrews}
                             canEditType={canEditType}
                             onAddChild={parentId => openAddModal(canAddStaff ? 'STAFF' : 'WORKER', parentId)}
+                            onAddAssistant={parentId => openAddModal('STAFF', parentId, true)}
                             onEdit={openEditModal}
                             onAssignAbove={openAboveModal}
                             onAssignUnder={openUnderModal}
@@ -1864,9 +1999,40 @@ export default function OrgChartClient({
                           {p.person_type}
                         </span>
                       </td>
-                      <td className="px-3 py-1.5 font-mono text-slate-600 whitespace-nowrap">{p.emp_no}</td>
+                      <td className="px-3 py-1.5 font-mono text-slate-600 whitespace-nowrap">
+                        {editable ? (
+                          <input
+                            key={`mat-id-${p.id}-${p.emp_no}`}
+                            type="text"
+                            defaultValue={p.emp_no}
+                            disabled={isPending}
+                            aria-label={`Amend ID for ${p.name}`}
+                            title="Amend ID (Enter or blur to save, Esc to revert)"
+                            onBlur={e => handleAmendMatrixId(p, e.currentTarget)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault()
+                                e.currentTarget.blur()
+                              } else if (e.key === 'Escape') {
+                                e.currentTarget.value = p.emp_no
+                                e.currentTarget.blur()
+                              }
+                            }}
+                            className="w-24 rounded border border-transparent hover:border-slate-300 focus:border-indigo-400 focus:bg-white bg-transparent px-1.5 py-0.5 text-xs font-mono text-slate-700 focus:outline-none"
+                          />
+                        ) : (
+                          p.emp_no
+                        )}
+                      </td>
                       <td className="px-3 py-1.5 font-semibold text-slate-900 whitespace-nowrap">
-                        <div>{p.name}</div>
+                        <div className="flex items-center gap-1.5">
+                          <span>{p.name}</span>
+                          {p.is_assistant && (
+                            <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                              ASST
+                            </span>
+                          )}
+                        </div>
                         {p.designation && <div className="text-[10px] font-normal text-slate-400">{p.designation}</div>}
                         {emailOf(p) ? <div className="text-[10px] font-normal text-sky-600">{emailOf(p)}</div> : p.person_type === 'STAFF' ? <div className="text-[10px] font-normal text-amber-600">no login linked</div> : null}
                       </td>
@@ -2118,24 +2284,48 @@ export default function OrgChartClient({
                       ))}
                   </select>
                 </label>
-                <label className="block">
-                  <span className="font-semibold text-slate-600">Reports To (Supervisor / HOD)</span>
-                  <select
-                    value={modalPerson.reports_to_id}
-                    onChange={e => setModalPerson({ ...modalPerson, reports_to_id: e.target.value })}
-                    className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
-                  >
-                    <option value="">(Top level / None)</option>
-                    {(() => {
-                      const blocked = modalPerson.id != null ? getSelfAndDescendantIds(modalPerson.id) : null
-                      return staffList
-                        .filter(s => !blocked || !blocked.has(s.id))
-                        .map(s => (
-                          <option key={s.id} value={s.id}>{s.name} ({s.emp_no})</option>
-                        ))
-                    })()}
-                  </select>
-                </label>
+                <div className="block space-y-2">
+                  <label className="block">
+                    <span className="font-semibold text-slate-600">Reports To (Supervisor / HOD)</span>
+                    <select
+                      value={modalPerson.reports_to_id}
+                      onChange={e =>
+                        setModalPerson({
+                          ...modalPerson,
+                          reports_to_id: e.target.value,
+                          is_assistant: e.target.value ? modalPerson.is_assistant : false,
+                        })
+                      }
+                      className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
+                    >
+                      <option value="">(Top level / None)</option>
+                      {(() => {
+                        const blocked = modalPerson.id != null ? getSelfAndDescendantIds(modalPerson.id) : null
+                        return staffList
+                          .filter(s => !blocked || !blocked.has(s.id))
+                          .map(s => (
+                            <option key={s.id} value={s.id}>{s.name} ({s.emp_no})</option>
+                          ))
+                      })()}
+                    </select>
+                  </label>
+                  {modalPerson.person_type === 'STAFF' && (
+                    <label
+                      className={`inline-flex items-center gap-2 text-xs select-none ${
+                        modalPerson.reports_to_id ? 'text-purple-800 font-semibold cursor-pointer' : 'text-slate-400 cursor-not-allowed'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        disabled={!modalPerson.reports_to_id}
+                        checked={Boolean(modalPerson.reports_to_id && modalPerson.is_assistant)}
+                        onChange={e => setModalPerson({ ...modalPerson, is_assistant: e.target.checked })}
+                        className="rounded border-purple-300 text-purple-700 focus:ring-purple-500 disabled:opacity-50"
+                      />
+                      Assistant (side-branch seat directly under manager)
+                    </label>
+                  )}
+                </div>
               </div>
 
               <div className="border-t border-slate-200 pt-4">
@@ -2559,18 +2749,40 @@ export default function OrgChartClient({
                               {c.person_type}
                             </span>
                             <span className="font-semibold text-slate-900 truncate">{c.name}</span>
+                            {c.is_assistant && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-100 text-purple-800 border border-purple-200 shrink-0">
+                                ASST
+                              </span>
+                            )}
                             <span className="font-mono text-[10px] text-slate-400 shrink-0">{c.emp_no}</span>
                             {emailOf(c) && <span className="text-[10px] text-sky-600 truncate hidden sm:inline">{emailOf(c)}</span>}
                           </div>
                           {canEditType(c.person_type) && (
-                            <button
-                              type="button"
-                              disabled={hierarchyBusy}
-                              onClick={() => handleDetachChild(c)}
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-slate-200 bg-white hover:bg-rose-50 hover:border-rose-200 hover:text-rose-700 text-[10px] font-semibold shrink-0 disabled:opacity-50"
-                            >
-                              <Unlink className="w-3 h-3" /> Detach
-                            </button>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {c.person_type === 'STAFF' && (
+                                <button
+                                  type="button"
+                                  disabled={hierarchyBusy}
+                                  onClick={() => handleToggleAssistant(c)}
+                                  title={c.is_assistant ? 'Convert back to regular subordinate' : 'Set as Assistant seat (side branch)'}
+                                  className={`px-2 py-0.5 rounded border text-[10px] font-semibold transition disabled:opacity-50 ${
+                                    c.is_assistant
+                                      ? 'border-purple-300 bg-purple-50 text-purple-800 hover:bg-purple-100'
+                                      : 'border-slate-200 bg-white text-slate-600 hover:border-purple-300 hover:bg-purple-50 hover:text-purple-700'
+                                  }`}
+                                >
+                                  {c.is_assistant ? 'Assistant' : 'Regular'}
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                disabled={hierarchyBusy}
+                                onClick={() => handleDetachChild(c)}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-slate-200 bg-white hover:bg-rose-50 hover:border-rose-200 hover:text-rose-700 text-[10px] font-semibold shrink-0 disabled:opacity-50"
+                              >
+                                <Unlink className="w-3 h-3" /> Detach
+                              </button>
+                            </div>
                           )}
                         </div>
                       ))}
@@ -2717,17 +2929,30 @@ export default function OrgChartClient({
               <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 border-t border-slate-200 bg-slate-50">
                 <div className="flex flex-wrap items-center gap-2">
                   {canAddStaff && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const mgrId = liveManager.id
-                        setUnderModal(null)
-                        openAddModal('STAFF', mgrId)
-                      }}
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-indigo-200 bg-white hover:bg-indigo-50 text-indigo-700 text-xs font-semibold"
-                    >
-                      <Plus className="w-3.5 h-3.5" /> New Staff Under
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const mgrId = liveManager.id
+                          setUnderModal(null)
+                          openAddModal('STAFF', mgrId)
+                        }}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-indigo-200 bg-white hover:bg-indigo-50 text-indigo-700 text-xs font-semibold"
+                      >
+                        <Plus className="w-3.5 h-3.5" /> New Staff Under
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const mgrId = liveManager.id
+                          setUnderModal(null)
+                          openAddModal('STAFF', mgrId, true)
+                        }}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-purple-200 bg-white hover:bg-purple-50 text-purple-700 text-xs font-semibold"
+                      >
+                        <UserPlus className="w-3.5 h-3.5" /> New Assistant
+                      </button>
+                    </>
                   )}
                   {canAddWorker && (
                     <button
@@ -2743,7 +2968,16 @@ export default function OrgChartClient({
                     </button>
                   )}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-purple-800 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={underModal.asAssistant}
+                      onChange={e => setUnderModal(prev => (prev ? { ...prev, asAssistant: e.target.checked } : null))}
+                      className="rounded border-purple-300 text-purple-700 focus:ring-purple-500"
+                    />
+                    Assign as Assistant(s)
+                  </label>
                   <button
                     type="button"
                     onClick={() => setUnderModal(null)}
@@ -3172,6 +3406,121 @@ export default function OrgChartClient({
           </div>
         )
       })()}
+
+      {printModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200">
+              <div className="flex items-center gap-2 font-bold text-slate-900 text-sm">
+                <Printer className="w-4 h-4 text-slate-700" />
+                Print / Save as PDF
+              </div>
+              <button
+                type="button"
+                onClick={() => setPrintModal(null)}
+                className="p-1 text-slate-400 hover:text-slate-700"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4 text-xs">
+              <div>
+                <div className="font-semibold text-slate-700 mb-1.5">Paper Size</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['A3', 'A4'] as const).map(p => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => setPrintModal(prev => (prev ? { ...prev, paper: p } : null))}
+                      className={`py-2 px-3 rounded-xl border font-semibold transition ${
+                        printModal.paper === p
+                          ? 'border-slate-900 bg-slate-900 text-white'
+                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      {p} {p === 'A3' ? '(Recommended)' : ''}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="font-semibold text-slate-700 mb-1.5">Orientation</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { label: 'Landscape', value: true },
+                    { label: 'Portrait', value: false },
+                  ].map(opt => (
+                    <button
+                      key={opt.label}
+                      type="button"
+                      onClick={() => setPrintModal(prev => (prev ? { ...prev, landscape: opt.value } : null))}
+                      className={`py-2 px-3 rounded-xl border font-semibold transition ${
+                        printModal.landscape === opt.value
+                          ? 'border-slate-900 bg-slate-900 text-white'
+                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="font-semibold text-slate-700 mb-1.5">Fit Mode</div>
+                <div className="space-y-2">
+                  {[
+                    {
+                      value: 'page' as const,
+                      title: 'Fit everything on one page',
+                      desc: 'Scales the full org tree to fit cleanly on a single sheet',
+                    },
+                    {
+                      value: 'width' as const,
+                      title: 'Fit width across pages',
+                      desc: 'Keeps cards larger and flows across pages vertically if tall',
+                    },
+                  ].map(opt => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setPrintModal(prev => (prev ? { ...prev, fit: opt.value } : null))}
+                      className={`w-full text-left px-3 py-2 rounded-xl border transition ${
+                        printModal.fit === opt.value
+                          ? 'border-indigo-500 bg-indigo-50/60 text-indigo-950'
+                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="font-semibold">{opt.title}</div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">{opt.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
+                Action buttons and empty +Dept/+Project placeholders are hidden in print. Enable <b>Background graphics</b> in the browser print dialog to preserve seat colors.
+              </div>
+            </div>
+            <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPrintModal(null)}
+                className="px-3.5 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={printBusy}
+                onClick={() => handlePrintChart(printModal)}
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold disabled:opacity-50"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                {printBusy ? 'Preparing…' : 'Print / Save as PDF'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -3188,6 +3537,7 @@ function StaffNodeCard({
   setExpandedCrews,
   canEditType,
   onAddChild,
+  onAddAssistant,
   onEdit,
   onAssignAbove,
   onAssignUnder,
@@ -3210,6 +3560,7 @@ function StaffNodeCard({
   setExpandedCrews: React.Dispatch<React.SetStateAction<Set<number>>>
   canEditType: (pt: 'STAFF' | 'WORKER') => boolean
   onAddChild: (parentId: number) => void
+  onAddAssistant: (parentId: number) => void
   onEdit: (p: DlerPerson) => void
   onAssignAbove: (p: DlerPerson) => void
   onAssignUnder: (p: DlerPerson) => void
@@ -3229,14 +3580,17 @@ function StaffNodeCard({
   const allocs = personAllocsList(person.id)
   const dept = person.department_id ? deptMap.get(person.department_id) ?? null : null
   const canTagStaff = canEditType('STAFF')
+  const isAsst = Boolean(person.is_assistant)
   const headerColours = ['bg-slate-900', 'bg-indigo-700', 'bg-teal-700', 'bg-cyan-700']
-  const headerBg = headerColours[depth % headerColours.length]
+  const headerBg = isAsst ? 'bg-purple-700' : headerColours[depth % headerColours.length]
 
   return (
-    <div className={`${compact ? 'w-44' : 'w-64'} rounded-xl border border-slate-300 bg-white shadow-sm overflow-hidden`}>
+    <div className={`${compact ? 'w-44' : 'w-64'} rounded-xl border ${isAsst ? 'border-purple-300' : 'border-slate-300'} bg-white shadow-sm overflow-hidden`}>
       <div className={`${headerBg} text-white ${compact ? 'px-2.5 py-1.5' : 'px-3 py-2'} flex items-start justify-between gap-2`}>
         <div className="min-w-0">
-          <div className="text-[10px] font-mono text-white/75 truncate">{person.emp_no}{compact ? '' : ' · STAFF'}</div>
+          <div className="text-[10px] font-mono text-white/75 truncate">
+            {person.emp_no}{compact ? (isAsst ? ' · ASST' : '') : isAsst ? ' · ASSISTANT' : ' · STAFF'}
+          </div>
           <div className={`font-bold ${compact ? 'text-xs' : 'text-sm'} truncate`}>{person.name}</div>
           {!compact && person.designation && <div className="text-[11px] text-white/80 truncate">{person.designation}</div>}
           {!compact && emailOf(person) && <div className="text-[10px] text-white/70 truncate">{emailOf(person)}</div>}
@@ -3245,7 +3599,7 @@ function StaffNodeCard({
           <button
             type="button"
             onClick={() => onEdit(person)}
-            className="p-1 rounded hover:bg-white/20 text-white/80 hover:text-white shrink-0"
+            className="dler-print-hide p-1 rounded hover:bg-white/20 text-white/80 hover:text-white shrink-0"
             title="Edit Staff"
           >
             <Pencil className="w-3.5 h-3.5" />
@@ -3262,7 +3616,7 @@ function StaffNodeCard({
               className={`px-2 py-0.5 rounded-md border font-semibold text-[10px] transition ${
                 dept
                   ? `${deptTagClass(dept)} hover:brightness-95`
-                  : 'border-dashed border-slate-300 bg-white text-slate-500 hover:border-indigo-400 hover:text-indigo-700'
+                  : 'dler-print-hide border-dashed border-slate-300 bg-white text-slate-500 hover:border-indigo-400 hover:text-indigo-700'
               }`}
               title="Tag Department & Projects"
             >
@@ -3305,7 +3659,7 @@ function StaffNodeCard({
             <button
               type="button"
               onClick={() => onTag(person)}
-              className="px-1.5 py-0.5 rounded border border-dashed border-sky-300 bg-white hover:bg-sky-50 text-sky-700 text-[10px] font-semibold"
+              className="dler-print-hide px-1.5 py-0.5 rounded border border-dashed border-sky-300 bg-white hover:bg-sky-50 text-sky-700 text-[10px] font-semibold"
               title="Assign Project tag & %"
             >
               + Project
@@ -3352,7 +3706,7 @@ function StaffNodeCard({
         )}
 
         {staffChildren.length > 0 && (
-          <div className="flex items-center justify-between gap-1.5 pt-1 border-t border-slate-100">
+          <div className="dler-print-hide flex items-center justify-between gap-1.5 pt-1 border-t border-slate-100">
             {!compact && <span className="text-[10px] font-medium text-slate-400 shrink-0">Branch:</span>}
             <select
               value={branchModeOverride}
@@ -3375,7 +3729,7 @@ function StaffNodeCard({
           </div>
         )}
 
-        <div className="flex flex-wrap items-center justify-between gap-1 pt-1.5 border-t border-slate-100">
+        <div className="dler-print-hide flex flex-wrap items-center justify-between gap-1 pt-1.5 border-t border-slate-100">
           <div className="flex items-center gap-1">
             {canEditType('STAFF') && (
               <button
@@ -3407,6 +3761,17 @@ function StaffNodeCard({
                 >
                   <Plus className="w-3 h-3" />
                 </button>
+                {canEditType('STAFF') && (
+                  <button
+                    type="button"
+                    onClick={() => onAddAssistant(person.id)}
+                    className="px-1 py-0.5 rounded border border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-700 text-[10px] font-semibold flex items-center gap-0.5"
+                    title="Create New Assistant Directly Under"
+                  >
+                    <UserPlus className="w-2.5 h-2.5" />
+                    {!compact && <span>Asst</span>}
+                  </button>
+                )}
               </>
             )}
           </div>
@@ -3468,7 +3833,7 @@ function WorkerMiniCard({
               className={`text-[9px] px-1.5 py-0.2 rounded border font-semibold transition ${
                 dept
                   ? `${deptTagClass(dept)} hover:brightness-95`
-                  : 'border-dashed border-slate-300 bg-white text-slate-500 hover:border-indigo-400 hover:text-indigo-700'
+                  : 'dler-print-hide border-dashed border-slate-300 bg-white text-slate-500 hover:border-indigo-400 hover:text-indigo-700'
               }`}
               title="Tag Department & Projects"
             >
@@ -3507,7 +3872,7 @@ function WorkerMiniCard({
             <button
               type="button"
               onClick={onTag}
-              className="text-[9px] px-1 rounded border border-dashed border-sky-300 bg-white hover:bg-sky-50 text-sky-700 font-semibold"
+              className="dler-print-hide text-[9px] px-1 rounded border border-dashed border-sky-300 bg-white hover:bg-sky-50 text-sky-700 font-semibold"
               title="Assign Project tag & %"
             >
               + Project
@@ -3516,7 +3881,7 @@ function WorkerMiniCard({
         </div>
       </div>
       {canEdit && (
-        <div className="flex items-center gap-0.5 shrink-0">
+        <div className="dler-print-hide flex items-center gap-0.5 shrink-0">
           {onTag && (
             <button type="button" onClick={onTag} className="p-0.5 text-slate-400 hover:text-emerald-700" title="Tag Dept & Projects">
               <Tag className="w-3 h-3" />

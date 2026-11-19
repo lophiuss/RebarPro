@@ -20,6 +20,7 @@ import {
   type DlerProject,
   type DlerSettings,
 } from '@/lib/dler-math'
+import { syncCastcoreM3Range, type CastcoreSyncResult } from '@/lib/dler-castcore'
 
 const DEFAULT_SETTINGS: DlerSettings = {
   id: 1,
@@ -183,6 +184,7 @@ export async function saveDlerPerson(input: {
   designation?: string | null
   department_id?: number | null
   reports_to_id?: number | null
+  is_assistant?: boolean
   status?: 'Active' | 'Inactive' | 'On Leave'
   remarks?: string | null
   profile_id?: string | null
@@ -198,6 +200,19 @@ export async function saveDlerPerson(input: {
   const empNo = input.emp_no.trim()
   const name = input.name.trim()
   if (!empNo || !name) throw new Error('ID and Name are required')
+
+  const dupBase = supabase
+    .from('dler_people')
+    .select('id, name')
+    .eq('person_type', input.person_type)
+    .eq('emp_no', empNo)
+  const { data: dupRows, error: dupErr } = input.id
+    ? await dupBase.neq('id', input.id)
+    : await dupBase
+  if (dupErr) throw dupErr
+  if (dupRows && dupRows.length > 0) {
+    throw new Error(`ID "${empNo}" is already used by ${dupRows[0].name}`)
+  }
 
   if (input.id && input.reports_to_id === input.id) {
     throw new Error('A person cannot report to themselves')
@@ -219,6 +234,7 @@ export async function saveDlerPerson(input: {
     designation: input.designation?.trim() || null,
     department_id: input.department_id ?? null,
     reports_to_id: input.reports_to_id ?? null,
+    is_assistant: Boolean(input.reports_to_id ? input.is_assistant : false),
     status: input.status ?? 'Active',
     remarks: input.remarks?.trim() || null,
     profile_id: input.profile_id || null,
@@ -259,9 +275,45 @@ export async function deleteDlerPerson(id: number) {
   revalidateDlerAll()
 }
 
+export async function updatePersonEmpNo(personId: number, empNo: string) {
+  const { supabase, role } = await requireDlerRole(['admin', 'hr_worker', 'hr_staff'])
+  const trimmed = empNo.trim()
+  if (!trimmed) throw new Error('ID cannot be empty')
+
+  const { data: existing, error: exErr } = await supabase
+    .from('dler_people')
+    .select('id, person_type, emp_no')
+    .eq('id', personId)
+    .single()
+  if (exErr || !existing) throw new Error('Person not found')
+  if (role === 'hr_worker' && existing.person_type !== 'WORKER') throw new Error('Forbidden')
+  if (role === 'hr_staff' && existing.person_type !== 'STAFF') throw new Error('Forbidden')
+  if (existing.emp_no === trimmed) return
+
+  const { data: dupRows, error: dupErr } = await supabase
+    .from('dler_people')
+    .select('id, name')
+    .eq('person_type', existing.person_type)
+    .eq('emp_no', trimmed)
+    .neq('id', personId)
+  if (dupErr) throw dupErr
+  if (dupRows && dupRows.length > 0) {
+    throw new Error(`ID "${trimmed}" is already used by ${dupRows[0].name}`)
+  }
+
+  const { error } = await supabase.from('dler_people').update({ emp_no: trimmed }).eq('id', personId)
+  if (error) throw error
+  revalidateDlerAll()
+}
+
 export async function updatePersonParentAndDept(
   personId: number,
-  patch: { department_id?: number | null; reports_to_id?: number | null; status?: 'Active' | 'Inactive' | 'On Leave' }
+  patch: {
+    department_id?: number | null
+    reports_to_id?: number | null
+    is_assistant?: boolean
+    status?: 'Active' | 'Inactive' | 'On Leave'
+  }
 ) {
   const { supabase, role } = await requireDlerRole(['admin', 'hr_worker', 'hr_staff'])
   const { data: existing } = await supabase.from('dler_people').select('person_type').eq('id', personId).single()
@@ -279,12 +331,21 @@ export async function updatePersonParentAndDept(
     }
   }
 
-  const { error } = await supabase.from('dler_people').update(patch).eq('id', personId)
+  const updatePatch: Record<string, unknown> = { ...patch }
+  if (patch.reports_to_id === null) {
+    updatePatch.is_assistant = false
+  }
+
+  const { error } = await supabase.from('dler_people').update(updatePatch).eq('id', personId)
   if (error) throw error
   revalidateDlerAll()
 }
 
-export async function assignPeopleUnder(managerId: number, childIds: number[]) {
+export async function assignPeopleUnder(
+  managerId: number,
+  childIds: number[],
+  options?: { asAssistant?: boolean }
+) {
   const { supabase, role } = await requireDlerRole(['admin', 'hr_staff', 'hr_worker'])
   const uniqueChildIds = Array.from(new Set(childIds.filter(id => Number.isInteger(id) && id > 0)))
   if (uniqueChildIds.length === 0) return { updated: 0 }
@@ -318,7 +379,7 @@ export async function assignPeopleUnder(managerId: number, childIds: number[]) {
 
   const { error } = await supabase
     .from('dler_people')
-    .update({ reports_to_id: managerId })
+    .update({ reports_to_id: managerId, is_assistant: Boolean(options?.asAssistant) })
     .in('id', uniqueChildIds)
   if (error) throw error
   revalidateDlerAll()
@@ -350,7 +411,7 @@ export async function assignStaffAbove(
   if (managerId === null) {
     const { error } = await supabase
       .from('dler_people')
-      .update({ reports_to_id: null })
+      .update({ reports_to_id: null, is_assistant: false })
       .eq('id', personId)
     if (error) throw error
     revalidateDlerAll()
@@ -626,7 +687,6 @@ export async function syncWorkersFromPlantpro(): Promise<{ inserted: number; upd
       const { error } = await admin
         .from('dler_people')
         .update({
-          emp_no: w.worker_no,
           name: w.name,
           status: w.status,
           plantpro_worker_id: w.id,
@@ -1021,6 +1081,22 @@ export async function saveDailyM3Batch(
     if (error) throw error
   }
   revalidateDlerAll()
+}
+
+export async function syncM3FromCastcore(input: {
+  startDate: string
+  endDate: string
+  overwriteManual?: boolean
+}): Promise<CastcoreSyncResult> {
+  const { user } = await requireDlerRole(['admin', 'm3_input'])
+  const res = await syncCastcoreM3Range({
+    startDate: input.startDate,
+    endDate: input.endDate,
+    overwriteManual: Boolean(input.overwriteManual),
+    updatedBy: user.id,
+  })
+  revalidateDlerAll()
+  return res
 }
 
 // ============================================================================

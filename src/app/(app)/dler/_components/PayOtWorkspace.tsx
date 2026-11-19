@@ -27,6 +27,7 @@ import {
   saveMonthlyPayBatch,
   syncWorkerOtFromPlantpro,
   syncWorkersFromPlantpro,
+  updatePersonEmpNo,
 } from '../actions'
 
 type PayDraft = {
@@ -197,6 +198,29 @@ export default function PayOtWorkspace({
         router.refresh()
       } catch (err: any) {
         setFeedback({ kind: 'err', text: err?.message ?? 'Operation failed' })
+      }
+    })
+  }
+
+  function handleAmendId(person: DlerPerson, el: HTMLInputElement) {
+    const nextVal = el.value.trim()
+    if (!nextVal) {
+      el.value = person.emp_no
+      return
+    }
+    if (nextVal === person.emp_no) {
+      el.value = person.emp_no
+      return
+    }
+    setFeedback(null)
+    startTransition(async () => {
+      try {
+        await updatePersonEmpNo(person.id, nextVal)
+        setFeedback({ kind: 'ok', text: `Updated ID for ${person.name} to ${nextVal}.` })
+        router.refresh()
+      } catch (err: any) {
+        el.value = person.emp_no
+        setFeedback({ kind: 'err', text: err?.message ?? 'Failed to update ID' })
       }
     })
   }
@@ -464,7 +488,25 @@ export default function PayOtWorkspace({
 
                   return (
                     <tr key={p.id} className={`hover:bg-slate-50/70 ${p.status === 'Inactive' ? 'opacity-50' : ''}`}>
-                      <td className="sticky left-0 z-10 bg-white px-3 py-1.5 font-mono text-slate-600 whitespace-nowrap">{p.emp_no}</td>
+                      <td className="sticky left-0 z-10 bg-white px-2 py-1 whitespace-nowrap">
+                        <input
+                          type="text"
+                          key={`${p.id}:${p.emp_no}`}
+                          defaultValue={p.emp_no}
+                          aria-label={`${isWorker ? 'Worker' : 'Staff'} ID for ${p.name}`}
+                          title="Click to amend ID (Enter or blur to save)"
+                          onBlur={e => handleAmendId(p, e.currentTarget)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              e.currentTarget.blur()
+                            } else if (e.key === 'Escape') {
+                              e.currentTarget.value = p.emp_no
+                              e.currentTarget.blur()
+                            }
+                          }}
+                          className="w-24 font-mono text-xs text-slate-700 border border-transparent hover:border-slate-300 focus:border-teal-500 focus:bg-white bg-transparent rounded px-1.5 py-0.5 focus:outline-none"
+                        />
+                      </td>
                       <td className="px-3 py-1.5 font-semibold text-slate-900 whitespace-nowrap">
                         <div>{p.name}</div>
                         {p.designation && <div className="text-[10px] font-normal text-slate-400">{p.designation}</div>}
@@ -585,8 +627,8 @@ export default function PayOtWorkspace({
             <table className="text-[11px] border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
-                  <th className="sticky left-0 top-0 z-30 bg-slate-50 px-2.5 py-2 text-left whitespace-nowrap min-w-[76px]">ID</th>
-                  <th className="sticky left-[76px] top-0 z-30 bg-slate-50 px-2.5 py-2 text-left whitespace-nowrap min-w-[150px] border-r border-slate-200">Name</th>
+                  <th className="sticky left-0 top-0 z-30 bg-slate-50 px-2 py-2 text-left whitespace-nowrap w-[96px] min-w-[96px]">ID</th>
+                  <th className="sticky left-[96px] top-0 z-30 bg-slate-50 px-2.5 py-2 text-left whitespace-nowrap min-w-[150px] border-r border-slate-200">Name</th>
                   <th className="sticky top-0 z-20 bg-slate-50 px-1.5 py-2 text-center whitespace-nowrap">Fill</th>
                   {monthDates.map(dt => {
                     const dType = getDayType(dt, holidaySet)
@@ -637,8 +679,26 @@ export default function PayOtWorkspace({
 
                   return (
                     <tr key={p.id} className="hover:bg-slate-50/70">
-                      <td className="sticky left-0 z-10 bg-white px-2.5 py-1 font-mono text-slate-600 whitespace-nowrap">{p.emp_no}</td>
-                      <td className="sticky left-[76px] z-10 bg-white px-2.5 py-1 font-semibold text-slate-900 whitespace-nowrap border-r border-slate-200 truncate max-w-[150px]" title={p.name}>
+                      <td className="sticky left-0 z-10 bg-white px-1.5 py-1 whitespace-nowrap w-[96px] min-w-[96px]">
+                        <input
+                          type="text"
+                          key={`${p.id}:${p.emp_no}`}
+                          defaultValue={p.emp_no}
+                          aria-label={`${isWorker ? 'Worker' : 'Staff'} ID for ${p.name}`}
+                          title="Click to amend ID (Enter or blur to save)"
+                          onBlur={e => handleAmendId(p, e.currentTarget)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              e.currentTarget.blur()
+                            } else if (e.key === 'Escape') {
+                              e.currentTarget.value = p.emp_no
+                              e.currentTarget.blur()
+                            }
+                          }}
+                          className="w-20 font-mono text-[11px] text-slate-700 border border-transparent hover:border-slate-300 focus:border-teal-500 focus:bg-white bg-transparent rounded px-1 py-0.5 focus:outline-none"
+                        />
+                      </td>
+                      <td className="sticky left-[96px] z-10 bg-white px-2.5 py-1 font-semibold text-slate-900 whitespace-nowrap border-r border-slate-200 truncate max-w-[150px]" title={p.name}>
                         {p.name}
                       </td>
                       <td className="px-1 py-1 text-center">

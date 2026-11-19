@@ -382,7 +382,7 @@ export default function DashboardClient({ initialData }: { initialData: DlerDash
                         key={pt.date}
                         type="button"
                         onClick={() => loadPeriod(data.month, pt.date)}
-                        title={`${pt.date} (${pt.dayType})\nm³: ${pt.m3Volume.toFixed(1)}\nLabour: ${fmtRm(pt.totalCost)}\nRM/m³: ${pt.costPerM3 != null ? pt.costPerM3.toFixed(2) : '—'}`}
+                        title={`${pt.date} (${pt.dayType})\nm³: ${pt.m3Volume.toFixed(1)}\nLabour: ${fmtRm(pt.totalCost)}\nRM/m³: ${pt.costPerM3 != null ? pt.costPerM3.toFixed(2) : '—'}\nCrew: ${pt.activeStaff ?? 0} staff · ${pt.activeWorkers ?? 0} workers`}
                         className={`flex-1 h-full flex flex-col justify-end items-center rounded-t px-0.5 transition ${
                           isSel ? 'bg-sky-50 ring-1 ring-sky-400' : pt.dayType !== 'normal' ? 'bg-amber-50/50 hover:bg-slate-50' : 'hover:bg-slate-50'
                         }`}
@@ -411,7 +411,7 @@ export default function DashboardClient({ initialData }: { initialData: DlerDash
                         key={pt.date}
                         type="button"
                         onClick={() => loadPeriod(data.month, pt.date)}
-                        title={`${pt.date} (${pt.dayType})\nGP: ${fmtRm(pt.grossProfit)}\nLabour: ${fmtRm(pt.totalCost)}\nDLER: ${pt.dler != null ? pt.dler.toFixed(2) : '—'}`}
+                        title={`${pt.date} (${pt.dayType})\nGP: ${fmtRm(pt.grossProfit)}\nLabour: ${fmtRm(pt.totalCost)}\nDLER: ${pt.dler != null ? pt.dler.toFixed(2) : '—'}\nCrew: ${pt.activeStaff ?? 0} staff · ${pt.activeWorkers ?? 0} workers`}
                         className={`flex-1 h-full flex flex-col justify-end items-center rounded-t px-0.5 transition ${
                           isSel ? 'bg-teal-50 ring-1 ring-teal-400' : pt.dayType !== 'normal' ? 'bg-amber-50/50 hover:bg-slate-50' : 'hover:bg-slate-50'
                         }`}
@@ -595,13 +595,28 @@ function BreakdownTable({
     return <p className="text-center text-sm text-slate-400 py-8">No records configured yet.</p>
   }
 
+  const totalStaff = rows.reduce((s, r) => s + r.headcountStaff, 0)
+  const totalWorkers = rows.reduce((s, r) => s + r.headcountWorker, 0)
+  const totalFte = rows.reduce((s, r) => s + (r.fteAllocated ?? 0), 0)
+  const totalStaffCost = rows.reduce((s, r) => s + r.staffCost, 0)
+  const totalWorkerBase = rows.reduce((s, r) => s + r.workerBaseCost, 0)
+  const totalWorkerOt = rows.reduce((s, r) => s + r.workerOtCost, 0)
+  const totalLabour = rows.reduce((s, r) => s + r.totalCost, 0)
+  const totalGp = rows.reduce((s, r) => s + r.grossProfit, 0)
+  const totalM3 = rows.reduce((s, r) => s + r.m3Volume, 0)
+  const totalDler = totalLabour > 0 ? Math.round((totalGp / totalLabour) * 100) / 100 : null
+  const totalCostPerM3 = totalM3 > 0 ? Math.round((totalLabour / totalM3) * 100) / 100 : null
+  const totalM3Per1k = totalLabour > 0 ? Math.round(((totalM3 / totalLabour) * 1000) * 100) / 100 : null
+
   return (
     <div className="overflow-x-auto rounded-xl border border-slate-200">
       <table className="w-full text-xs border-collapse">
         <thead>
           <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase text-[10px] font-bold tracking-wider">
             <th className="px-3 py-2.5 text-left">Name</th>
-            <th className="px-3 py-2.5 text-right">{showFte ? 'FTE' : 'Staff / Worker'}</th>
+            <th className="px-3 py-2.5 text-right text-indigo-700">Staff</th>
+            <th className="px-3 py-2.5 text-right text-teal-700">Workers</th>
+            {showFte && <th className="px-3 py-2.5 text-right">FTE</th>}
             <th className="px-3 py-2.5 text-right">Staff Cost</th>
             <th className="px-3 py-2.5 text-right">Worker Base</th>
             <th className="px-3 py-2.5 text-right">Worker OT</th>
@@ -634,9 +649,17 @@ function BreakdownTable({
                   )}
                 </div>
               </td>
-              <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">
-                {showFte ? (r.fteAllocated ?? 0).toFixed(2) : `${r.headcountStaff} / ${r.headcountWorker}`}
+              <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-indigo-700">
+                {r.headcountStaff}
               </td>
+              <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-teal-700">
+                {r.headcountWorker}
+              </td>
+              {showFte && (
+                <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">
+                  {(r.fteAllocated ?? 0).toFixed(2)}
+                </td>
+              )}
               <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{fmtRm(r.staffCost)}</td>
               <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{fmtRm(r.workerBaseCost)}</td>
               <td className="px-3 py-2.5 text-right tabular-nums text-amber-700">{fmtRm(r.workerOtCost)}</td>
@@ -671,6 +694,49 @@ function BreakdownTable({
             </tr>
           ))}
         </tbody>
+        <tfoot>
+          <tr className="bg-slate-50 border-t-2 border-slate-200 font-bold text-slate-900">
+            <td className="px-3 py-2.5">
+              Total{showFte ? <span className="ml-1 text-[10px] font-normal text-slate-500">(allocations)</span> : null}
+            </td>
+            <td
+              className="px-3 py-2.5 text-right tabular-nums text-indigo-800"
+              title={showFte ? 'Sum across project rows (shared staff counted per assigned project)' : 'Total Staff in rows'}
+            >
+              {totalStaff}
+            </td>
+            <td
+              className="px-3 py-2.5 text-right tabular-nums text-teal-800"
+              title={showFte ? 'Sum across project rows (shared workers counted per assigned project)' : 'Total Workers in rows'}
+            >
+              {totalWorkers}
+            </td>
+            {showFte && <td className="px-3 py-2.5 text-right tabular-nums text-slate-700">{totalFte.toFixed(2)}</td>}
+            <td className="px-3 py-2.5 text-right tabular-nums">{fmtRm(totalStaffCost)}</td>
+            <td className="px-3 py-2.5 text-right tabular-nums">{fmtRm(totalWorkerBase)}</td>
+            <td className="px-3 py-2.5 text-right tabular-nums text-amber-800">{fmtRm(totalWorkerOt)}</td>
+            <td className="px-3 py-2.5 text-right tabular-nums">{fmtRm(totalLabour)}</td>
+            {metric === 'gp' ? (
+              <>
+                <td className="px-3 py-2.5 text-right tabular-nums text-emerald-800">{fmtRm(totalGp)}</td>
+                <td className="px-3 py-2.5 text-right">
+                  <DlerBadge value={totalDler} />
+                </td>
+                {showBenchmark && <td className="px-3 py-2.5 text-right text-slate-400">—</td>}
+              </>
+            ) : (
+              <>
+                <td className="px-3 py-2.5 text-right tabular-nums text-sky-800">{fmtNum(totalM3, 1)}</td>
+                <td className="px-3 py-2.5 text-right">
+                  <CostPerM3Badge value={totalCostPerM3} />
+                </td>
+                <td className="px-3 py-2.5 text-right tabular-nums">
+                  {totalM3Per1k != null ? totalM3Per1k.toFixed(2) : '—'}
+                </td>
+              </>
+            )}
+          </tr>
+        </tfoot>
       </table>
     </div>
   )
@@ -746,7 +812,10 @@ function TreeHierarchy({
 
 function TreeStats({ row, metric, dark }: { row: AggregatedMetricRow; metric: MetricMode; dark?: boolean }) {
   return (
-    <div className={`flex items-center gap-4 text-xs tabular-nums ${dark ? 'text-slate-200' : 'text-slate-600'}`}>
+    <div className={`flex flex-wrap items-center gap-3 text-xs tabular-nums ${dark ? 'text-slate-200' : 'text-slate-600'}`}>
+      <span className={`px-2 py-0.5 rounded-md font-medium ${dark ? 'bg-slate-800 text-slate-200' : 'bg-slate-100 text-slate-700'}`}>
+        {row.headcountStaff} Staff · {row.headcountWorker} Workers
+      </span>
       {metric === 'gp' ? (
         <>
           <span>GP {fmtRm(row.grossProfit)}</span>

@@ -13,6 +13,7 @@ export const TREE_MODE_LABEL: Record<TreeLayoutMode, string> = {
 
 export interface LayoutTreeNode {
   id: number
+  isAssistant?: boolean
   children: LayoutTreeNode[]
 }
 
@@ -158,6 +159,45 @@ function placeBalancedBoth(
   return { placed, lines, lastMid, bottom }
 }
 
+function placeAssistants(
+  items: Lay[],
+  startY: number,
+  opts: LayoutOpts,
+  cfg: NodeCfg
+): { placed: Lay[]; lines: LineSeg[]; lastMid: number; bottom: number; maxX: number } {
+  const { cw, cx, indent, stack } = cfg
+  const placed: Lay[] = []
+  const lines: LineSeg[] = []
+  let leftCursor = startY
+  let rightCursor = startY
+  let lastMid = 0
+  let maxX = cw
+
+  for (const k of items) {
+    // 1 assistant hangs right; 2+ alternate right-first then whichever side is shorter
+    const side: 'l' | 'r' = rightCursor <= leftCursor ? 'r' : 'l'
+    const y = side === 'r' ? rightCursor : leftCursor
+    const dx = side === 'r' ? cx + indent - k.minX : cx - indent - k.maxX
+    const dy = y - k.minY
+    const shifted = shiftLay(k, dx, dy)
+    placed.push(shifted)
+    maxX = Math.max(maxX, shifted.maxX)
+    const mid = dy + opts.getHeight(k.cards[0].id) / 2
+    lastMid = Math.max(lastMid, mid)
+    lines.push(
+      side === 'r'
+        ? { x1: cx, y1: mid, x2: dx, y2: mid }
+        : { x1: cx, y1: mid, x2: dx + cw, y2: mid }
+    )
+    const h = k.maxY - k.minY
+    if (side === 'r') rightCursor += h + stack
+    else leftCursor += h + stack
+  }
+
+  const bottom = Math.max(leftCursor, rightCursor) - stack
+  return { placed, lines, lastMid, bottom, maxX }
+}
+
 function layoutNode(
   node: LayoutTreeNode,
   depth: number,
@@ -177,59 +217,109 @@ function layoutNode(
   if (!opts.isOpen(node, depth) || node.children.length === 0) return self
 
   const kids = node.children.map(c => layoutNode(c, depth + 1, opts, cfg))
+  const assistKids: Lay[] = []
+  const regularNodes: LayoutTreeNode[] = []
+  const regularKids: Lay[] = []
+  node.children.forEach((childNode, idx) => {
+    if (childNode.isAssistant) {
+      assistKids.push(kids[idx])
+    } else {
+      regularNodes.push(childNode)
+      regularKids.push(kids[idx])
+    }
+  })
+
+  const assistPack = assistKids.length > 0 ? placeAssistants(assistKids, H + 16, opts, cfg) : null
+  if (assistPack && regularKids.length === 0) {
+    return join([
+      self,
+      ...assistPack.placed,
+      EMPTY_LINES_BOX([{ x1: cx, y1: H, x2: cx, y2: Math.max(H, assistPack.lastMid) }, ...assistPack.lines]),
+    ])
+  }
+
+  const activeKids = regularKids
+  const activeNodes = regularNodes
+  const childStartY = assistPack ? assistPack.bottom + drop : H + drop
+  const hangStartY = assistPack ? assistPack.bottom + 18 : H + 18
   const mode = opts.getMode(node.id)
 
   if (mode === 'auto') {
     const leafKids: Lay[] = []
     const branchKids: Lay[] = []
-    node.children.forEach((childNode, idx) => {
-      if (opts.isOpen(childNode, depth + 1)) branchKids.push(kids[idx])
-      else leafKids.push(kids[idx])
+    activeNodes.forEach((childNode, idx) => {
+      if (opts.isOpen(childNode, depth + 1)) branchKids.push(activeKids[idx])
+      else leafKids.push(activeKids[idx])
     })
 
     // Case 1: Only leaves -> balanced 2-column hanging if 3+, else single horizontal row
     if (branchKids.length === 0) {
-      if (kids.length >= 3) {
-        const pack = placeBalancedBoth(kids, H + 18, opts, cfg)
+      if (activeKids.length >= 3) {
+        const pack = placeBalancedBoth(activeKids, hangStartY, opts, cfg)
         return join([
           self,
+          ...(assistPack ? assistPack.placed : []),
           ...pack.placed,
-          EMPTY_LINES_BOX([{ x1: cx, y1: H, x2: cx, y2: Math.max(H, pack.lastMid) }, ...pack.lines]),
+          EMPTY_LINES_BOX([
+            { x1: cx, y1: H, x2: cx, y2: Math.max(H, pack.lastMid) },
+            ...(assistPack ? assistPack.lines : []),
+            ...pack.lines,
+          ]),
         ])
       }
-      const rowPack = placeSingleRow(kids, H + drop, H, cfg)
-      return join([self, ...rowPack.parts, EMPTY_LINES_BOX(rowPack.lines)])
+      const rowPack = placeSingleRow(activeKids, childStartY, H, cfg)
+      return join([
+        self,
+        ...(assistPack ? assistPack.placed : []),
+        ...rowPack.parts,
+        EMPTY_LINES_BOX([...(assistPack ? assistPack.lines : []), ...rowPack.lines]),
+      ])
     }
 
     // Case 2: Mixed 2+ leaves + open branches -> hang leaves in 2 balanced columns, open branches in 1 clean row below
     if (leafKids.length >= 2) {
-      const leafPack = placeBalancedBoth(leafKids, H + 18, opts, cfg)
+      const leafPack = placeBalancedBoth(leafKids, hangStartY, opts, cfg)
       const branchPack = placeSingleRow(branchKids, leafPack.bottom + drop, H, cfg)
       return join([
         self,
+        ...(assistPack ? assistPack.placed : []),
         ...leafPack.placed,
         ...branchPack.parts,
-        EMPTY_LINES_BOX([...leafPack.lines, ...branchPack.lines]),
+        EMPTY_LINES_BOX([
+          ...(assistPack ? assistPack.lines : []),
+          ...leafPack.lines,
+          ...branchPack.lines,
+        ]),
       ])
     }
 
     // Case 3: <2 leaves with open branches -> keep all siblings aligned on one horizontal row
-    const rowPack = placeSingleRow(kids, H + drop, H, cfg)
-    return join([self, ...rowPack.parts, EMPTY_LINES_BOX(rowPack.lines)])
+    const rowPack = placeSingleRow(activeKids, childStartY, H, cfg)
+    return join([
+      self,
+      ...(assistPack ? assistPack.placed : []),
+      ...rowPack.parts,
+      EMPTY_LINES_BOX([...(assistPack ? assistPack.lines : []), ...rowPack.lines]),
+    ])
   }
 
   if (mode === 'v') {
-    const rowPack = placeSingleRow(kids, H + drop, H, cfg)
-    return join([self, ...rowPack.parts, EMPTY_LINES_BOX(rowPack.lines)])
+    const rowPack = placeSingleRow(activeKids, childStartY, H, cfg)
+    return join([
+      self,
+      ...(assistPack ? assistPack.placed : []),
+      ...rowPack.parts,
+      EMPTY_LINES_BOX([...(assistPack ? assistPack.lines : []), ...rowPack.lines]),
+    ])
   }
 
   if (mode === 'h') {
-    const x0 = cw + 40
-    const spineX = cw + 20
+    const x0 = assistPack ? Math.max(cw + 40, assistPack.maxX + 36) : cw + 40
+    const spineX = x0 - 20
     let cursor = 0
     const placed: Lay[] = []
     const centers: number[] = []
-    for (const k of kids) {
+    for (const k of activeKids) {
       const dy = cursor - k.minY
       placed.push(shiftLay(k, x0, dy))
       centers.push(dy + opts.getHeight(k.cards[0].id) / 2)
@@ -246,15 +336,24 @@ function layoutNode(
     for (const c of cs) {
       lines.push({ x1: spineX, y1: c, x2: x0, y2: c })
     }
-    return join([self, ...kidsL, EMPTY_LINES_BOX(lines)])
+    if (assistPack) {
+      lines.push({ x1: cx, y1: H, x2: cx, y2: Math.max(H, assistPack.lastMid) })
+      lines.push(...assistPack.lines)
+    }
+    return join([self, ...(assistPack ? assistPack.placed : []), ...kidsL, EMPTY_LINES_BOX(lines)])
   }
 
   if (mode === 'both') {
-    const pack = placeBalancedBoth(kids, H + 18, opts, cfg)
+    const pack = placeBalancedBoth(activeKids, hangStartY, opts, cfg)
     return join([
       self,
+      ...(assistPack ? assistPack.placed : []),
       ...pack.placed,
-      EMPTY_LINES_BOX([{ x1: cx, y1: H, x2: cx, y2: Math.max(H, pack.lastMid) }, ...pack.lines]),
+      EMPTY_LINES_BOX([
+        { x1: cx, y1: H, x2: cx, y2: Math.max(H, pack.lastMid) },
+        ...(assistPack ? assistPack.lines : []),
+        ...pack.lines,
+      ]),
     ])
   }
 
@@ -262,9 +361,9 @@ function layoutNode(
   const placed: Lay[] = []
   const lines: LineSeg[] = []
   let lastMid = H
-  let cursor = H + 18
+  let cursor = hangStartY
 
-  for (const k of kids) {
+  for (const k of activeKids) {
     const dx = mode === 'r' ? cx + indent - k.minX : cx - indent - k.maxX
     const dy = cursor - k.minY
     placed.push(shiftLay(k, dx, dy))
@@ -279,7 +378,12 @@ function layoutNode(
   }
 
   lines.unshift({ x1: cx, y1: H, x2: cx, y2: lastMid })
-  return join([self, ...placed, EMPTY_LINES_BOX(lines)])
+  return join([
+    self,
+    ...(assistPack ? assistPack.placed : []),
+    ...placed,
+    EMPTY_LINES_BOX([...(assistPack ? assistPack.lines : []), ...lines]),
+  ])
 }
 
 export function layoutForest(

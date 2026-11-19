@@ -1,5 +1,6 @@
 import { guardDlerPage } from '../guard'
 import { daysInMonth, type DlerDailyM3, type DlerDepartment, type DlerProject } from '@/lib/dler-math'
+import { isCastcoreConfigured } from '@/lib/dler-castcore'
 import M3InputClient from './M3InputClient'
 
 export const dynamic = 'force-dynamic'
@@ -36,6 +37,7 @@ export default async function DlerM3Page(props: {
       departments={(deptsRes.data ?? []) as DlerDepartment[]}
       projects={(projsRes.data ?? []) as DlerProject[]}
       entries={(m3Res.data ?? []) as DlerDailyM3[]}
+      castcoreConfigured={isCastcoreConfigured()}
     />
   )
 }

@@ -1,10 +1,13 @@
 'use client'
 
 import React, { useMemo, useState, useTransition } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Boxes, Calendar, ChevronLeft, ChevronRight, Save, CheckCircle2, AlertTriangle, X, CloudCog } from 'lucide-react'
-import { listMonthDates, type DlerDailyM3, type DlerDepartment, type DlerProject } from '@/lib/dler-math'
-import { saveDailyM3Batch } from '../actions'
+import {
+  Boxes, Calendar, ChevronLeft, ChevronRight, Save, CheckCircle2, AlertTriangle, X, CloudCog, RefreshCw,
+} from 'lucide-react'
+import { daysInMonth, listMonthDates, type DlerDailyM3, type DlerDepartment, type DlerProject } from '@/lib/dler-math'
+import { saveDailyM3Batch, syncM3FromCastcore } from '../actions'
 
 function shiftDate(dateStr: string, delta: number): string {
   const dt = new Date(`${dateStr}T00:00:00Z`)
@@ -24,17 +27,25 @@ export default function M3InputClient({
   departments,
   projects,
   entries,
+  castcoreConfigured,
 }: {
   month: string
   selectedDate: string
   departments: DlerDepartment[]
   projects: DlerProject[]
   entries: DlerDailyM3[]
+  castcoreConfigured: boolean
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [mode, setMode] = useState<'daily' | 'matrix'>('daily')
-  const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
+  const [feedback, setFeedback] = useState<{ kind: 'ok' | 'warn' | 'err'; text: string } | null>(null)
+
+  const [syncModalOpen, setSyncModalOpen] = useState(false)
+  const [syncRangeMode, setSyncRangeMode] = useState<'month' | 'day' | '7days'>('month')
+  const [overwriteManual, setOverwriteManual] = useState(false)
+  const [syncing, setSyncing] = useState(false)
+  const [syncError, setSyncError] = useState<string | null>(null)
 
   const monthDates = useMemo(() => listMonthDates(month), [month])
   const productionDepts = useMemo(() => departments.filter(d => d.kind === 'production'), [departments])
@@ -88,29 +99,48 @@ export default function M3InputClient({
     const batch: Parameters<typeof saveDailyM3Batch>[0] = []
     for (const p of projects) {
       const d = dailyDrafts[`project:${p.id}`]
-      batch.push({
-        entry_date: selectedDate,
-        target_type: 'project',
-        project_id: p.id,
-        m3_volume: Number(d?.val) || 0,
-        remarks: d?.remarks || null,
-      })
+      const nextVol = Number(d?.val) || 0
+      const nextRemarks = d?.remarks?.trim() || null
+      const existing = entryMap.get(`project:${selectedDate}:${p.id}`)
+      const prevVol = existing ? Number(existing.m3_volume) || 0 : 0
+      const prevRemarks = existing?.remarks?.trim() || null
+      if (existing ? nextVol !== prevVol || nextRemarks !== prevRemarks : nextVol !== 0 || nextRemarks !== null) {
+        batch.push({
+          entry_date: selectedDate,
+          target_type: 'project',
+          project_id: p.id,
+          m3_volume: nextVol,
+          remarks: nextRemarks,
+        })
+      }
     }
     for (const dep of productionDepts) {
       const d = dailyDrafts[`department:${dep.id}`]
-      batch.push({
-        entry_date: selectedDate,
-        target_type: 'department',
-        department_id: dep.id,
-        m3_volume: Number(d?.val) || 0,
-        remarks: d?.remarks || null,
-      })
+      const nextVol = Number(d?.val) || 0
+      const nextRemarks = d?.remarks?.trim() || null
+      const existing = entryMap.get(`department:${selectedDate}:${dep.id}`)
+      const prevVol = existing ? Number(existing.m3_volume) || 0 : 0
+      const prevRemarks = existing?.remarks?.trim() || null
+      if (existing ? nextVol !== prevVol || nextRemarks !== prevRemarks : nextVol !== 0 || nextRemarks !== null) {
+        batch.push({
+          entry_date: selectedDate,
+          target_type: 'department',
+          department_id: dep.id,
+          m3_volume: nextVol,
+          remarks: nextRemarks,
+        })
+      }
+    }
+
+    if (batch.length === 0) {
+      setFeedback({ kind: 'ok', text: 'No changes to save.' })
+      return
     }
 
     startTransition(async () => {
       try {
         await saveDailyM3Batch(batch)
-        setFeedback({ kind: 'ok', text: `Saved m³ production for ${selectedDate}.` })
+        setFeedback({ kind: 'ok', text: `Saved ${batch.length} updated m³ row(s) for ${selectedDate}.` })
         router.refresh()
       } catch (err: any) {
         setFeedback({ kind: 'err', text: err?.message ?? 'Save failed' })
@@ -139,26 +169,105 @@ export default function M3InputClient({
     })
   }
 
+  function getSyncRange(): { startDate: string; endDate: string } {
+    if (syncRangeMode === 'day') {
+      return { startDate: selectedDate, endDate: selectedDate }
+    }
+    if (syncRangeMode === '7days') {
+      return { startDate: shiftDate(selectedDate, -6), endDate: selectedDate }
+    }
+    const monthEnd = `${month}-${String(daysInMonth(month)).padStart(2, '0')}`
+    return { startDate: `${month}-01`, endDate: monthEnd }
+  }
+
+  async function handleRunCastcoreSync() {
+    const { startDate, endDate } = getSyncRange()
+    setFeedback(null)
+    setSyncError(null)
+    setSyncing(true)
+    try {
+      const res = await syncM3FromCastcore({
+        startDate,
+        endDate,
+        overwriteManual,
+      })
+      const parts = [
+        `Castcore sync (${res.startDate} to ${res.endDate}): ${res.upsertedRows} cell(s) updated`,
+        `${res.totalCastM3Synced.toLocaleString(undefined, { maximumFractionDigits: 2 })} m³ cast across ${res.matchedProjects} matched project(s)`,
+      ]
+      if (res.zeroClearedRows > 0) parts.push(`${res.zeroClearedRows} cleared to 0`)
+      if (res.skippedManualRows > 0) parts.push(`${res.skippedManualRows} manual cell(s) skipped`)
+      if (res.unmappedWithVolume.length > 0) {
+        parts.push(
+          `Unmapped with cast m³: ${res.unmappedWithVolume
+            .map(u => `${u.code} (${u.totalCastM3.toFixed(2)} m³)`)
+            .join(', ')}`
+        )
+      }
+      if (res.partial) {
+        const errNote =
+          res.partialProjects.length > 0
+            ? res.partialProjects.map(pp => `${pp.code}: ${pp.error}`).join('; ')
+            : 'Partial response from Castcore — affected projects skipped; retry later.'
+        parts.push(`Partial warning: ${errNote}`)
+      }
+      setFeedback({ kind: res.partial ? 'warn' : 'ok', text: parts.join(' · ') })
+      setSyncModalOpen(false)
+      router.refresh()
+    } catch (err: any) {
+      setSyncError(err?.message ?? 'Castcore sync failed')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
+  const previewRange = getSyncRange()
+
   return (
     <div className={`max-w-[1600px] mx-auto p-4 md:p-6 space-y-5 transition-opacity ${isPending ? 'opacity-70' : ''}`}>
       {/* Header */}
       <div className="bg-white border border-slate-200 rounded-2xl p-4 md:p-5 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-xl md:text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
               <Boxes className="w-6 h-6 text-sky-600" />
               Daily m³ Volume Input (David)
             </h1>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">
-              <CloudCog className="w-3 h-3" /> Manual Input (Stage 2: ERP Sync Ready)
+            <span
+              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                castcoreConfigured
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                  : 'bg-amber-50 text-amber-700 border-amber-200'
+              }`}
+            >
+              <CloudCog className="w-3 h-3" />
+              {castcoreConfigured ? 'Castcore Sync Connected' : 'Castcore Env Missing'}
             </span>
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            Enter daily concrete production volume (m³) per project &amp; production department.
+            Enter or sync daily precast casting volume (m³) per project &amp; production department.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            type="button"
+            disabled={syncing || isPending || !castcoreConfigured}
+            onClick={() => {
+              setSyncError(null)
+              setSyncModalOpen(true)
+            }}
+            title={
+              castcoreConfigured
+                ? 'Pull daily Casting Volume (m³) from Castcore Production Summary API'
+                : 'Set CASTCORE_API_HOST and CASTCORE_API_KEY in server env vars'
+            }
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold shadow-xs disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
+            {syncing ? 'Syncing…' : 'Sync from Castcore'}
+          </button>
+
           <div className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200 text-xs font-semibold">
             <button
               type="button"
@@ -216,14 +325,16 @@ export default function M3InputClient({
           className={`flex items-center justify-between px-4 py-2.5 rounded-xl border text-xs font-medium ${
             feedback.kind === 'ok'
               ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              : feedback.kind === 'warn'
+              ? 'bg-amber-50 border-amber-200 text-amber-900'
               : 'bg-rose-50 border-rose-200 text-rose-800'
           }`}
         >
           <span className="flex items-center gap-2">
-            {feedback.kind === 'ok' ? <CheckCircle2 className="w-4 h-4" /> : <AlertTriangle className="w-4 h-4" />}
-            {feedback.text}
+            {feedback.kind === 'ok' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertTriangle className="w-4 h-4 shrink-0" />}
+            <span>{feedback.text}</span>
           </span>
-          <button onClick={() => setFeedback(null)}><X className="w-4 h-4" /></button>
+          <button onClick={() => setFeedback(null)} className="shrink-0 ml-2"><X className="w-4 h-4" /></button>
         </div>
       )}
 
@@ -256,21 +367,44 @@ export default function M3InputClient({
               <tbody className="divide-y divide-slate-100">
                 {projects.map(p => {
                   const key = `project:${p.id}`
+                  const existing = entryMap.get(`project:${selectedDate}:${p.id}`)
                   const d = dailyDrafts[key] ?? { val: '', remarks: '' }
                   const deptName = p.department_id ? deptMap.get(p.department_id)?.name : 'Unassigned'
                   return (
                     <tr key={key} className="hover:bg-sky-50/30">
-                      <td className="px-4 py-2 font-semibold text-slate-900">{p.name}</td>
+                      <td className="px-4 py-2 font-semibold text-slate-900">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span>{p.name}</span>
+                          {p.erp_code ? (
+                            <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
+                              {p.erp_code}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-normal text-slate-400 italic">Unmapped</span>
+                          )}
+                          {existing?.source === 'erp_sync' ? (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 border border-sky-200 font-semibold">
+                              Castcore
+                            </span>
+                          ) : existing?.source === 'manual' ? (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200 font-semibold">
+                              Manual
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
                       <td className="px-4 py-2 text-slate-500">{deptName}</td>
                       <td className="px-4 py-2 text-right">
                         <input
                           type="number"
-                          step="0.1"
+                          step="any"
                           min={0}
                           value={d.val}
                           placeholder="0.0"
                           onChange={e => setDailyDrafts(prev => ({ ...prev, [key]: { ...d, val: e.target.value } }))}
-                          className="w-28 text-right border border-slate-300 rounded-lg px-2.5 py-1.5 font-semibold tabular-nums"
+                          className={`w-28 text-right border rounded-lg px-2.5 py-1.5 font-semibold tabular-nums ${
+                            existing?.source === 'erp_sync' ? 'border-sky-300 bg-sky-50/40' : 'border-slate-300'
+                          }`}
                         />
                       </td>
                       <td className="px-4 py-2">
@@ -301,7 +435,7 @@ export default function M3InputClient({
                       <td className="px-4 py-2 text-right">
                         <input
                           type="number"
-                          step="0.1"
+                          step="any"
                           min={0}
                           value={d.val}
                           placeholder="0.0"
@@ -327,14 +461,17 @@ export default function M3InputClient({
         </div>
       ) : (
         <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
-          <div className="px-4 py-2.5 border-b border-slate-200 bg-slate-50 text-xs text-slate-500">
-            Click any cell to edit daily m³ for {month} (saves automatically when leaving the field).
+          <div className="px-4 py-2.5 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+            <span>Click any cell to edit daily m³ for {month} (saves automatically when leaving the field).</span>
+            <span className="inline-flex items-center gap-2 text-[11px]">
+              <span className="inline-block w-3 h-3 rounded bg-sky-50 border border-sky-200 align-middle" /> Castcore Synced
+            </span>
           </div>
           <div className="overflow-auto max-h-[68vh]">
             <table className="text-[11px] border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
-                  <th className="sticky left-0 top-0 z-30 bg-slate-50 px-3 py-2 text-left whitespace-nowrap min-w-[150px] border-r border-slate-200">
+                  <th className="sticky left-0 top-0 z-30 bg-slate-50 px-3 py-2 text-left whitespace-nowrap min-w-[180px] border-r border-slate-200">
                     Project / Dept
                   </th>
                   {monthDates.map(dt => (
@@ -354,7 +491,16 @@ export default function M3InputClient({
                   return (
                     <tr key={`p-${p.id}`} className="hover:bg-slate-50/70">
                       <td className="sticky left-0 z-10 bg-white px-3 py-1 font-semibold text-slate-900 whitespace-nowrap border-r border-slate-200">
-                        {p.name}
+                        <div className="flex items-center gap-1.5">
+                          <span>{p.name}</span>
+                          {p.erp_code ? (
+                            <span className="font-mono text-[9px] px-1 py-0.2 rounded bg-slate-100 text-slate-500 border border-slate-200">
+                              {p.erp_code}
+                            </span>
+                          ) : (
+                            <span className="text-[9px] font-normal text-slate-400 italic">Unmapped</span>
+                          )}
+                        </div>
                       </td>
                       {monthDates.map(dt => {
                         const existing = entryMap.get(`project:${dt}:${p.id}`)
@@ -362,16 +508,28 @@ export default function M3InputClient({
                         return (
                           <td key={dt} className="p-0.5 text-center">
                             <input
+                              key={`m3-${p.id}-${dt}-${v}-${existing?.source ?? ''}`}
                               type="number"
-                              step="0.1"
+                              step="any"
                               min={0}
                               defaultValue={v}
+                              title={
+                                existing?.source === 'erp_sync'
+                                  ? 'Synced from Castcore (edit to override manually)'
+                                  : existing?.source === 'manual'
+                                  ? 'Manual entry'
+                                  : undefined
+                              }
                               onBlur={e => {
                                 const next = Number(e.target.value) || 0
                                 const prev = Number(existing?.m3_volume ?? 0)
                                 if (next !== prev) saveMatrixCell('project', p.id, dt, next)
                               }}
-                              className="w-11 text-center border border-slate-200 rounded py-0.5 tabular-nums"
+                              className={`w-12 text-center border rounded py-0.5 tabular-nums ${
+                                existing?.source === 'erp_sync'
+                                  ? 'bg-sky-50/50 border-sky-200 text-sky-900'
+                                  : 'border-slate-200'
+                              }`}
                             />
                           </td>
                         )
@@ -384,6 +542,123 @@ export default function M3InputClient({
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {syncModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200">
+              <div className="flex items-center gap-2 font-bold text-slate-900 text-sm">
+                <RefreshCw className="w-4 h-4 text-teal-600" />
+                Sync Casting m³ from Castcore
+              </div>
+              <button
+                type="button"
+                disabled={syncing}
+                onClick={() => setSyncModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-40"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs">
+              {syncError && (
+                <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-rose-800">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{syncError}</span>
+                </div>
+              )}
+
+              <div>
+                <div className="font-semibold text-slate-700 mb-1.5">Date Range (max 31 days per request)</div>
+                <div className="space-y-2">
+                  {[
+                    {
+                      value: 'month' as const,
+                      title: `Full Month (${month})`,
+                      desc: `${month}-01 to ${month}-${String(daysInMonth(month)).padStart(2, '0')}`,
+                    },
+                    {
+                      value: 'day' as const,
+                      title: `Selected Date (${selectedDate})`,
+                      desc: `Single day sync for ${selectedDate}`,
+                    },
+                    {
+                      value: '7days' as const,
+                      title: 'Last 7 Days',
+                      desc: `${shiftDate(selectedDate, -6)} to ${selectedDate}`,
+                    },
+                  ].map(opt => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      disabled={syncing}
+                      onClick={() => setSyncRangeMode(opt.value)}
+                      className={`w-full text-left px-3 py-2 rounded-xl border transition ${
+                        syncRangeMode === opt.value
+                          ? 'border-teal-500 bg-teal-50/70 text-teal-950'
+                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="font-semibold">{opt.title}</div>
+                      <div className="text-[11px] text-slate-500 mt-0.5 font-mono">{opt.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer select-none pt-1">
+                <input
+                  type="checkbox"
+                  disabled={syncing}
+                  checked={overwriteManual}
+                  onChange={e => setOverwriteManual(e.target.checked)}
+                  className="mt-0.5 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+                />
+                <span>
+                  <span className="font-semibold text-slate-900 block">Overwrite manually edited cells</span>
+                  <span className="text-[11px] text-slate-500">
+                    Leave unchecked to protect cells entered manually in DLER; only Castcore-synced or empty cells are updated.
+                  </span>
+                </span>
+              </label>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[11px] text-slate-600 space-y-1">
+                <div>
+                  Pulls <b>Casting volume (m³)</b> for <b>{previewRange.startDate}</b> to <b>{previewRange.endDate}</b> matched by project <b>ERP Code</b> (max 31 days/request, 60 req/min limit).
+                </div>
+                <div>
+                  Manage project ERP code mappings in{' '}
+                  <Link href="/dler/config" className="font-semibold text-teal-700 hover:underline">
+                    DLER &gt; Config
+                  </Link>
+                  .
+                </div>
+              </div>
+            </div>
+
+            <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                disabled={syncing}
+                onClick={() => setSyncModalOpen(false)}
+                className="px-3.5 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-700 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={syncing}
+                onClick={handleRunCastcoreSync}
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
+                {syncing ? 'Syncing from Castcore…' : 'Start Sync'}
+              </button>
+            </div>
           </div>
         </div>
       )}

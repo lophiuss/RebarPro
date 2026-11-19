@@ -197,6 +197,9 @@ export default function ConfigClient({
               onChange={e => setCfg({ ...cfg, erp_sync_url: e.target.value })}
               className="mt-1 w-full border border-slate-300 rounded-lg px-2.5 py-2"
             />
+            <span className="mt-1 block text-[11px] text-slate-400">
+              Castcore m³ sync uses server env vars (CASTCORE_API_HOST / KEY / COMPANY_ID) and runs daily at 06:30 MYT.
+            </span>
           </label>
         </div>
 
@@ -414,7 +417,7 @@ export default function ConfigClient({
             <option value="">No department</option>
             {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
-          <input value={newProj.erp_code} onChange={e => setNewProj({ ...newProj, erp_code: e.target.value })} placeholder="ERP Code (optional)" className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs w-36" />
+          <input value={newProj.erp_code} onChange={e => setNewProj({ ...newProj, erp_code: e.target.value })} placeholder="Castcore Code (e.g. P2407)" className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs w-44 font-mono" />
           <button type="submit" className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-sky-600 text-white text-xs font-semibold">
             <Plus className="w-3.5 h-3.5" /> Add Project
           </button>
@@ -426,7 +429,7 @@ export default function ConfigClient({
               <tr className="border-b border-slate-200 text-slate-500 uppercase text-[10px] text-left">
                 <th className="py-2">Project Name</th>
                 <th className="py-2">Department</th>
-                <th className="py-2">ERP Code</th>
+                <th className="py-2">Castcore ERP Code</th>
                 <th className="py-2">Status</th>
                 <th className="py-2 text-right">Actions</th>
               </tr>
@@ -462,11 +465,12 @@ export default function ConfigClient({
                   </td>
                   <td className="py-1.5">
                     <input
+                      key={`erp-${p.id}-${p.erp_code ?? ''}`}
                       defaultValue={p.erp_code ?? ''}
-                      placeholder="ERP code"
+                      placeholder="e.g. P2407"
                       onBlur={e =>
-                        (e.target.value || '') !== (p.erp_code || '') &&
-                        run(() => saveDlerProject(p.id, { name: p.name, factory_id: p.factory_id, department_id: p.department_id, status: p.status, erp_code: e.target.value || null }), 'Updated ERP code.')
+                        (e.target.value.trim() || '') !== (p.erp_code || '') &&
+                        run(() => saveDlerProject(p.id, { name: p.name, factory_id: p.factory_id, department_id: p.department_id, status: p.status, erp_code: e.target.value.trim() || null }), 'Updated ERP code.')
                       }
                       className="border border-slate-200 rounded px-2 py-1 w-28 font-mono"
                     />

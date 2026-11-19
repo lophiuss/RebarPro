@@ -45,6 +45,7 @@ export interface DlerPerson {
   designation: string | null
   department_id: number | null
   reports_to_id: number | null
+  is_assistant?: boolean
   status: 'Active' | 'Inactive' | 'On Leave'
   plantpro_worker_id: number | null
   profile_id?: string | null
@@ -247,6 +248,8 @@ export interface DailySeriesPoint {
   m3Volume: number
   dler: number | null
   costPerM3: number | null
+  activeStaff?: number
+  activeWorkers?: number
 }
 
 export interface MonthlySeriesPoint {
@@ -478,6 +481,28 @@ export function aggregateDailyAndMonthlyDler(input: {
     headcountWorker: 0,
     fteAllocated: 0,
   })
+
+  const buildUnassignedDeptRow = (b: CostBucket): AggregatedMetricRow | null => {
+    if (b.headcountStaff <= 0 && b.headcountWorker <= 0 && b.totalCost <= 0) return null
+    return {
+      id: 0,
+      name: 'Unassigned (No Dept)',
+      kind: 'support',
+      headcountStaff: b.headcountStaff,
+      headcountWorker: b.headcountWorker,
+      staffCost: round2(b.staffCost),
+      workerBaseCost: round2(b.workerBaseCost),
+      workerOtCost: round2(b.workerOtCost),
+      staffOtCost: round2(b.staffOtCost),
+      totalCost: round2(b.totalCost),
+      grossProfit: 0,
+      gpSource: 'none',
+      m3Volume: 0,
+      dler: null,
+      costPerM3: null,
+      m3Per1kCost: null,
+    }
+  }
 
   // Helper to resolve daily GP for an entity on a given date
   function resolveDailyGp(
@@ -776,7 +801,10 @@ export function aggregateDailyAndMonthlyDler(input: {
       }
     })
 
-    byDepartmentMonthly[m] = deptRows
+    byDepartmentMonthly[m] = [
+      ...deptRows,
+      ...(buildUnassignedDeptRow(unassignedDeptCost) ? [buildUnassignedDeptRow(unassignedDeptCost)!] : []),
+    ]
     byProjectMonthly[m] = projRows
     byFactoryMonthly[m] = facRows
 
@@ -872,12 +900,13 @@ export function aggregateDailyAndMonthlyDler(input: {
         includeBaseOnSundayHoliday: settings.include_base_on_sunday_holiday,
       })
 
+      const isPresent = person.status !== 'Inactive' && !isAbsent
       if (person.person_type === 'STAFF') {
-        if (person.status !== 'Inactive' && !isAbsent) activeStaff++
+        if (isPresent) activeStaff++
         dayStaffCost += res.totalCost
         dayStaffOtCost += res.otCost
       } else {
-        if (person.status !== 'Inactive' && !isAbsent) activeWorkers++
+        if (isPresent) activeWorkers++
         dayWorkerBaseCost += res.baseCost
         dayWorkerOtCost += res.otCost
       }
@@ -887,11 +916,11 @@ export function aggregateDailyAndMonthlyDler(input: {
           ? deptCost.get(person.department_id)!
           : unassignedDeptCost
       if (person.person_type === 'STAFF') {
-        dBucket.headcountStaff += 1
+        if (isPresent) dBucket.headcountStaff += 1
         dBucket.staffCost += res.totalCost
         dBucket.staffOtCost += res.otCost
       } else {
-        dBucket.headcountWorker += 1
+        if (isPresent) dBucket.headcountWorker += 1
         dBucket.workerBaseCost += res.baseCost
         dBucket.workerOtCost += res.otCost
       }
@@ -903,11 +932,11 @@ export function aggregateDailyAndMonthlyDler(input: {
         if (!pBucket) continue
         const share = a.percentage / 100
         if (person.person_type === 'STAFF') {
-          pBucket.headcountStaff += 1
+          if (isPresent) pBucket.headcountStaff += 1
           pBucket.staffCost += res.totalCost * share
           pBucket.staffOtCost += res.otCost * share
         } else {
-          pBucket.headcountWorker += 1
+          if (isPresent) pBucket.headcountWorker += 1
           pBucket.workerBaseCost += res.baseCost * share
           pBucket.workerOtCost += res.otCost * share
         }
@@ -1055,7 +1084,7 @@ export function aggregateDailyAndMonthlyDler(input: {
     })
 
     const facById = new Map(fRows.map(f => [f.id, f]))
-    const dRows = dRowsRaw.map(d => {
+    const dRows: AggregatedMetricRow[] = dRowsRaw.map(d => {
       const f = d.factoryId != null ? facById.get(d.factoryId) : undefined
       return {
         ...d,
@@ -1063,6 +1092,9 @@ export function aggregateDailyAndMonthlyDler(input: {
         benchmarkFactoryCostPerM3: f && f.m3Volume > 0 ? calcCostPerM3(d.totalCost, f.m3Volume) : null,
       }
     })
+
+    const uDailyDept = buildUnassignedDeptRow(unassignedDeptCost)
+    if (uDailyDept) dRows.push(uDailyDept)
 
     const dayCost = round2(dayStaffCost + dayWorkerBaseCost + dayWorkerOtCost)
     const dayGp = round2(fRows.reduce((s, f) => s + f.grossProfit, 0))
@@ -1080,6 +1112,8 @@ export function aggregateDailyAndMonthlyDler(input: {
       m3Volume: dayM3,
       dler: calcDler(dayGp, dayCost),
       costPerM3: calcCostPerM3(dayCost, dayM3),
+      activeStaff,
+      activeWorkers,
     })
 
     if (dt <= selectedDate) {
