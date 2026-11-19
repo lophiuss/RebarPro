@@ -1,11 +1,11 @@
 'use client'
 
-import React, { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Network, Table2, Plus, Search, RefreshCw, Pencil, Trash2, X,
   Building2, FolderKanban, Users, ChevronDown, ChevronRight, Minus, Maximize2, Minimize2, Crosshair, Scan, CheckCircle2, AlertTriangle,
-  ArrowUp, ArrowDown, UserPlus, Unlink, Check
+  ArrowUp, ArrowDown, UserPlus, Unlink, Check, Tag, Tags
 } from 'lucide-react'
 import type { DlerRole } from '../guard'
 import type { DlerAllocation, DlerDepartment, DlerPerson, DlerProject } from '@/lib/dler-math'
@@ -14,11 +14,55 @@ import {
   deleteDlerPerson,
   updatePersonParentAndDept,
   savePersonProjectAllocations,
+  bulkTagDepartment,
+  bulkTagProjects,
+  saveDlerDepartment,
+  saveDlerProject,
   syncWorkersFromPlantpro,
   syncStaffFromLogins,
   assignPeopleUnder,
   assignStaffAbove,
 } from '../actions'
+import {
+  layoutForest,
+  TREE_MODES,
+  TREE_MODE_LABEL,
+  type TreeLayoutMode,
+  type LayoutTreeNode,
+} from './treeLayout'
+
+const DLER_PREF_EVENT = 'dler-org-pref'
+
+function useDlerPref(key: string, fallback: string): [string, (value: string) => void] {
+  const subscribe = useCallback((cb: () => void) => {
+    window.addEventListener('storage', cb)
+    window.addEventListener(DLER_PREF_EVENT, cb)
+    return () => {
+      window.removeEventListener('storage', cb)
+      window.removeEventListener(DLER_PREF_EVENT, cb)
+    }
+  }, [])
+  const read = useCallback(() => {
+    try {
+      return window.localStorage.getItem(key) ?? fallback
+    } catch {
+      return fallback
+    }
+  }, [key, fallback])
+  const value = useSyncExternalStore(subscribe, read, () => fallback)
+  const set = useCallback(
+    (next: string) => {
+      try {
+        window.localStorage.setItem(key, next)
+      } catch {
+        /* ignore storage restrictions */
+      }
+      window.dispatchEvent(new Event(DLER_PREF_EVENT))
+    },
+    [key]
+  )
+  return [value, set]
+}
 
 type ScopeMode = 'overall' | 'department' | 'project'
 type ViewStyle = 'tree' | 'matrix'
@@ -30,6 +74,81 @@ interface StaffNode {
   workers: DlerPerson[]
 }
 
+const DEPT_TAG_PALETTE = [
+  'bg-emerald-50 text-emerald-800 border-emerald-200',
+  'bg-teal-50 text-teal-800 border-teal-200',
+  'bg-sky-50 text-sky-800 border-sky-200',
+  'bg-indigo-50 text-indigo-800 border-indigo-200',
+  'bg-violet-50 text-violet-800 border-violet-200',
+  'bg-amber-50 text-amber-800 border-amber-200',
+  'bg-rose-50 text-rose-800 border-rose-200',
+  'bg-cyan-50 text-cyan-800 border-cyan-200',
+  'bg-fuchsia-50 text-fuchsia-800 border-fuchsia-200',
+  'bg-orange-50 text-orange-800 border-orange-200',
+] as const
+
+function deptTagClass(dept?: DlerDepartment | null): string {
+  if (!dept) return 'bg-slate-100 text-slate-500 border-slate-200'
+  return DEPT_TAG_PALETTE[Math.abs(dept.id) % DEPT_TAG_PALETTE.length]
+}
+
+function toggleProjectTagMap(
+  prev: Record<number, string>,
+  projectId: number
+): Record<number, string> {
+  const next = { ...prev }
+  if (Object.prototype.hasOwnProperty.call(next, projectId)) {
+    delete next[projectId]
+    return next
+  }
+  if (Object.keys(next).length === 0) {
+    next[projectId] = '100'
+  } else {
+    let sum = 0
+    for (const v of Object.values(next)) sum += Number(v) || 0
+    const remaining = Math.max(0, Math.round((100 - sum) * 100) / 100)
+    next[projectId] = String(remaining)
+  }
+  return next
+}
+
+function splitProjectsEvenlyMap(prev: Record<number, string>): Record<number, string> {
+  const keys = Object.keys(prev)
+  if (keys.length === 0) return prev
+  const n = keys.length
+  const base = Math.floor(100 / n)
+  const rem = 100 - base * n
+  const next: Record<number, string> = {}
+  keys.forEach((k, idx) => {
+    next[Number(k)] = String(idx === 0 ? base + rem : base)
+  })
+  return next
+}
+
+function parseProjectAllocRows(projectAllocs: Record<number, string>): {
+  rows: { project_id: number; percentage: number }[]
+  total: number
+  error: string | null
+} {
+  const rows: { project_id: number; percentage: number }[] = []
+  let total = 0
+  for (const [pidStr, val] of Object.entries(projectAllocs)) {
+    const pct = Number(val)
+    if (Number.isNaN(pct) || pct < 0 || pct > 100) {
+      return { rows: [], total: 0, error: 'Each project % must be between 0 and 100' }
+    }
+    if (pct > 0) {
+      rows.push({ project_id: Number(pidStr), percentage: pct })
+      total += pct
+    }
+  }
+  total = Math.round(total * 100) / 100
+  if (total > 100.01) {
+    return { rows: [], total, error: `Total project allocation (${total.toFixed(1)}%) cannot exceed 100%` }
+  }
+  return { rows, total, error: null }
+}
+
 export default function OrgChartClient({
   role,
   departments,
@@ -37,6 +156,7 @@ export default function OrgChartClient({
   people,
   allocations,
   logins,
+  defaultFactoryId,
 }: {
   role: DlerRole
   departments: DlerDepartment[]
@@ -44,6 +164,7 @@ export default function OrgChartClient({
   people: DlerPerson[]
   allocations: DlerAllocation[]
   logins: { id: string; name: string; email: string }[]
+  defaultFactoryId: number
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -66,6 +187,38 @@ export default function OrgChartClient({
   const [isPanning, setIsPanning] = useState(false)
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const treeContentRef = useRef<HTMLDivElement | null>(null)
+  const positionedTreeRef = useRef<HTMLDivElement | null>(null)
+  const [cardHeights, setCardHeights] = useState<Record<number, number>>({})
+  const [layoutPref, setLayoutPref] = useDlerPref('dler-org-layout', 'auto')
+  const layoutMode: TreeLayoutMode = (TREE_MODES as string[]).includes(layoutPref)
+    ? (layoutPref as TreeLayoutMode)
+    : 'auto'
+  const [nodeModesPref, setNodeModesPref] = useDlerPref('dler-org-node-modes', '{}')
+  const nodeModes = useMemo<Record<number, TreeLayoutMode>>(() => {
+    try {
+      const parsed = JSON.parse(nodeModesPref)
+      return parsed && typeof parsed === 'object' ? parsed : {}
+    } catch {
+      return {}
+    }
+  }, [nodeModesPref])
+  const setLayoutMode = useCallback(
+    (m: TreeLayoutMode) => {
+      setLayoutPref(m)
+      setNodeModesPref('{}')
+    },
+    [setLayoutPref, setNodeModesPref]
+  )
+  const setNodeMode = useCallback(
+    (id: number, m: TreeLayoutMode | '') => {
+      const next = { ...nodeModes }
+      if (m) next[id] = m
+      else delete next[id]
+      setNodeModesPref(JSON.stringify(next))
+    },
+    [nodeModes, setNodeModesPref]
+  )
+  const overrideCount = Object.keys(nodeModes).length
   const panRef = useRef<{
     active: boolean
     moved: boolean
@@ -97,6 +250,28 @@ export default function OrgChartClient({
     query: string
     selectedIds: number[]
   } | null>(null)
+
+  const [tagModal, setTagModal] = useState<{
+    person: DlerPerson
+    departmentId: number | null
+    projectAllocs: Record<number, string>
+    projQuery: string
+    cascadeScope: 'self' | 'direct' | 'subtree'
+    cascadeDept: boolean
+    cascadeProjects: boolean
+  } | null>(null)
+  const [bulkTagModal, setBulkTagModal] = useState<{
+    filter: 'UNTAGGED_DEPT' | 'UNTAGGED_PROJ' | 'STAFF' | 'WORKER' | 'ALL'
+    query: string
+    selectedIds: number[]
+    applyDept: boolean
+    departmentId: number | null
+    applyProjects: boolean
+    projectAllocs: Record<number, string>
+    projQuery: string
+  } | null>(null)
+  const [tagBusy, setTagBusy] = useState(false)
+  const [tagError, setTagError] = useState<string | null>(null)
 
   // Modal state for Add / Edit Person + Project % Splits
   const [modalPerson, setModalPerson] = useState<{
@@ -330,15 +505,189 @@ export default function OrgChartClient({
     return out.sort((a, b) => b.pct - a.pct)
   }
 
+  function openTagModal(p: DlerPerson) {
+    const m = allocByPerson.get(p.id)
+    const projectAllocs: Record<number, string> = {}
+    if (m) {
+      for (const [pid, pct] of m.entries()) {
+        if (pct > 0) projectAllocs[pid] = String(pct)
+      }
+    }
+    setTagError(null)
+    setTagModal({
+      person: p,
+      departmentId: p.department_id ?? null,
+      projectAllocs,
+      projQuery: '',
+      cascadeScope: 'self',
+      cascadeDept: true,
+      cascadeProjects: true,
+    })
+  }
+
+  function openBulkTagModal() {
+    setTagError(null)
+    setBulkTagModal({
+      filter: 'UNTAGGED_DEPT',
+      query: '',
+      selectedIds: [],
+      applyDept: true,
+      departmentId: scope === 'department' && selectedDeptId > 0 ? selectedDeptId : departments[0]?.id ?? null,
+      applyProjects: false,
+      projectAllocs: scope === 'project' && selectedProjId > 0 ? { [selectedProjId]: '100' } : {},
+      projQuery: '',
+    })
+  }
+
+  async function handleSaveTagModal() {
+    if (!tagModal) return
+    const livePerson = personMap.get(tagModal.person.id) ?? tagModal.person
+    const { rows, error: allocErr } = parseProjectAllocRows(tagModal.projectAllocs)
+    if (allocErr) {
+      setTagError(allocErr)
+      return
+    }
+
+    const directIds = childrenByParent.get(livePerson.id) ?? []
+    const subtreeIds = Array.from(getSelfAndDescendantIds(livePerson.id))
+    const teamIds =
+      tagModal.cascadeScope === 'self'
+        ? [livePerson.id]
+        : tagModal.cascadeScope === 'direct'
+        ? [livePerson.id, ...directIds]
+        : subtreeIds
+
+    const deptTargetIds =
+      tagModal.cascadeScope !== 'self' && tagModal.cascadeDept ? teamIds : [livePerson.id]
+    const projTargetIds =
+      tagModal.cascadeScope !== 'self' && tagModal.cascadeProjects ? teamIds : [livePerson.id]
+
+    setTagBusy(true)
+    setTagError(null)
+    try {
+      const [deptRes, projRes] = await Promise.all([
+        bulkTagDepartment(deptTargetIds, tagModal.departmentId),
+        bulkTagProjects(projTargetIds, rows),
+      ])
+      const updatedCount = Math.max(deptRes.updated, projRes.updated)
+      const skippedCount = Math.max(deptRes.skipped, projRes.skipped)
+      const suffix = skippedCount > 0 ? ` (${skippedCount} outside role skipped)` : ''
+      setFeedback({
+        kind: 'ok',
+        text: `Updated Department & Project tags for ${updatedCount} ${updatedCount === 1 ? 'person' : 'people'}${suffix}`,
+      })
+      setTagModal(null)
+      router.refresh()
+    } catch (err: unknown) {
+      setTagError(err instanceof Error ? err.message : 'Failed to save tags')
+    } finally {
+      setTagBusy(false)
+    }
+  }
+
+  async function handleSaveBulkTagModal() {
+    if (!bulkTagModal) return
+    if (bulkTagModal.selectedIds.length === 0) {
+      setTagError('Select at least one person')
+      return
+    }
+    if (!bulkTagModal.applyDept && !bulkTagModal.applyProjects) {
+      setTagError('Enable Apply Department tag and/or Apply Project tags')
+      return
+    }
+    let projRows: { project_id: number; percentage: number }[] = []
+    if (bulkTagModal.applyProjects) {
+      const parsed = parseProjectAllocRows(bulkTagModal.projectAllocs)
+      if (parsed.error) {
+        setTagError(parsed.error)
+        return
+      }
+      projRows = parsed.rows
+    }
+
+    setTagBusy(true)
+    setTagError(null)
+    try {
+      let updated = 0
+      let skipped = 0
+      if (bulkTagModal.applyDept) {
+        const res = await bulkTagDepartment(bulkTagModal.selectedIds, bulkTagModal.departmentId)
+        updated = Math.max(updated, res.updated)
+        skipped = Math.max(skipped, res.skipped)
+      }
+      if (bulkTagModal.applyProjects) {
+        const res = await bulkTagProjects(bulkTagModal.selectedIds, projRows)
+        updated = Math.max(updated, res.updated)
+        skipped = Math.max(skipped, res.skipped)
+      }
+      const suffix = skipped > 0 ? ` (${skipped} outside role skipped)` : ''
+      setFeedback({
+        kind: 'ok',
+        text: `Bulk-tagged ${updated} ${updated === 1 ? 'person' : 'people'}${suffix}`,
+      })
+      setBulkTagModal(null)
+      router.refresh()
+    } catch (err: unknown) {
+      setTagError(err instanceof Error ? err.message : 'Bulk tagging failed')
+    } finally {
+      setTagBusy(false)
+    }
+  }
+
+  // Headcount badges per Department & per Project (plus Untagged counts)
+  const deptCounts = useMemo(() => {
+    const counts = new Map<number, number>()
+    let untagged = 0
+    for (const p of people) {
+      if (p.department_id == null) {
+        untagged++
+      } else {
+        counts.set(p.department_id, (counts.get(p.department_id) ?? 0) + 1)
+      }
+    }
+    return { counts, untagged }
+  }, [people])
+
+  const projCounts = useMemo(() => {
+    const counts = new Map<number, number>()
+    let untagged = 0
+    for (const p of people) {
+      const m = allocByPerson.get(p.id)
+      let total = 0
+      if (m) {
+        for (const [pid, pct] of m.entries()) {
+          if (pct > 0) {
+            total += pct
+            counts.set(pid, (counts.get(pid) ?? 0) + 1)
+          }
+        }
+      }
+      if (total <= 0) untagged++
+    }
+    return { counts, untagged }
+  }, [people, allocByPerson])
+
   // Filter people based on scope, typeFilter, and search query
   const q = query.trim().toLowerCase()
   const filteredPeople = useMemo(() => {
     return people.filter(p => {
       if (typeFilter !== 'ALL' && p.person_type !== typeFilter) return false
-      if (scope === 'department' && p.department_id !== selectedDeptId) return false
+      if (scope === 'department') {
+        if (selectedDeptId === -1) {
+          if (p.department_id != null) return false
+        } else if (p.department_id !== selectedDeptId) {
+          return false
+        }
+      }
       if (scope === 'project') {
-        const pct = allocByPerson.get(p.id)?.get(selectedProjId) ?? 0
-        if (pct <= 0) return false
+        if (selectedProjId === -1) {
+          let tot = 0
+          for (const v of allocByPerson.get(p.id)?.values() ?? []) tot += v
+          if (tot > 0) return false
+        } else {
+          const pct = allocByPerson.get(p.id)?.get(selectedProjId) ?? 0
+          if (pct <= 0) return false
+        }
       }
       if (q) {
         const hit =
@@ -438,30 +787,108 @@ export default function OrgChartClient({
     }
   }, [filteredPeople, people, personMap])
 
-  const centerCanvas = useCallback(() => {
+  const cardWidth = compactTree ? 176 : 256
+
+  const { staffNodeById, depthById, layoutRoots } = useMemo(() => {
+    const byId = new Map<number, StaffNode>()
+    const depths = new Map<number, number>()
+    const convert = (n: StaffNode, depth: number): LayoutTreeNode => {
+      byId.set(n.person.id, n)
+      depths.set(n.person.id, depth)
+      return {
+        id: n.person.id,
+        children: n.staffChildren.map(c => convert(c, depth + 1)),
+      }
+    }
+    return {
+      staffNodeById: byId,
+      depthById: depths,
+      layoutRoots: treeRoots.map(r => convert(r, 0)),
+    }
+  }, [treeRoots])
+
+  const defaultCardHeight = compactTree ? 104 : 132
+  const placement = useMemo(
+    () =>
+      layoutForest(layoutRoots, {
+        cardWidth,
+        compact: compactTree,
+        getHeight: id => cardHeights[id] ?? defaultCardHeight,
+        getMode: id => ((TREE_MODES as string[]).includes(nodeModes[id]) ? nodeModes[id] : layoutMode),
+        isOpen: node => node.children.length > 0 && !collapsedIds.has(node.id),
+      }),
+    [layoutRoots, cardWidth, compactTree, cardHeights, defaultCardHeight, nodeModes, layoutMode, collapsedIds]
+  )
+
+  useLayoutEffect(() => {
+    if (viewStyle !== 'tree') return
+    const rootEl = positionedTreeRef.current
+    if (!rootEl) return
+    let changed = false
+    const next: Record<number, number> = { ...cardHeights }
+    rootEl.querySelectorAll<HTMLElement>('[data-dler-node]').forEach(el => {
+      const id = Number(el.dataset.dlerNode)
+      if (!id) return
+      const h = el.offsetHeight
+      if (h > 0 && Math.abs((next[id] ?? -1) - h) > 0.5) {
+        next[id] = h
+        changed = true
+      }
+    })
+    if (changed) setCardHeights(next)
+  }, [viewStyle, placement, expandedCrews, compactTree, people, allocations, cardHeights])
+
+  const layoutViewportRef = useRef({
+    zoom,
+    cardWidth,
+    rootId: treeRoots[0]?.person.id,
+    cards: placement.cards,
+  })
+  layoutViewportRef.current = {
+    zoom,
+    cardWidth,
+    rootId: treeRoots[0]?.person.id,
+    cards: placement.cards,
+  }
+
+  const centerCanvas = useCallback((overrideZoom?: number) => {
     const canvas = canvasRef.current
     if (!canvas) return
+    const { zoom: curZoom, cardWidth: cw, rootId, cards } = layoutViewportRef.current
+    const z = overrideZoom ?? curZoom
+    const rootCard = rootId != null ? cards.find(c => c.id === rootId) : undefined
+    if (rootCard && treeContentRef.current) {
+      const stageLeft =
+        treeContentRef.current.getBoundingClientRect().left -
+        canvas.getBoundingClientRect().left +
+        canvas.scrollLeft
+      const target = stageLeft + (rootCard.x + cw / 2) * (z / 100) - canvas.clientWidth / 2
+      const maxScroll = Math.max(0, canvas.scrollWidth - canvas.clientWidth)
+      canvas.scrollLeft = Math.max(0, Math.min(maxScroll, target))
+      return
+    }
     canvas.scrollLeft = Math.max(0, (canvas.scrollWidth - canvas.clientWidth) / 2)
   }, [])
 
   const fitToScreen = useCallback(() => {
     const canvas = canvasRef.current
-    const content = treeContentRef.current
-    if (!canvas || !content) return
-    const currentFactor = Math.max(0.1, zoom / 100)
-    const naturalWidth = content.getBoundingClientRect().width / currentFactor
-    if (!naturalWidth || naturalWidth <= 0) return
+    if (!canvas) return
     const availableWidth = Math.max(200, canvas.clientWidth - 64)
+    let naturalWidth = placement.w
+    if (!naturalWidth && treeContentRef.current) {
+      naturalWidth = treeContentRef.current.getBoundingClientRect().width / Math.max(0.1, zoom / 100)
+    }
+    if (!naturalWidth || naturalWidth <= 0) return
     const nextZoom = Math.max(30, Math.min(100, Math.floor((availableWidth / naturalWidth) * 100)))
     setZoom(nextZoom)
-    requestAnimationFrame(() => requestAnimationFrame(centerCanvas))
-  }, [zoom, centerCanvas])
+    requestAnimationFrame(() => requestAnimationFrame(() => centerCanvas(nextZoom)))
+  }, [placement.w, zoom, centerCanvas])
 
   useEffect(() => {
     if (viewStyle !== 'tree') return
     const raf = requestAnimationFrame(() => centerCanvas())
     return () => cancelAnimationFrame(raf)
-  }, [viewStyle, scope, selectedDeptId, selectedProjId, typeFilter, compactTree, isFullscreen, centerCanvas])
+  }, [viewStyle, scope, selectedDeptId, selectedProjId, typeFilter, compactTree, isFullscreen, layoutMode, centerCanvas])
 
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
@@ -508,13 +935,13 @@ export default function OrgChartClient({
   }, [viewStyle, isFullscreen])
 
   useEffect(() => {
-    if (!isFullscreen || modalPerson || aboveModal || underModal) return
+    if (!isFullscreen || modalPerson || aboveModal || underModal || tagModal || bulkTagModal) return
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setIsFullscreen(false)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [isFullscreen, modalPerson, aboveModal, underModal])
+  }, [isFullscreen, modalPerson, aboveModal, underModal, tagModal, bulkTagModal])
 
   function handleCanvasMouseDown(e: React.MouseEvent<HTMLDivElement>) {
     if (e.button !== 0) return
@@ -669,6 +1096,16 @@ export default function OrgChartClient({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {(canAddStaff || canAddWorker) && (
+            <button
+              type="button"
+              onClick={openBulkTagModal}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs"
+              title="Tag Department and/or Project splits across multiple people at once"
+            >
+              <Tags className="w-3.5 h-3.5" /> Bulk Tag Dept / Project
+            </button>
+          )}
           {canAddStaff && (
             <button
               type="button"
@@ -823,39 +1260,95 @@ export default function OrgChartClient({
         {/* Department or Project Pills */}
         {scope === 'department' && (
           <div className="flex flex-wrap gap-1.5 pt-2 border-t border-slate-100">
-            {departments.map(d => (
-              <button
-                key={d.id}
-                type="button"
-                onClick={() => setSelectedDeptId(d.id)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition ${
-                  selectedDeptId === d.id
-                    ? 'bg-teal-600 text-white border-teal-600 shadow-xs'
-                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+            {departments.map(d => {
+              const count = deptCounts.counts.get(d.id) ?? 0
+              return (
+                <button
+                  key={d.id}
+                  type="button"
+                  onClick={() => setSelectedDeptId(d.id)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition inline-flex items-center gap-1.5 ${
+                    selectedDeptId === d.id
+                      ? 'bg-teal-600 text-white border-teal-600 shadow-xs'
+                      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <span>{d.name}</span>
+                  <span
+                    className={`px-1.5 py-0.2 rounded-full text-[10px] tabular-nums ${
+                      selectedDeptId === d.id ? 'bg-white/20 text-white' : 'bg-slate-200/80 text-slate-600'
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </button>
+              )
+            })}
+            <button
+              type="button"
+              onClick={() => setSelectedDeptId(-1)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition inline-flex items-center gap-1.5 ${
+                selectedDeptId === -1
+                  ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                  : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+              }`}
+            >
+              <span>Untagged</span>
+              <span
+                className={`px-1.5 py-0.2 rounded-full text-[10px] tabular-nums ${
+                  selectedDeptId === -1 ? 'bg-white/20 text-white' : 'bg-amber-200/70 text-amber-900'
                 }`}
               >
-                {d.name}
-              </button>
-            ))}
+                {deptCounts.untagged}
+              </span>
+            </button>
           </div>
         )}
 
         {scope === 'project' && (
           <div className="flex flex-wrap gap-1.5 pt-2 border-t border-slate-100">
-            {activeProjects.map(p => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => setSelectedProjId(p.id)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition ${
-                  selectedProjId === p.id
-                    ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
-                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+            {activeProjects.map(p => {
+              const count = projCounts.counts.get(p.id) ?? 0
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setSelectedProjId(p.id)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition inline-flex items-center gap-1.5 ${
+                    selectedProjId === p.id
+                      ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
+                      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <span>{p.name}</span>
+                  <span
+                    className={`px-1.5 py-0.2 rounded-full text-[10px] tabular-nums ${
+                      selectedProjId === p.id ? 'bg-white/20 text-white' : 'bg-slate-200/80 text-slate-600'
+                    }`}
+                  >
+                    {count}
+                  </span>
+                </button>
+              )
+            })}
+            <button
+              type="button"
+              onClick={() => setSelectedProjId(-1)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-semibold border transition inline-flex items-center gap-1.5 ${
+                selectedProjId === -1
+                  ? 'bg-amber-600 text-white border-amber-600 shadow-xs'
+                  : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+              }`}
+            >
+              <span>Untagged</span>
+              <span
+                className={`px-1.5 py-0.2 rounded-full text-[10px] tabular-nums ${
+                  selectedProjId === -1 ? 'bg-white/20 text-white' : 'bg-amber-200/70 text-amber-900'
                 }`}
               >
-                {p.name}
-              </button>
-            ))}
+                {projCounts.untagged}
+              </span>
+            </button>
           </div>
         )}
       </div>
@@ -883,6 +1376,30 @@ export default function OrgChartClient({
                 Drag background to pan · Scroll or Ctrl+Wheel to zoom · Use <strong className="text-slate-700">↑ Above</strong> / <strong className="text-slate-700">↓ Under</strong> on cards.
               </span>
               <div className="flex flex-wrap items-center gap-2">
+                <label className="inline-flex items-center gap-1.5 text-xs text-slate-600 font-medium">
+                  <span>Layout</span>
+                  <select
+                    value={layoutMode}
+                    onChange={e => setLayoutMode(e.target.value as TreeLayoutMode)}
+                    aria-label="Chart layout"
+                    className="border border-slate-300 rounded-lg px-2 py-1 text-xs bg-white text-slate-800 font-medium"
+                    title="Choose overall tree layout style (Auto Compact, Standard, Both hanging, Left hanging, Right hanging, Horizontal)"
+                  >
+                    {TREE_MODES.map(m => (
+                      <option key={m} value={m}>
+                        {TREE_MODE_LABEL[m]}
+                      </option>
+                    ))}
+                  </select>
+                  {overrideCount > 0 && (
+                    <span
+                      className="px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-bold"
+                      title={`${overrideCount} branch override${overrideCount === 1 ? '' : 's'} active — change Layout to reset`}
+                    >
+                      +{overrideCount} branch
+                    </span>
+                  )}
+                </label>
                 <button
                   type="button"
                   onClick={() => setCompactTree(v => !v)}
@@ -955,7 +1472,7 @@ export default function OrgChartClient({
                 </button>
                 <button
                   type="button"
-                  onClick={centerCanvas}
+                  onClick={() => centerCanvas()}
                   className="px-2.5 py-1 text-xs rounded-lg border border-slate-300 bg-white hover:bg-slate-50 flex items-center gap-1"
                   title="Scroll tree back to center"
                 >
@@ -1004,29 +1521,66 @@ export default function OrgChartClient({
                   ) : null}
 
                   {treeRoots.length > 0 && (
-                    <div className="flex items-start gap-8">
-                      {treeRoots.map(root => (
-                        <TreeNodeBlock
-                          key={root.person.id}
-                          node={root}
-                          depth={0}
-                          compact={compactTree}
-                          deptMap={deptMap}
-                          personAllocsList={personAllocsList}
-                          collapsedIds={collapsedIds}
-                          setCollapsedIds={setCollapsedIds}
-                          expandedCrews={expandedCrews}
-                          setExpandedCrews={setExpandedCrews}
-                          canEditType={canEditType}
-                          onAddChild={parentId => openAddModal(canAddStaff ? 'STAFF' : 'WORKER', parentId)}
-                          onEdit={openEditModal}
-                          onAssignAbove={openAboveModal}
-                          onAssignUnder={openUnderModal}
-                          scope={scope}
-                          selectedProjId={selectedProjId}
-                          emailOf={emailOf}
-                        />
-                      ))}
+                    <div
+                      ref={positionedTreeRef}
+                      className="relative"
+                      style={{ width: placement.w, height: placement.h }}
+                    >
+                      <svg
+                        width={placement.w}
+                        height={placement.h}
+                        className="absolute inset-0 pointer-events-none"
+                        aria-hidden="true"
+                      >
+                        {placement.lines.map((seg, i) => (
+                          <line
+                            key={i}
+                            x1={seg.x1}
+                            y1={seg.y1}
+                            x2={seg.x2}
+                            y2={seg.y2}
+                            stroke="#94a3b8"
+                            strokeWidth={2}
+                            strokeLinecap="square"
+                          />
+                        ))}
+                      </svg>
+                      {placement.cards.map(c => {
+                        const node = staffNodeById.get(c.id)
+                        if (!node) return null
+                        return (
+                          <div
+                            key={c.id}
+                            data-dler-node={c.id}
+                            className="absolute"
+                            style={{ left: c.x, top: c.y, width: cardWidth }}
+                          >
+                            <StaffNodeCard
+                              node={node}
+                              depth={depthById.get(c.id) ?? 0}
+                              compact={compactTree}
+                              deptMap={deptMap}
+                              personAllocsList={personAllocsList}
+                              collapsedIds={collapsedIds}
+                              setCollapsedIds={setCollapsedIds}
+                              expandedCrews={expandedCrews}
+                              setExpandedCrews={setExpandedCrews}
+                              canEditType={canEditType}
+                              onAddChild={parentId => openAddModal(canAddStaff ? 'STAFF' : 'WORKER', parentId)}
+                              onEdit={openEditModal}
+                              onAssignAbove={openAboveModal}
+                              onAssignUnder={openUnderModal}
+                              onTag={openTagModal}
+                              scope={scope}
+                              selectedProjId={selectedProjId}
+                              emailOf={emailOf}
+                              chartLayoutMode={layoutMode}
+                              branchModeOverride={nodeModes[c.id] ?? ''}
+                              onChangeBranchMode={setNodeMode}
+                            />
+                          </div>
+                        )
+                      })}
                     </div>
                   )}
 
@@ -1037,7 +1591,7 @@ export default function OrgChartClient({
                       </div>
                       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 justify-items-center">
                         {unplacedStaff.map(s => (
-                          <TreeNodeBlock
+                          <StaffNodeCard
                             key={s.id}
                             node={{ person: s, staffChildren: [], workers: [] }}
                             depth={0}
@@ -1053,9 +1607,13 @@ export default function OrgChartClient({
                             onEdit={openEditModal}
                             onAssignAbove={openAboveModal}
                             onAssignUnder={openUnderModal}
+                            onTag={openTagModal}
                             scope={scope}
                             selectedProjId={selectedProjId}
                             emailOf={emailOf}
+                            chartLayoutMode={layoutMode}
+                            branchModeOverride=""
+                            onChangeBranchMode={setNodeMode}
                           />
                         ))}
                       </div>
@@ -1113,14 +1671,15 @@ export default function OrgChartClient({
                 {unplacedExpanded && (
                   <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5">
                     {visibleUnplaced.map(s => {
-                      const deptName = s.department_id ? deptMap.get(s.department_id)?.name : null
+                      const dept = s.department_id ? deptMap.get(s.department_id) ?? null : null
                       const sAllocs = personAllocsList(s.id)
+                      const canTagStaff = canEditType('STAFF')
                       return (
                         <div key={s.id} className="rounded-xl border border-slate-200 bg-slate-50/70 p-2.5 flex flex-col justify-between gap-2 hover:border-indigo-300 transition">
                           <div className="min-w-0">
                             <div className="flex items-start justify-between gap-1">
                               <div className="text-[10px] font-mono text-slate-500 truncate">{s.emp_no} · STAFF</div>
-                              {canEditType('STAFF') && (
+                              {canTagStaff && (
                                 <button
                                   type="button"
                                   onClick={() => openEditModal(s)}
@@ -1139,23 +1698,62 @@ export default function OrgChartClient({
                               <div className="text-[10px] text-amber-600">no login linked</div>
                             )}
                             <div className="flex flex-wrap gap-1 mt-1.5">
-                              {deptName && (
-                                <span className="px-1.5 py-0.5 rounded bg-white border border-slate-200 text-[10px] font-medium text-slate-600">
-                                  {deptName}
-                                </span>
-                              )}
-                              {sAllocs.map(a => (
-                                <span
-                                  key={a.projectId}
-                                  className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                                    scope === 'project' && a.projectId === selectedProjId
-                                      ? 'bg-sky-600 text-white'
-                                      : 'bg-sky-50 text-sky-800 border border-sky-200'
+                              {canTagStaff ? (
+                                <button
+                                  type="button"
+                                  onClick={() => openTagModal(s)}
+                                  className={`px-1.5 py-0.5 rounded border text-[10px] font-semibold transition ${
+                                    dept
+                                      ? `${deptTagClass(dept)} hover:brightness-95`
+                                      : 'border-dashed border-slate-300 bg-white text-slate-500 hover:border-indigo-400 hover:text-indigo-700'
                                   }`}
+                                  title="Click to tag Department & Projects"
                                 >
-                                  {a.name} {a.pct}%
+                                  {dept ? dept.name : '+ Dept'}
+                                </button>
+                              ) : dept ? (
+                                <span className={`px-1.5 py-0.5 rounded border text-[10px] font-semibold ${deptTagClass(dept)}`}>
+                                  {dept.name}
                                 </span>
-                              ))}
+                              ) : null}
+                              {sAllocs.map(a =>
+                                canTagStaff ? (
+                                  <button
+                                    key={a.projectId}
+                                    type="button"
+                                    onClick={() => openTagModal(s)}
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${
+                                      scope === 'project' && a.projectId === selectedProjId
+                                        ? 'bg-sky-600 text-white'
+                                        : 'bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100'
+                                    }`}
+                                    title="Click to edit Project tags"
+                                  >
+                                    {a.name} {a.pct}%
+                                  </button>
+                                ) : (
+                                  <span
+                                    key={a.projectId}
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                      scope === 'project' && a.projectId === selectedProjId
+                                        ? 'bg-sky-600 text-white'
+                                        : 'bg-sky-50 text-sky-800 border border-sky-200'
+                                    }`}
+                                  >
+                                    {a.name} {a.pct}%
+                                  </span>
+                                )
+                              )}
+                              {canTagStaff && (
+                                <button
+                                  type="button"
+                                  onClick={() => openTagModal(s)}
+                                  className="px-1.5 py-0.5 rounded border border-dashed border-sky-300 bg-white hover:bg-sky-50 text-sky-700 text-[10px] font-semibold"
+                                  title="Assign Project tag & %"
+                                >
+                                  + Project
+                                </button>
+                              )}
                             </div>
                           </div>
                           {(canEditType('STAFF') || canEditType('WORKER')) && (
@@ -1207,11 +1805,12 @@ export default function OrgChartClient({
                   <WorkerMiniCard
                     key={w.id}
                     worker={w}
-                    deptName={w.department_id ? deptMap.get(w.department_id)?.name : undefined}
+                    dept={w.department_id ? deptMap.get(w.department_id) ?? null : null}
                     allocs={personAllocsList(w.id)}
                     canEdit={canEditType('WORKER')}
                     onEdit={() => openEditModal(w)}
                     onAssignAbove={canEditType('WORKER') ? () => openAboveModal(w) : undefined}
+                    onTag={canEditType('WORKER') ? () => openTagModal(w) : undefined}
                     highlightProjId={scope === 'project' ? selectedProjId : undefined}
                   />
                 ))}
@@ -1386,6 +1985,14 @@ export default function OrgChartClient({
                           )}
                           {editable && (
                             <>
+                              <button
+                                type="button"
+                                onClick={() => openTagModal(p)}
+                                className="p-1 text-slate-500 hover:text-emerald-600"
+                                title="Tag Department & Projects"
+                              >
+                                <Tag className="w-3.5 h-3.5" />
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => openEditModal(p)}
@@ -2160,11 +2767,416 @@ export default function OrgChartClient({
           </div>
         )
       })()}
+
+      {/* Quick Tag Modal (Single Person or Subtree/Branch) */}
+      {tagModal && (() => {
+        const livePerson = personMap.get(tagModal.person.id) ?? tagModal.person
+        const directIds = childrenByParent.get(livePerson.id) ?? []
+        const subtreeSet = getSelfAndDescendantIds(livePerson.id)
+        const subtreeSubCount = Math.max(0, subtreeSet.size - 1)
+        const parsedAllocs = parseProjectAllocRows(tagModal.projectAllocs)
+
+        return (
+          <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
+                <div>
+                  <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <Tag className="w-4 h-4 text-emerald-600" />
+                    Tag Department &amp; Projects — {livePerson.name}
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {livePerson.emp_no} · {livePerson.person_type}
+                    {livePerson.designation ? ` · ${livePerson.designation}` : ''}
+                  </p>
+                </div>
+                <button type="button" onClick={() => setTagModal(null)} className="text-slate-400 hover:text-slate-600">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-5 overflow-y-auto text-xs">
+                {tagError && (
+                  <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-800 px-3 py-2 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <span>{tagError}</span>
+                  </div>
+                )}
+
+                <DepartmentTagSection
+                  departments={departments}
+                  selectedDeptId={tagModal.departmentId}
+                  onSelect={deptId => setTagModal(prev => (prev ? { ...prev, departmentId: deptId } : null))}
+                  isAdmin={role === 'admin'}
+                  defaultFactoryId={defaultFactoryId}
+                  onCreated={() => router.refresh()}
+                />
+
+                <ProjectTagSection
+                  projects={activeProjects}
+                  deptMap={deptMap}
+                  departments={departments}
+                  selectedDeptId={tagModal.departmentId}
+                  projectAllocs={tagModal.projectAllocs}
+                  onChangeAllocs={updater =>
+                    setTagModal(prev => (prev ? { ...prev, projectAllocs: updater(prev.projectAllocs) } : null))
+                  }
+                  projQuery={tagModal.projQuery}
+                  onChangeProjQuery={pq => setTagModal(prev => (prev ? { ...prev, projQuery: pq } : null))}
+                  isAdmin={role === 'admin'}
+                  defaultFactoryId={defaultFactoryId}
+                  onCreated={() => router.refresh()}
+                />
+
+                {directIds.length > 0 && (
+                  <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-3.5 space-y-2.5">
+                    <div className="font-bold text-indigo-950">Apply to Team Under {livePerson.name}</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setTagModal(prev => (prev ? { ...prev, cascadeScope: 'self' } : null))}
+                        className={`px-2.5 py-1 rounded-lg border font-semibold transition ${
+                          tagModal.cascadeScope === 'self'
+                            ? 'bg-indigo-600 text-white border-indigo-600'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        Only {livePerson.name}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTagModal(prev => (prev ? { ...prev, cascadeScope: 'direct' } : null))}
+                        className={`px-2.5 py-1 rounded-lg border font-semibold transition ${
+                          tagModal.cascadeScope === 'direct'
+                            ? 'bg-indigo-600 text-white border-indigo-600'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        + Direct Reports ({directIds.length})
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTagModal(prev => (prev ? { ...prev, cascadeScope: 'subtree' } : null))}
+                        className={`px-2.5 py-1 rounded-lg border font-semibold transition ${
+                          tagModal.cascadeScope === 'subtree'
+                            ? 'bg-indigo-600 text-white border-indigo-600'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        + Entire Team ({subtreeSubCount})
+                      </button>
+                    </div>
+                    {tagModal.cascadeScope !== 'self' && (
+                      <div className="flex flex-wrap items-center gap-4 pt-1">
+                        <label className="inline-flex items-center gap-1.5 font-medium text-slate-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={tagModal.cascadeDept}
+                            onChange={e => setTagModal(prev => (prev ? { ...prev, cascadeDept: e.target.checked } : null))}
+                            className="rounded border-slate-300 text-indigo-600"
+                          />
+                          Apply Department tag to team
+                        </label>
+                        <label className="inline-flex items-center gap-1.5 font-medium text-slate-700 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={tagModal.cascadeProjects}
+                            onChange={e => setTagModal(prev => (prev ? { ...prev, cascadeProjects: e.target.checked } : null))}
+                            className="rounded border-slate-300 text-indigo-600"
+                          />
+                          Apply Project tags &amp; % to team
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2 px-5 py-3 border-t border-slate-200 bg-slate-50">
+                <button
+                  type="button"
+                  onClick={() => setTagModal(null)}
+                  className="px-3.5 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={tagBusy || parsedAllocs.error != null}
+                  onClick={handleSaveTagModal}
+                  className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold disabled:opacity-50"
+                >
+                  {tagBusy ? 'Saving…' : 'Save Tags'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Bulk Tag Modal (Multi-select across Org Chart) */}
+      {bulkTagModal && (() => {
+        const bq = bulkTagModal.query.trim().toLowerCase()
+        const matchingPeople = people.filter(p => {
+          if (bulkTagModal.filter === 'UNTAGGED_DEPT' && p.department_id != null) return false
+          if (bulkTagModal.filter === 'UNTAGGED_PROJ' && totalPctOf(p.id) > 0) return false
+          if (bulkTagModal.filter === 'STAFF' && p.person_type !== 'STAFF') return false
+          if (bulkTagModal.filter === 'WORKER' && p.person_type !== 'WORKER') return false
+          if (!bq) return true
+          const dName = p.department_id ? deptMap.get(p.department_id)?.name ?? '' : ''
+          return (
+            p.name.toLowerCase().includes(bq) ||
+            p.emp_no.toLowerCase().includes(bq) ||
+            emailOf(p).toLowerCase().includes(bq) ||
+            (p.designation ?? '').toLowerCase().includes(bq) ||
+            dName.toLowerCase().includes(bq)
+          )
+        })
+        const editableVisibleIds = matchingPeople.filter(p => canEditType(p.person_type)).map(p => p.id)
+        const selectedSet = new Set(bulkTagModal.selectedIds)
+        const parsedAllocs = bulkTagModal.applyProjects ? parseProjectAllocRows(bulkTagModal.projectAllocs) : { rows: [], total: 0, error: null }
+
+        return (
+          <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
+                <div>
+                  <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <Tags className="w-4 h-4 text-emerald-600" />
+                    Bulk Tag Department &amp; Projects
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Select multiple Staff or Workers and apply a Department tag and/or Project % tags in one step.
+                  </p>
+                </div>
+                <button type="button" onClick={() => setBulkTagModal(null)} className="text-slate-400 hover:text-slate-600">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4 overflow-y-auto text-xs">
+                {tagError && (
+                  <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-800 px-3 py-2 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <span>{tagError}</span>
+                  </div>
+                )}
+
+                {/* Step 1: Filter & Select People */}
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="inline-flex flex-wrap rounded-lg border border-slate-200 bg-slate-100 p-0.5">
+                      {(
+                        [
+                          ['UNTAGGED_DEPT', 'Untagged Dept'],
+                          ['UNTAGGED_PROJ', 'Untagged Project'],
+                          ['STAFF', 'All Staff'],
+                          ['WORKER', 'All Workers'],
+                          ['ALL', 'All'],
+                        ] as const
+                      ).map(([key, label]) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => setBulkTagModal(prev => (prev ? { ...prev, filter: key } : null))}
+                          className={`px-2.5 py-1 rounded-md font-semibold ${
+                            bulkTagModal.filter === key ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        value={bulkTagModal.query}
+                        onChange={e => setBulkTagModal(prev => (prev ? { ...prev, query: e.target.value } : null))}
+                        placeholder="Search name, emp no, dept…"
+                        className="pl-8 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg w-52"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] text-slate-500">
+                    <span>{matchingPeople.length} shown · {bulkTagModal.selectedIds.length} selected</span>
+                    <div className="flex items-center gap-2">
+                      {editableVisibleIds.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setBulkTagModal(prev =>
+                              prev
+                                ? { ...prev, selectedIds: Array.from(new Set([...prev.selectedIds, ...editableVisibleIds])) }
+                                : null
+                            )
+                          }
+                          className="text-emerald-700 hover:underline font-semibold"
+                        >
+                          Select all shown ({editableVisibleIds.length})
+                        </button>
+                      )}
+                      {bulkTagModal.selectedIds.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setBulkTagModal(prev => (prev ? { ...prev, selectedIds: [] } : null))}
+                          className="text-slate-500 hover:underline"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="border border-slate-200 rounded-xl divide-y divide-slate-100 max-h-48 overflow-y-auto">
+                    {matchingPeople.map(p => {
+                      const editable = canEditType(p.person_type)
+                      const checked = selectedSet.has(p.id)
+                      const dept = p.department_id ? deptMap.get(p.department_id) ?? null : null
+                      const pAllocs = personAllocsList(p.id)
+                      return (
+                        <label
+                          key={p.id}
+                          className={`px-3 py-1.5 flex items-center justify-between gap-2 ${
+                            editable ? 'cursor-pointer hover:bg-slate-50' : 'opacity-45 cursor-not-allowed'
+                          } ${checked ? 'bg-emerald-50/60' : ''}`}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <input
+                              type="checkbox"
+                              disabled={!editable}
+                              checked={checked}
+                              onChange={() =>
+                                setBulkTagModal(prev => {
+                                  if (!prev) return null
+                                  const exists = prev.selectedIds.includes(p.id)
+                                  return {
+                                    ...prev,
+                                    selectedIds: exists
+                                      ? prev.selectedIds.filter(x => x !== p.id)
+                                      : [...prev.selectedIds, p.id],
+                                  }
+                                })
+                              }
+                              className="rounded border-slate-300 text-emerald-600"
+                            />
+                            <span
+                              className={`px-1 py-0.5 rounded text-[9px] font-bold shrink-0 ${
+                                p.person_type === 'STAFF'
+                                  ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                                  : 'bg-teal-50 text-teal-700 border border-teal-200'
+                              }`}
+                            >
+                              {p.person_type}
+                            </span>
+                            <span className="font-semibold text-slate-900 truncate">{p.name}</span>
+                            <span className="font-mono text-[10px] text-slate-400 shrink-0">{p.emp_no}</span>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <span className={`px-1.5 py-0.5 rounded border text-[10px] font-semibold ${deptTagClass(dept)}`}>
+                              {dept ? dept.name : 'No Dept'}
+                            </span>
+                            {pAllocs.length > 0 && (
+                              <span className="px-1.5 py-0.5 rounded bg-sky-50 border border-sky-200 text-sky-800 text-[10px] font-semibold">
+                                {pAllocs.map(a => `${a.name} ${a.pct}%`).join(', ')}
+                              </span>
+                            )}
+                          </div>
+                        </label>
+                      )
+                    })}
+                    {matchingPeople.length === 0 && (
+                      <div className="text-center py-6 text-slate-400">No people match this filter.</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Step 2: Department & Project Sections */}
+                <div className="rounded-xl border border-slate-200 p-3.5 space-y-3">
+                  <label className="inline-flex items-center gap-2 font-bold text-slate-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={bulkTagModal.applyDept}
+                      onChange={e => setBulkTagModal(prev => (prev ? { ...prev, applyDept: e.target.checked } : null))}
+                      className="rounded border-slate-300 text-emerald-600"
+                    />
+                    Apply Department Tag
+                  </label>
+                  {bulkTagModal.applyDept && (
+                    <DepartmentTagSection
+                      departments={departments}
+                      selectedDeptId={bulkTagModal.departmentId}
+                      onSelect={deptId => setBulkTagModal(prev => (prev ? { ...prev, departmentId: deptId } : null))}
+                      isAdmin={role === 'admin'}
+                      defaultFactoryId={defaultFactoryId}
+                      onCreated={() => router.refresh()}
+                    />
+                  )}
+                </div>
+
+                <div className="rounded-xl border border-slate-200 p-3.5 space-y-3">
+                  <label className="inline-flex items-center gap-2 font-bold text-slate-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={bulkTagModal.applyProjects}
+                      onChange={e => setBulkTagModal(prev => (prev ? { ...prev, applyProjects: e.target.checked } : null))}
+                      className="rounded border-slate-300 text-emerald-600"
+                    />
+                    Apply Project Tags &amp; % Split
+                  </label>
+                  {bulkTagModal.applyProjects && (
+                    <ProjectTagSection
+                      projects={activeProjects}
+                      deptMap={deptMap}
+                      departments={departments}
+                      selectedDeptId={bulkTagModal.applyDept ? bulkTagModal.departmentId : null}
+                      projectAllocs={bulkTagModal.projectAllocs}
+                      onChangeAllocs={updater =>
+                        setBulkTagModal(prev => (prev ? { ...prev, projectAllocs: updater(prev.projectAllocs) } : null))
+                      }
+                      projQuery={bulkTagModal.projQuery}
+                      onChangeProjQuery={pq => setBulkTagModal(prev => (prev ? { ...prev, projQuery: pq } : null))}
+                      isAdmin={role === 'admin'}
+                      defaultFactoryId={defaultFactoryId}
+                      onCreated={() => router.refresh()}
+                    />
+                  )}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 px-5 py-3 border-t border-slate-200 bg-slate-50">
+                <button
+                  type="button"
+                  onClick={() => setBulkTagModal(null)}
+                  className="px-3.5 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={
+                    tagBusy ||
+                    bulkTagModal.selectedIds.length === 0 ||
+                    (!bulkTagModal.applyDept && !bulkTagModal.applyProjects) ||
+                    parsedAllocs.error != null
+                  }
+                  onClick={handleSaveBulkTagModal}
+                  className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold disabled:opacity-50"
+                >
+                  {tagBusy ? 'Applying…' : `Apply Tags to ${bulkTagModal.selectedIds.length} Selected`}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }
 
-function TreeNodeBlock({
+function StaffNodeCard({
   node,
   depth,
   compact = false,
@@ -2179,9 +3191,13 @@ function TreeNodeBlock({
   onEdit,
   onAssignAbove,
   onAssignUnder,
+  onTag,
   scope,
   selectedProjId,
   emailOf,
+  chartLayoutMode,
+  branchModeOverride,
+  onChangeBranchMode,
 }: {
   node: StaffNode
   depth: number
@@ -2197,9 +3213,13 @@ function TreeNodeBlock({
   onEdit: (p: DlerPerson) => void
   onAssignAbove: (p: DlerPerson) => void
   onAssignUnder: (p: DlerPerson) => void
+  onTag: (p: DlerPerson) => void
   scope: ScopeMode
   selectedProjId: number
   emailOf: (p: DlerPerson) => string
+  chartLayoutMode: TreeLayoutMode
+  branchModeOverride: TreeLayoutMode | ''
+  onChangeBranchMode: (id: number, mode: TreeLayoutMode | '') => void
 }) {
   const { person, staffChildren, workers } = node
   const isCollapsed = collapsedIds.has(person.id)
@@ -2207,39 +3227,68 @@ function TreeNodeBlock({
     ? expandedCrews.has(person.id)
     : expandedCrews.has(person.id) || workers.length <= 6 || scope !== 'overall'
   const allocs = personAllocsList(person.id)
-  const deptName = person.department_id ? deptMap.get(person.department_id)?.name : null
+  const dept = person.department_id ? deptMap.get(person.department_id) ?? null : null
+  const canTagStaff = canEditType('STAFF')
   const headerColours = ['bg-slate-900', 'bg-indigo-700', 'bg-teal-700', 'bg-cyan-700']
   const headerBg = headerColours[depth % headerColours.length]
 
   return (
-    <div className="flex flex-col items-center shrink-0">
-      {/* Staff Card */}
-      <div className={`${compact ? 'w-44' : 'w-64'} rounded-xl border border-slate-300 bg-white shadow-sm overflow-hidden`}>
-        <div className={`${headerBg} text-white ${compact ? 'px-2.5 py-1.5' : 'px-3 py-2'} flex items-start justify-between gap-2`}>
-          <div className="min-w-0">
-            <div className="text-[10px] font-mono text-white/75 truncate">{person.emp_no}{compact ? '' : ' · STAFF'}</div>
-            <div className={`font-bold ${compact ? 'text-xs' : 'text-sm'} truncate`}>{person.name}</div>
-            {!compact && person.designation && <div className="text-[11px] text-white/80 truncate">{person.designation}</div>}
-            {!compact && emailOf(person) && <div className="text-[10px] text-white/70 truncate">{emailOf(person)}</div>}
-          </div>
-          {canEditType('STAFF') && (
+    <div className={`${compact ? 'w-44' : 'w-64'} rounded-xl border border-slate-300 bg-white shadow-sm overflow-hidden`}>
+      <div className={`${headerBg} text-white ${compact ? 'px-2.5 py-1.5' : 'px-3 py-2'} flex items-start justify-between gap-2`}>
+        <div className="min-w-0">
+          <div className="text-[10px] font-mono text-white/75 truncate">{person.emp_no}{compact ? '' : ' · STAFF'}</div>
+          <div className={`font-bold ${compact ? 'text-xs' : 'text-sm'} truncate`}>{person.name}</div>
+          {!compact && person.designation && <div className="text-[11px] text-white/80 truncate">{person.designation}</div>}
+          {!compact && emailOf(person) && <div className="text-[10px] text-white/70 truncate">{emailOf(person)}</div>}
+        </div>
+        {canEditType('STAFF') && (
+          <button
+            type="button"
+            onClick={() => onEdit(person)}
+            className="p-1 rounded hover:bg-white/20 text-white/80 hover:text-white shrink-0"
+            title="Edit Staff"
+          >
+            <Pencil className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+
+      <div className={`${compact ? 'p-2 space-y-1.5' : 'p-2.5 space-y-2'} text-xs`}>
+        <div className="flex flex-wrap items-center gap-1">
+          {canTagStaff ? (
             <button
               type="button"
-              onClick={() => onEdit(person)}
-              className="p-1 rounded hover:bg-white/20 text-white/80 hover:text-white shrink-0"
-              title="Edit Staff"
+              onClick={() => onTag(person)}
+              className={`px-2 py-0.5 rounded-md border font-semibold text-[10px] transition ${
+                dept
+                  ? `${deptTagClass(dept)} hover:brightness-95`
+                  : 'border-dashed border-slate-300 bg-white text-slate-500 hover:border-indigo-400 hover:text-indigo-700'
+              }`}
+              title="Tag Department & Projects"
             >
-              <Pencil className="w-3.5 h-3.5" />
+              {dept ? dept.name : '+ Dept'}
             </button>
-          )}
-        </div>
-
-        <div className={`${compact ? 'p-2 space-y-1.5' : 'p-2.5 space-y-2'} text-xs`}>
-          <div className="flex flex-wrap items-center gap-1">
-            <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-semibold text-[10px]">
-              {deptName ?? 'No Dept'}
+          ) : (
+            <span className={`px-2 py-0.5 rounded-md border font-semibold text-[10px] ${deptTagClass(dept)}`}>
+              {dept?.name ?? 'No Dept'}
             </span>
-            {allocs.map(a => (
+          )}
+          {allocs.map(a =>
+            canTagStaff ? (
+              <button
+                key={a.projectId}
+                type="button"
+                onClick={() => onTag(person)}
+                className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition ${
+                  scope === 'project' && a.projectId === selectedProjId
+                    ? 'bg-sky-600 text-white'
+                    : 'bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100'
+                }`}
+                title="Edit Project tags"
+              >
+                {a.name} {a.pct}%
+              </button>
+            ) : (
               <span
                 key={a.projectId}
                 className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
@@ -2250,164 +3299,160 @@ function TreeNodeBlock({
               >
                 {a.name} {a.pct}%
               </span>
-            ))}
-          </div>
-
-          {/* Direct Workers under this Staff/Supervisor */}
-          {workers.length > 0 && (
-            <div className="border-t border-slate-100 pt-2">
-              <button
-                type="button"
-                onClick={() =>
-                  setExpandedCrews(prev => {
-                    const next = new Set(prev)
-                    if (next.has(person.id)) next.delete(person.id)
-                    else next.add(person.id)
-                    return next
-                  })
-                }
-                className="w-full flex items-center justify-between text-[11px] font-bold text-teal-700 hover:text-teal-900"
-              >
-                <span>Crew Workers ({workers.length})</span>
-                {crewExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-              </button>
-              {crewExpanded && (
-                <div className="mt-1.5 space-y-1 max-h-56 overflow-y-auto pr-0.5">
-                  {workers.map(w => (
-                    <WorkerMiniCard
-                      key={w.id}
-                      worker={w}
-                      deptName={w.department_id ? deptMap.get(w.department_id)?.name : undefined}
-                      allocs={personAllocsList(w.id)}
-                      canEdit={canEditType('WORKER')}
-                      onEdit={() => onEdit(w)}
-                      onAssignAbove={canEditType('WORKER') ? () => onAssignAbove(w) : undefined}
-                      highlightProjId={scope === 'project' ? selectedProjId : undefined}
-                    />
-                  ))}
-                </div>
-              )}
-            </div>
+            )
           )}
+          {canTagStaff && (
+            <button
+              type="button"
+              onClick={() => onTag(person)}
+              className="px-1.5 py-0.5 rounded border border-dashed border-sky-300 bg-white hover:bg-sky-50 text-sky-700 text-[10px] font-semibold"
+              title="Assign Project tag & %"
+            >
+              + Project
+            </button>
+          )}
+        </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-1 pt-1.5 border-t border-slate-100">
-            <div className="flex items-center gap-1">
-              {canEditType('STAFF') && (
-                <button
-                  type="button"
-                  onClick={() => onAssignAbove(person)}
-                  className="px-1.5 py-0.5 rounded border border-slate-200 bg-slate-50 hover:bg-indigo-50 hover:border-indigo-300 text-[10px] font-semibold text-slate-700 hover:text-indigo-700 flex items-center gap-0.5"
-                  title="Assign Manager Above"
-                >
-                  <ArrowUp className="w-2.5 h-2.5" />
-                  {!compact && <span>Above</span>}
-                </button>
-              )}
-              {(canEditType('STAFF') || canEditType('WORKER')) && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => onAssignUnder(person)}
-                    className="px-1.5 py-0.5 rounded border border-slate-200 bg-slate-50 hover:bg-teal-50 hover:border-teal-300 text-[10px] font-semibold text-slate-700 hover:text-teal-700 flex items-center gap-0.5"
-                    title="Assign Existing Staff or Workers Under"
-                  >
-                    <ArrowDown className="w-2.5 h-2.5" />
-                    {!compact && <span>Under</span>}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onAddChild(person.id)}
-                    className="p-0.5 rounded border border-slate-200 bg-slate-50 hover:bg-indigo-50 text-indigo-600"
-                    title="Create New Person Directly Under"
-                  >
-                    <Plus className="w-3 h-3" />
-                  </button>
-                </>
-              )}
-            </div>
-            {staffChildren.length > 0 && (
-              <button
-                type="button"
-                onClick={() =>
-                  setCollapsedIds(prev => {
-                    const next = new Set(prev)
-                    if (next.has(person.id)) next.delete(person.id)
-                    else next.add(person.id)
-                    return next
-                  })
-                }
-                className="ml-auto text-[10px] font-semibold text-slate-500 hover:text-slate-800 flex items-center gap-0.5"
-              >
-                {isCollapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                {compact ? staffChildren.length : `${staffChildren.length} sub-seats`}
-              </button>
+        {/* Direct Workers under this Staff/Supervisor */}
+        {workers.length > 0 && (
+          <div className="border-t border-slate-100 pt-2">
+            <button
+              type="button"
+              onClick={() =>
+                setExpandedCrews(prev => {
+                  const next = new Set(prev)
+                  if (next.has(person.id)) next.delete(person.id)
+                  else next.add(person.id)
+                  return next
+                })
+              }
+              className="w-full flex items-center justify-between text-[11px] font-bold text-teal-700 hover:text-teal-900"
+            >
+              <span>Crew Workers ({workers.length})</span>
+              {crewExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+            </button>
+            {crewExpanded && (
+              <div className="mt-1.5 space-y-1 max-h-56 overflow-y-auto pr-0.5">
+                {workers.map(w => (
+                  <WorkerMiniCard
+                    key={w.id}
+                    worker={w}
+                    dept={w.department_id ? deptMap.get(w.department_id) ?? null : null}
+                    allocs={personAllocsList(w.id)}
+                    canEdit={canEditType('WORKER')}
+                    onEdit={() => onEdit(w)}
+                    onAssignAbove={canEditType('WORKER') ? () => onAssignAbove(w) : undefined}
+                    onTag={canEditType('WORKER') ? () => onTag(w) : undefined}
+                    highlightProjId={scope === 'project' ? selectedProjId : undefined}
+                  />
+                ))}
+              </div>
             )}
           </div>
+        )}
+
+        {staffChildren.length > 0 && (
+          <div className="flex items-center justify-between gap-1.5 pt-1 border-t border-slate-100">
+            {!compact && <span className="text-[10px] font-medium text-slate-400 shrink-0">Branch:</span>}
+            <select
+              value={branchModeOverride}
+              onChange={e => onChangeBranchMode(person.id, e.target.value as TreeLayoutMode | '')}
+              aria-label={`Branch layout under ${person.name}`}
+              title="Layout style for children under this person"
+              className={`flex-1 min-w-0 rounded border px-1.5 py-0.5 text-[10px] font-medium transition ${
+                branchModeOverride
+                  ? 'border-indigo-300 bg-indigo-50 text-indigo-800'
+                  : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-white'
+              }`}
+            >
+              <option value="">Same as chart ({TREE_MODE_LABEL[chartLayoutMode]})</option>
+              {TREE_MODES.map(m => (
+                <option key={m} value={m}>
+                  {TREE_MODE_LABEL[m]}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center justify-between gap-1 pt-1.5 border-t border-slate-100">
+          <div className="flex items-center gap-1">
+            {canEditType('STAFF') && (
+              <button
+                type="button"
+                onClick={() => onAssignAbove(person)}
+                className="px-1.5 py-0.5 rounded border border-slate-200 bg-slate-50 hover:bg-indigo-50 hover:border-indigo-300 text-[10px] font-semibold text-slate-700 hover:text-indigo-700 flex items-center gap-0.5"
+                title="Assign Manager Above"
+              >
+                <ArrowUp className="w-2.5 h-2.5" />
+                {!compact && <span>Above</span>}
+              </button>
+            )}
+            {(canEditType('STAFF') || canEditType('WORKER')) && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => onAssignUnder(person)}
+                  className="px-1.5 py-0.5 rounded border border-slate-200 bg-slate-50 hover:bg-teal-50 hover:border-teal-300 text-[10px] font-semibold text-slate-700 hover:text-teal-700 flex items-center gap-0.5"
+                  title="Assign Existing Staff or Workers Under"
+                >
+                  <ArrowDown className="w-2.5 h-2.5" />
+                  {!compact && <span>Under</span>}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onAddChild(person.id)}
+                  className="p-0.5 rounded border border-slate-200 bg-slate-50 hover:bg-indigo-50 text-indigo-600"
+                  title="Create New Person Directly Under"
+                >
+                  <Plus className="w-3 h-3" />
+                </button>
+              </>
+            )}
+          </div>
+          {staffChildren.length > 0 && (
+            <button
+              type="button"
+              onClick={() =>
+                setCollapsedIds(prev => {
+                  const next = new Set(prev)
+                  if (next.has(person.id)) next.delete(person.id)
+                  else next.add(person.id)
+                  return next
+                })
+              }
+              className="ml-auto text-[10px] font-semibold text-slate-500 hover:text-slate-800 flex items-center gap-0.5"
+            >
+              {isCollapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              {compact ? staffChildren.length : `${staffChildren.length} sub-seats`}
+            </button>
+          )}
         </div>
       </div>
-
-      {/* Connector & Children */}
-      {!isCollapsed && staffChildren.length > 0 && (
-        <div className="flex flex-col items-center">
-          <div className="w-0.5 h-5 bg-slate-300" />
-          <div className="flex items-start">
-            {staffChildren.map((child, idx) => (
-              <div
-                key={child.person.id}
-                className={`relative flex flex-col items-center shrink-0 ${compact ? 'px-1.5 pt-3.5' : 'px-3 pt-4'}`}
-              >
-                {staffChildren.length > 1 && idx > 0 && (
-                  <div className="absolute top-0 left-0 right-1/2 h-0.5 bg-slate-300" />
-                )}
-                {staffChildren.length > 1 && idx < staffChildren.length - 1 && (
-                  <div className="absolute top-0 left-1/2 right-0 h-0.5 bg-slate-300" />
-                )}
-                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-0.5 h-4 bg-slate-300" />
-                <TreeNodeBlock
-                  node={child}
-                  depth={depth + 1}
-                  compact={compact}
-                  deptMap={deptMap}
-                  personAllocsList={personAllocsList}
-                  collapsedIds={collapsedIds}
-                  setCollapsedIds={setCollapsedIds}
-                  expandedCrews={expandedCrews}
-                  setExpandedCrews={setExpandedCrews}
-                  canEditType={canEditType}
-                  onAddChild={onAddChild}
-                  onEdit={onEdit}
-                  onAssignAbove={onAssignAbove}
-                  onAssignUnder={onAssignUnder}
-                  scope={scope}
-                  selectedProjId={selectedProjId}
-                  emailOf={emailOf}
-                />
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   )
 }
 
 function WorkerMiniCard({
   worker,
-  deptName,
+  dept,
   allocs,
   canEdit,
   onEdit,
   onAssignAbove,
+  onTag,
   highlightProjId,
 }: {
   worker: DlerPerson
-  deptName?: string
+  dept?: DlerDepartment | null
   allocs: { projectId: number; name: string; pct: number }[]
   canEdit: boolean
   onEdit: () => void
   onAssignAbove?: () => void
+  onTag?: () => void
   highlightProjId?: number
 }) {
+  const canTagWorker = canEdit && Boolean(onTag)
   return (
     <div className="flex items-start justify-between gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1.5 text-[11px]">
       <div className="min-w-0">
@@ -2416,21 +3461,67 @@ function WorkerMiniCard({
           {worker.name}
         </div>
         <div className="flex flex-wrap items-center gap-1 mt-0.5">
-          {deptName && <span className="text-[9px] px-1 rounded bg-white border border-slate-200 text-slate-600">{deptName}</span>}
-          {allocs.map(a => (
-            <span
-              key={a.projectId}
-              className={`text-[9px] px-1 rounded font-semibold ${
-                highlightProjId === a.projectId ? 'bg-sky-600 text-white' : 'bg-sky-100 text-sky-800'
+          {canTagWorker ? (
+            <button
+              type="button"
+              onClick={onTag}
+              className={`text-[9px] px-1.5 py-0.2 rounded border font-semibold transition ${
+                dept
+                  ? `${deptTagClass(dept)} hover:brightness-95`
+                  : 'border-dashed border-slate-300 bg-white text-slate-500 hover:border-indigo-400 hover:text-indigo-700'
               }`}
+              title="Tag Department & Projects"
             >
-              {a.name} {a.pct}%
+              {dept ? dept.name : '+ Dept'}
+            </button>
+          ) : dept ? (
+            <span className={`text-[9px] px-1.5 py-0.2 rounded border font-semibold ${deptTagClass(dept)}`}>
+              {dept.name}
             </span>
-          ))}
+          ) : null}
+          {allocs.map(a =>
+            canTagWorker ? (
+              <button
+                key={a.projectId}
+                type="button"
+                onClick={onTag}
+                className={`text-[9px] px-1 rounded font-semibold transition ${
+                  highlightProjId === a.projectId ? 'bg-sky-600 text-white' : 'bg-sky-100 text-sky-800 hover:bg-sky-200'
+                }`}
+                title="Edit Project tags"
+              >
+                {a.name} {a.pct}%
+              </button>
+            ) : (
+              <span
+                key={a.projectId}
+                className={`text-[9px] px-1 rounded font-semibold ${
+                  highlightProjId === a.projectId ? 'bg-sky-600 text-white' : 'bg-sky-100 text-sky-800'
+                }`}
+              >
+                {a.name} {a.pct}%
+              </span>
+            )
+          )}
+          {canTagWorker && (
+            <button
+              type="button"
+              onClick={onTag}
+              className="text-[9px] px-1 rounded border border-dashed border-sky-300 bg-white hover:bg-sky-50 text-sky-700 font-semibold"
+              title="Assign Project tag & %"
+            >
+              + Project
+            </button>
+          )}
         </div>
       </div>
       {canEdit && (
         <div className="flex items-center gap-0.5 shrink-0">
+          {onTag && (
+            <button type="button" onClick={onTag} className="p-0.5 text-slate-400 hover:text-emerald-700" title="Tag Dept & Projects">
+              <Tag className="w-3 h-3" />
+            </button>
+          )}
           {onAssignAbove && (
             <button type="button" onClick={onAssignAbove} className="p-0.5 text-slate-400 hover:text-indigo-700" title="Assign Supervisor Above">
               <ArrowUp className="w-3 h-3" />
@@ -2439,6 +3530,415 @@ function WorkerMiniCard({
           <button type="button" onClick={onEdit} className="p-0.5 text-slate-400 hover:text-teal-700" title="Edit Worker & Project %">
             <Pencil className="w-3 h-3" />
           </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DepartmentTagSection({
+  departments,
+  selectedDeptId,
+  onSelect,
+  isAdmin,
+  defaultFactoryId,
+  onCreated,
+}: {
+  departments: DlerDepartment[]
+  selectedDeptId: number | null
+  onSelect: (deptId: number | null) => void
+  isAdmin: boolean
+  defaultFactoryId: number
+  onCreated: () => void
+}) {
+  const [newDeptOpen, setNewDeptOpen] = useState(false)
+  const [newDeptName, setNewDeptName] = useState('')
+  const [newDeptKind, setNewDeptKind] = useState<'production' | 'support'>('production')
+  const [creating, setCreating] = useState(false)
+  const [createErr, setCreateErr] = useState<string | null>(null)
+
+  const prodDepts = departments.filter(d => d.kind === 'production')
+  const supportDepts = departments.filter(d => d.kind !== 'production')
+
+  async function handleCreateDept() {
+    if (!newDeptName.trim()) return
+    setCreating(true)
+    setCreateErr(null)
+    try {
+      await saveDlerDepartment(null, {
+        name: newDeptName.trim(),
+        factory_id: defaultFactoryId,
+        kind: newDeptKind,
+        sort_order: departments.length + 1,
+      })
+      setNewDeptName('')
+      setNewDeptOpen(false)
+      onCreated()
+    } catch (err: unknown) {
+      setCreateErr(err instanceof Error ? err.message : 'Failed to create department')
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  return (
+    <div className="space-y-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="font-bold text-slate-800 flex items-center gap-1.5">
+          <Building2 className="w-3.5 h-3.5 text-teal-600" />
+          Department Tag
+        </span>
+        {isAdmin && (
+          <button
+            type="button"
+            onClick={() => {
+              setCreateErr(null)
+              setNewDeptOpen(v => !v)
+            }}
+            className="text-[11px] font-semibold text-teal-700 hover:underline inline-flex items-center gap-1"
+          >
+            <Plus className="w-3 h-3" /> {newDeptOpen ? 'Close New Dept' : 'New Dept'}
+          </button>
+        )}
+      </div>
+
+      {isAdmin && newDeptOpen && (
+        <div className="rounded-xl border border-teal-200 bg-teal-50/50 p-2.5 space-y-2">
+          {createErr && <div className="text-[11px] text-rose-700 font-medium">{createErr}</div>}
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="text"
+              value={newDeptName}
+              onChange={e => setNewDeptName(e.target.value)}
+              placeholder="New department name…"
+              className="flex-1 min-w-[160px] border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs bg-white"
+            />
+            <select
+              value={newDeptKind}
+              onChange={e => setNewDeptKind(e.target.value as 'production' | 'support')}
+              className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs bg-white"
+            >
+              <option value="production">Production</option>
+              <option value="support">Support</option>
+            </select>
+            <button
+              type="button"
+              disabled={creating || !newDeptName.trim()}
+              onClick={handleCreateDept}
+              className="px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold disabled:opacity-50"
+            >
+              {creating ? 'Creating…' : 'Create'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {prodDepts.length > 0 && (
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Production</div>
+            <div className="flex flex-wrap gap-1.5">
+              {prodDepts.map(d => {
+                const active = selectedDeptId === d.id
+                return (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => onSelect(d.id)}
+                    className={`px-2.5 py-1 rounded-lg border text-xs font-semibold transition ${
+                      active
+                        ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                        : `${deptTagClass(d)} hover:brightness-95`
+                    }`}
+                  >
+                    {d.name}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {supportDepts.length > 0 && (
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">Support</div>
+            <div className="flex flex-wrap gap-1.5">
+              {supportDepts.map(d => {
+                const active = selectedDeptId === d.id
+                return (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => onSelect(d.id)}
+                    className={`px-2.5 py-1 rounded-lg border text-xs font-semibold transition ${
+                      active
+                        ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
+                        : `${deptTagClass(d)} hover:brightness-95`
+                    }`}
+                  >
+                    {d.name}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        <div>
+          <button
+            type="button"
+            onClick={() => onSelect(null)}
+            className={`px-2.5 py-1 rounded-lg border text-xs font-semibold transition ${
+              selectedDeptId === null
+                ? 'bg-slate-800 text-white border-slate-800'
+                : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            (No Dept)
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ProjectTagSection({
+  projects,
+  deptMap,
+  departments,
+  selectedDeptId,
+  projectAllocs,
+  onChangeAllocs,
+  projQuery,
+  onChangeProjQuery,
+  isAdmin,
+  defaultFactoryId,
+  onCreated,
+}: {
+  projects: DlerProject[]
+  deptMap: Map<number, DlerDepartment>
+  departments: DlerDepartment[]
+  selectedDeptId: number | null
+  projectAllocs: Record<number, string>
+  onChangeAllocs: (updater: (prev: Record<number, string>) => Record<number, string>) => void
+  projQuery: string
+  onChangeProjQuery: (q: string) => void
+  isAdmin: boolean
+  defaultFactoryId: number
+  onCreated: () => void
+}) {
+  const [newProjOpen, setNewProjOpen] = useState(false)
+  const [newProjName, setNewProjName] = useState('')
+  const [newProjDeptId, setNewProjDeptId] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [createErr, setCreateErr] = useState<string | null>(null)
+
+  const pq = projQuery.trim().toLowerCase()
+  const sortedProjects = [...projects]
+    .filter(pr => {
+      if (!pq) return true
+      const dName = pr.department_id ? deptMap.get(pr.department_id)?.name ?? '' : ''
+      return pr.name.toLowerCase().includes(pq) || dName.toLowerCase().includes(pq)
+    })
+    .sort((a, b) => {
+      const aMatch = selectedDeptId != null && a.department_id === selectedDeptId ? 0 : 1
+      const bMatch = selectedDeptId != null && b.department_id === selectedDeptId ? 0 : 1
+      if (aMatch !== bMatch) return aMatch - bMatch
+      return a.name.localeCompare(b.name)
+    })
+
+  const activeSelectedProjects = projects.filter(pr =>
+    Object.prototype.hasOwnProperty.call(projectAllocs, pr.id)
+  )
+  const total = Object.values(projectAllocs).reduce((sum, v) => sum + (Number(v) || 0), 0)
+  const roundedTotal = Math.round(total * 100) / 100
+
+  async function handleCreateProj() {
+    if (!newProjName.trim()) return
+    setCreating(true)
+    setCreateErr(null)
+    try {
+      await saveDlerProject(null, {
+        name: newProjName.trim(),
+        factory_id: defaultFactoryId,
+        department_id: newProjDeptId ? Number(newProjDeptId) : null,
+        status: 'Active',
+      })
+      setNewProjName('')
+      setNewProjOpen(false)
+      onCreated()
+    } catch (err: unknown) {
+      setCreateErr(err instanceof Error ? err.message : 'Failed to create project')
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  return (
+    <div className="space-y-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="font-bold text-slate-800 flex items-center gap-1.5">
+            <FolderKanban className="w-3.5 h-3.5 text-sky-600" />
+            Project Tags &amp; % Split
+          </span>
+          <span
+            className={`px-2 py-0.5 rounded-full text-[11px] font-bold tabular-nums ${
+              roundedTotal === 100
+                ? 'bg-emerald-100 text-emerald-800'
+                : roundedTotal > 100
+                ? 'bg-rose-100 text-rose-800'
+                : roundedTotal > 0
+                ? 'bg-amber-100 text-amber-800'
+                : 'bg-slate-100 text-slate-500'
+            }`}
+          >
+            Total: {roundedTotal}%
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {activeSelectedProjects.length > 0 && (
+            <>
+              <button
+                type="button"
+                onClick={() => onChangeAllocs(splitProjectsEvenlyMap)}
+                className="text-[11px] font-semibold text-sky-700 hover:underline"
+              >
+                Split Evenly
+              </button>
+              <button
+                type="button"
+                onClick={() => onChangeAllocs(() => ({}))}
+                className="text-[11px] font-semibold text-slate-500 hover:underline"
+              >
+                Clear All
+              </button>
+            </>
+          )}
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={() => {
+                setCreateErr(null)
+                setNewProjDeptId(selectedDeptId != null ? String(selectedDeptId) : '')
+                setNewProjOpen(v => !v)
+              }}
+              className="text-[11px] font-semibold text-sky-700 hover:underline inline-flex items-center gap-1"
+            >
+              <Plus className="w-3 h-3" /> {newProjOpen ? 'Close New Project' : 'New Project'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {isAdmin && newProjOpen && (
+        <div className="rounded-xl border border-sky-200 bg-sky-50/50 p-2.5 space-y-2">
+          {createErr && <div className="text-[11px] text-rose-700 font-medium">{createErr}</div>}
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="text"
+              value={newProjName}
+              onChange={e => setNewProjName(e.target.value)}
+              placeholder="New project name…"
+              className="flex-1 min-w-[160px] border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs bg-white"
+            />
+            <select
+              value={newProjDeptId}
+              onChange={e => setNewProjDeptId(e.target.value)}
+              className="border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs bg-white"
+            >
+              <option value="">(No linked dept)</option>
+              {departments.map(d => (
+                <option key={d.id} value={d.id}>{d.name}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={creating || !newProjName.trim()}
+              onClick={handleCreateProj}
+              className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold disabled:opacity-50"
+            >
+              {creating ? 'Creating…' : 'Create'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="relative">
+        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+        <input
+          type="text"
+          value={projQuery}
+          onChange={e => onChangeProjQuery(e.target.value)}
+          placeholder="Search active projects…"
+          className="pl-8 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg w-full sm:w-64 bg-white"
+        />
+      </div>
+
+      <div className="flex flex-wrap gap-1.5">
+        {sortedProjects.map(pr => {
+          const active = Object.prototype.hasOwnProperty.call(projectAllocs, pr.id)
+          const matchesDept = selectedDeptId != null && pr.department_id === selectedDeptId
+          return (
+            <button
+              key={pr.id}
+              type="button"
+              onClick={() => onChangeAllocs(prev => toggleProjectTagMap(prev, pr.id))}
+              className={`px-2.5 py-1 rounded-lg border text-xs font-semibold transition inline-flex items-center gap-1 ${
+                active
+                  ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
+                  : matchesDept
+                  ? 'bg-sky-50/70 text-sky-900 border-sky-300 ring-1 ring-teal-300 hover:bg-sky-100'
+                  : 'bg-white text-slate-700 border-slate-300 hover:border-sky-400 hover:bg-sky-50'
+              }`}
+            >
+              {active && <Check className="w-3 h-3" />}
+              <span>{pr.name}</span>
+            </button>
+          )
+        })}
+        {sortedProjects.length === 0 && (
+          <span className="text-[11px] text-slate-400">No active projects match &ldquo;{projQuery}&rdquo;.</span>
+        )}
+      </div>
+
+      {activeSelectedProjects.length > 0 && (
+        <div className="rounded-xl border border-sky-200 bg-sky-50/40 p-2.5 flex flex-wrap gap-2">
+          {activeSelectedProjects.map(pr => (
+            <div
+              key={pr.id}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-sky-200 bg-white px-2 py-1 text-xs"
+            >
+              <span className="font-semibold text-slate-800">{pr.name}</span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={5}
+                value={projectAllocs[pr.id] ?? ''}
+                onChange={e => {
+                  const val = e.target.value
+                  onChangeAllocs(prev => ({ ...prev, [pr.id]: val }))
+                }}
+                className="w-14 text-right border border-slate-300 rounded px-1.5 py-0.5 text-xs tabular-nums"
+              />
+              <span className="text-slate-400">%</span>
+              <button
+                type="button"
+                onClick={() =>
+                  onChangeAllocs(prev => {
+                    const next = { ...prev }
+                    delete next[pr.id]
+                    return next
+                  })
+                }
+                className="text-slate-400 hover:text-rose-600 ml-0.5"
+                title="Remove project tag"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
         </div>
       )}
     </div>

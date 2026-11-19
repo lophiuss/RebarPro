@@ -436,6 +436,109 @@ export async function savePersonProjectAllocations(
   revalidateDlerAll()
 }
 
+export async function bulkTagDepartment(
+  personIds: number[],
+  departmentId: number | null
+): Promise<{ updated: number; skipped: number }> {
+  const { supabase, role } = await requireDlerRole(['admin', 'hr_staff', 'hr_worker'])
+  const cleanIds = Array.from(new Set(personIds.filter(id => Number.isInteger(id) && id > 0)))
+  if (cleanIds.length === 0) return { updated: 0, skipped: 0 }
+
+  const { data: rows, error: fetchErr } = await supabase
+    .from('dler_people')
+    .select('id, person_type')
+    .in('id', cleanIds)
+  if (fetchErr) throw fetchErr
+
+  const fetched = rows ?? []
+  const allowedIds = fetched
+    .filter(
+      r =>
+        role === 'admin' ||
+        (role === 'hr_staff' && r.person_type === 'STAFF') ||
+        (role === 'hr_worker' && r.person_type === 'WORKER')
+    )
+    .map(r => r.id)
+  const skipped = fetched.length - allowedIds.length
+  if (allowedIds.length === 0) {
+    throw new Error('Forbidden: your role cannot update the selected person type(s)')
+  }
+
+  for (let i = 0; i < allowedIds.length; i += 500) {
+    const { error } = await supabase
+      .from('dler_people')
+      .update({ department_id: departmentId })
+      .in('id', allowedIds.slice(i, i + 500))
+    if (error) throw error
+  }
+
+  revalidateDlerAll()
+  return { updated: allowedIds.length, skipped }
+}
+
+export async function bulkTagProjects(
+  personIds: number[],
+  rows: { project_id: number; percentage: number }[]
+): Promise<{ updated: number; skipped: number }> {
+  const { supabase, role } = await requireDlerRole(['admin', 'hr_staff', 'hr_worker'])
+  const cleanIds = Array.from(new Set(personIds.filter(id => Number.isInteger(id) && id > 0)))
+  if (cleanIds.length === 0) return { updated: 0, skipped: 0 }
+
+  for (const r of rows) {
+    if (Number.isNaN(r.percentage) || r.percentage < 0 || r.percentage > 100) {
+      throw new Error('Project % must be between 0 and 100')
+    }
+  }
+  const clean = rows.filter(r => r.percentage > 0)
+  const total = clean.reduce((sum, r) => sum + r.percentage, 0)
+  if (total > 100.01) {
+    throw new Error(`Total project allocation (${total.toFixed(1)}%) cannot exceed 100%`)
+  }
+
+  const { data: peopleRows, error: fetchErr } = await supabase
+    .from('dler_people')
+    .select('id, person_type')
+    .in('id', cleanIds)
+  if (fetchErr) throw fetchErr
+
+  const fetched = peopleRows ?? []
+  const allowedIds = fetched
+    .filter(
+      r =>
+        role === 'admin' ||
+        (role === 'hr_staff' && r.person_type === 'STAFF') ||
+        (role === 'hr_worker' && r.person_type === 'WORKER')
+    )
+    .map(r => r.id)
+  const skipped = fetched.length - allowedIds.length
+  if (allowedIds.length === 0) {
+    throw new Error('Forbidden: your role cannot update the selected person type(s)')
+  }
+
+  for (let i = 0; i < allowedIds.length; i += 500) {
+    const { error: delErr } = await supabase
+      .from('dler_project_allocations')
+      .delete()
+      .in('person_id', allowedIds.slice(i, i + 500))
+    if (delErr) throw delErr
+  }
+
+  if (clean.length > 0) {
+    const inserts = allowedIds.flatMap(pid =>
+      clean.map(r => ({ person_id: pid, project_id: r.project_id, percentage: r.percentage }))
+    )
+    for (let i = 0; i < inserts.length; i += 500) {
+      const { error: insErr } = await supabase
+        .from('dler_project_allocations')
+        .insert(inserts.slice(i, i + 500))
+      if (insErr) throw insErr
+    }
+  }
+
+  revalidateDlerAll()
+  return { updated: allowedIds.length, skipped }
+}
+
 /** Adds a STAFF row for every login (profile) that is not yet in the DLER Org Chart. */
 export async function syncStaffFromLogins(): Promise<{ inserted: number }> {
   await requireDlerRole(['admin', 'hr_staff'])
