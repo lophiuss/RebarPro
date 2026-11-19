@@ -14,6 +14,7 @@ import {
   updatePersonParentAndDept,
   savePersonProjectAllocations,
   syncWorkersFromPlantpro,
+  syncStaffFromLogins,
 } from '../actions'
 
 type ScopeMode = 'overall' | 'department' | 'project'
@@ -32,12 +33,14 @@ export default function OrgChartClient({
   projects,
   people,
   allocations,
+  logins,
 }: {
   role: DlerRole
   departments: DlerDepartment[]
   projects: DlerProject[]
   people: DlerPerson[]
   allocations: DlerAllocation[]
+  logins: { id: string; name: string; email: string }[]
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -64,6 +67,7 @@ export default function OrgChartClient({
     reports_to_id: string
     status: 'Active' | 'Inactive' | 'On Leave'
     remarks: string
+    profile_id: string
     allocs: Record<number, string>
   } | null>(null)
 
@@ -75,6 +79,8 @@ export default function OrgChartClient({
 
   const deptMap = useMemo(() => new Map(departments.map(d => [d.id, d])), [departments])
   const projMap = useMemo(() => new Map(projects.map(p => [p.id, p])), [projects])
+  const loginById = useMemo(() => new Map(logins.map(l => [l.id, l])), [logins])
+  const emailOf = (p: DlerPerson) => (p.profile_id ? loginById.get(p.profile_id)?.email ?? '' : '')
   const personMap = useMemo(() => new Map(people.map(p => [p.id, p])), [people])
   const activeProjects = useMemo(() => projects.filter(p => p.status === 'Active'), [projects])
   const staffList = useMemo(() => people.filter(p => p.person_type === 'STAFF'), [people])
@@ -123,6 +129,7 @@ export default function OrgChartClient({
         const hit =
           p.name.toLowerCase().includes(q) ||
           p.emp_no.toLowerCase().includes(q) ||
+          emailOf(p).toLowerCase().includes(q) ||
           (p.designation ?? '').toLowerCase().includes(q)
         if (!hit) return false
       }
@@ -202,6 +209,7 @@ export default function OrgChartClient({
       reports_to_id: defaultParentId ? String(defaultParentId) : '',
       status: 'Active',
       remarks: '',
+      profile_id: '',
       allocs: scope === 'project' && selectedProjId ? { [selectedProjId]: '100' } : {},
     })
   }
@@ -224,6 +232,7 @@ export default function OrgChartClient({
       reports_to_id: p.reports_to_id != null ? String(p.reports_to_id) : '',
       status: p.status,
       remarks: p.remarks ?? '',
+      profile_id: p.profile_id ?? '',
       allocs,
     })
   }
@@ -253,6 +262,7 @@ export default function OrgChartClient({
           reports_to_id: modalPerson.reports_to_id ? Number(modalPerson.reports_to_id) : null,
           status: modalPerson.status,
           remarks: modalPerson.remarks || null,
+          profile_id: modalPerson.profile_id || null,
         })
 
         await savePersonProjectAllocations(savedId, allocRows)
@@ -263,6 +273,20 @@ export default function OrgChartClient({
         setFeedback({ kind: 'err', text: err?.message ?? 'Save failed' })
       }
     })
+  }
+
+  async function handleSyncLogins() {
+    setSyncing(true)
+    setFeedback(null)
+    try {
+      const res = await syncStaffFromLogins()
+      setFeedback({ kind: 'ok', text: res.inserted ? `Added ${res.inserted} login(s) to the org chart as Staff.` : 'All logins are already in the org chart.' })
+      router.refresh()
+    } catch (err: any) {
+      setFeedback({ kind: 'err', text: err?.message ?? 'Sync failed' })
+    } finally {
+      setSyncing(false)
+    }
   }
 
   async function handleSyncFromHr() {
@@ -312,6 +336,17 @@ export default function OrgChartClient({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {canAddStaff && (
+            <button
+              type="button"
+              disabled={syncing}
+              onClick={handleSyncLogins}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold border border-slate-200 disabled:opacity-50"
+              title="Add every AlphaVision login that is not yet in the org chart"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} /> Sync Staff from Logins
+            </button>
+          )}
           {canAddStaff && (
             <button
               type="button"
@@ -538,6 +573,7 @@ export default function OrgChartClient({
                           onEdit={openEditModal}
                           scope={scope}
                           selectedProjId={selectedProjId}
+                          emailOf={emailOf}
                         />
                       ))}
                     </div>
@@ -620,6 +656,7 @@ export default function OrgChartClient({
                       <td className="px-3 py-1.5 font-semibold text-slate-900 whitespace-nowrap">
                         <div>{p.name}</div>
                         {p.designation && <div className="text-[10px] font-normal text-slate-400">{p.designation}</div>}
+                        {emailOf(p) ? <div className="text-[10px] font-normal text-sky-600">{emailOf(p)}</div> : p.person_type === 'STAFF' ? <div className="text-[10px] font-normal text-amber-600">no login linked</div> : null}
                       </td>
                       <td className="px-2 py-1.5">
                         <select
@@ -821,6 +858,21 @@ export default function OrgChartClient({
                     ))}
                   </select>
                 </label>
+                <label className="block sm:col-span-2">
+                  <span className="font-semibold text-slate-600">Linked login (email) — optional, can be linked later</span>
+                  <select
+                    value={modalPerson.profile_id}
+                    onChange={e => setModalPerson({ ...modalPerson, profile_id: e.target.value })}
+                    className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white"
+                  >
+                    <option value="">Not linked to a login</option>
+                    {logins
+                      .filter(l => l.id === modalPerson.profile_id || !people.some(pp => pp.profile_id === l.id))
+                      .map(l => (
+                        <option key={l.id} value={l.id}>{l.name || '(no name)'} — {l.email}</option>
+                      ))}
+                  </select>
+                </label>
                 <label className="block">
                   <span className="font-semibold text-slate-600">Reports To (Supervisor / HOD)</span>
                   <select
@@ -908,6 +960,7 @@ function TreeNodeBlock({
   onEdit,
   scope,
   selectedProjId,
+  emailOf,
 }: {
   node: StaffNode
   depth: number
@@ -922,6 +975,7 @@ function TreeNodeBlock({
   onEdit: (p: DlerPerson) => void
   scope: ScopeMode
   selectedProjId: number
+  emailOf: (p: DlerPerson) => string
 }) {
   const { person, staffChildren, workers } = node
   const isCollapsed = collapsedIds.has(person.id)
@@ -940,6 +994,7 @@ function TreeNodeBlock({
             <div className="text-[10px] font-mono text-white/75">{person.emp_no} · STAFF</div>
             <div className="font-bold text-sm truncate">{person.name}</div>
             {person.designation && <div className="text-[11px] text-white/80 truncate">{person.designation}</div>}
+            {emailOf(person) && <div className="text-[10px] text-white/70 truncate">{emailOf(person)}</div>}
           </div>
           {canEditType('STAFF') && (
             <button
@@ -1060,6 +1115,7 @@ function TreeNodeBlock({
                 onEdit={onEdit}
                 scope={scope}
                 selectedProjId={selectedProjId}
+                emailOf={emailOf}
               />
             ))}
           </div>

@@ -508,6 +508,11 @@ from public.user_department_access
 where role = 'admin'
 on conflict (user_id, department) do nothing;
 
+-- Ensure primary admin davidthen4285@gmail.com is always 'admin' in 'dler'
+insert into public.user_department_access (user_id, department, role) values
+  ('217806c8-a2d0-468d-bb95-9227e724353b', 'dler', 'admin')
+on conflict (user_id, department) do update set role = excluded.role;
+
 -- Grant specific DLER roles to Anim, Laily, David, and Khai
 insert into public.user_department_access (user_id, department, role) values
   ('1af09fd2-54fe-455f-bb70-f5be578146f3', 'dler', 'hr_worker'), -- Anim Misri (Worker Pay & OT + Worker Org Chart)

@@ -478,7 +478,7 @@ Type DELETE to confirm.`)
             <table className="min-w-full divide-y divide-gray-200 text-sm">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase sticky top-0 bg-gray-50 z-10">Person</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase sticky left-0 top-0 bg-gray-50 z-20 shadow-[inset_-1px_0_0_#e5e7eb]">Person</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase sticky top-0 bg-gray-50 z-10">Status</th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase sticky top-0 bg-gray-50 z-10">Last Login</th>
                   {myAdminDepts.map(d => <th key={d} className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase sticky top-0 bg-gray-50 z-10">{DEPT_LABEL[d]}</th>)}
@@ -489,8 +489,8 @@ Type DELETE to confirm.`)
                 {rows.map(p => {
                   const n = myAdminDepts.filter(d => accessFor(p.id, d)).length
                   return (
-                    <tr key={p.id} className="hover:bg-gray-50 align-middle">
-                      <td className="px-4 py-2">
+                    <tr key={p.id} className="group hover:bg-gray-50 align-middle">
+                      <td className="px-4 py-2 sticky left-0 z-[5] bg-white group-hover:bg-gray-50 shadow-[inset_-1px_0_0_#e5e7eb]">
                         <div className="font-medium">{p.full_name || '(no name)'}</div>
                         <div className="text-xs text-gray-400">{p.email}{n === 0 && <span className="ml-2 text-amber-600">no department</span>}</div>
                       </td>
@@ -646,7 +646,7 @@ Type DELETE to confirm.`)
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Person</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase sticky left-0 z-10 bg-gray-50 shadow-[inset_-1px_0_0_#e5e7eb]">Person</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Role</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
                   </tr>
@@ -662,8 +662,8 @@ Type DELETE to confirm.`)
                   {filteredDeptPeople.map(p => {
                     const row = accessFor(p.id, dept)!
                     return (
-                      <tr key={p.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 text-sm">
+                      <tr key={p.id} className="group hover:bg-gray-50">
+                        <td className="px-4 py-3 text-sm sticky left-0 z-[5] bg-white group-hover:bg-gray-50 shadow-[inset_-1px_0_0_#e5e7eb]">
                           <div className="flex items-center gap-3">
                             {p.avatar_url ? (
                               <img src={p.avatar_url} className="w-8 h-8 rounded-full object-cover flex-shrink-0" />

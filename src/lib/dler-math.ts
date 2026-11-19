@@ -47,6 +47,7 @@ export interface DlerPerson {
   reports_to_id: number | null
   status: 'Active' | 'Inactive' | 'On Leave'
   plantpro_worker_id: number | null
+  profile_id?: string | null
   remarks: string | null
 }
 

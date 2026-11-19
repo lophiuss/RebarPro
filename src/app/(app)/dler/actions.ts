@@ -165,6 +165,7 @@ export async function saveDlerPerson(input: {
   reports_to_id?: number | null
   status?: 'Active' | 'Inactive' | 'On Leave'
   remarks?: string | null
+  profile_id?: string | null
 }) {
   const { supabase, role } = await requireDlerRole(['admin', 'hr_worker', 'hr_staff'])
   if (role === 'hr_worker' && input.person_type !== 'WORKER') {
@@ -191,6 +192,7 @@ export async function saveDlerPerson(input: {
     reports_to_id: input.reports_to_id ?? null,
     status: input.status ?? 'Active',
     remarks: input.remarks?.trim() || null,
+    profile_id: input.profile_id || null,
   }
 
   let savedId: number
@@ -276,6 +278,42 @@ export async function savePersonProjectAllocations(
     if (insErr) throw insErr
   }
   revalidateDlerAll()
+}
+
+/** Adds a STAFF row for every login (profile) that is not yet in the DLER Org Chart. */
+export async function syncStaffFromLogins(): Promise<{ inserted: number }> {
+  await requireDlerRole(['admin', 'hr_staff'])
+  const admin = createAdminClient()
+
+  const [{ data: profiles, error: pErr }, { data: linked, error: lErr }, usersRes] = await Promise.all([
+    admin.from('profiles').select('id, full_name, is_active'),
+    admin.from('dler_people').select('profile_id').not('profile_id', 'is', null),
+    admin.auth.admin.listUsers({ perPage: 1000 }),
+  ])
+  if (pErr) throw pErr
+  if (lErr) throw lErr
+
+  const emailById = new Map((usersRes.data?.users ?? []).map(u => [u.id, (u.email ?? '').trim()]))
+  const linkedSet = new Set((linked ?? []).map(l => l.profile_id as string))
+  const rows = (profiles ?? [])
+    .filter(p => !linkedSet.has(p.id))
+    .map(p => {
+      const empNo = `USR-${String(p.id).slice(0, 8)}`
+      return {
+        person_type: 'STAFF' as const,
+        emp_no: empNo,
+        name: (p.full_name ?? '').trim() || emailById.get(p.id) || empNo,
+        status: p.is_active ? ('Active' as const) : ('Inactive' as const),
+        profile_id: p.id,
+      }
+    })
+
+  if (rows.length > 0) {
+    const { error } = await admin.from('dler_people').upsert(rows, { onConflict: 'person_type,emp_no' })
+    if (error) throw error
+  }
+  revalidateDlerAll()
+  return { inserted: rows.length }
 }
 
 export async function syncWorkersFromPlantpro(): Promise<{ inserted: number; updated: number }> {
