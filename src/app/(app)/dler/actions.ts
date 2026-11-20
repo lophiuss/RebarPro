@@ -832,10 +832,11 @@ export async function saveMonthlyPayBatch(
   personType: 'WORKER' | 'STAFF',
   rows: {
     person_id: number
-    basic_pay: number
-    allowance: number
-    employer_statutory: number
-    deductions: number
+    gross_pay?: number
+    basic_pay?: number
+    allowance?: number
+    employer_statutory?: number
+    deductions?: number
     working_days_override?: number | null
     hourly_rate_override?: number | null
     remarks?: string | null
@@ -855,11 +856,20 @@ export async function saveMonthlyPayBatch(
 
   const now = new Date().toISOString()
   const payload = rows.map(r => {
-    const basic = Number(r.basic_pay) || 0
-    const allowance = Number(r.allowance) || 0
-    const stat = Number(r.employer_statutory) || 0
-    const ded = Number(r.deductions) || 0
-    const gross = Math.max(0, Math.round((basic + allowance + stat - ded) * 100) / 100)
+    const hasDirectGross = r.gross_pay !== undefined
+    const gross = hasDirectGross
+      ? Math.max(0, Math.round((Number(r.gross_pay) || 0) * 100) / 100)
+      : (() => {
+          const basic = Number(r.basic_pay) || 0
+          const allowance = Number(r.allowance) || 0
+          const stat = Number(r.employer_statutory) || 0
+          const ded = Number(r.deductions) || 0
+          return Math.max(0, Math.round((basic + allowance + stat - ded) * 100) / 100)
+        })()
+    const basic = hasDirectGross ? gross : Number(r.basic_pay) || 0
+    const allowance = hasDirectGross ? 0 : Number(r.allowance) || 0
+    const stat = hasDirectGross ? 0 : Number(r.employer_statutory) || 0
+    const ded = hasDirectGross ? 0 : Number(r.deductions) || 0
     return {
       person_id: r.person_id,
       month,
@@ -876,10 +886,12 @@ export async function saveMonthlyPayBatch(
     }
   })
 
-  const { error } = await supabase
-    .from('dler_monthly_pay')
-    .upsert(payload, { onConflict: 'person_id,month' })
-  if (error) throw error
+  for (let i = 0; i < payload.length; i += 500) {
+    const { error } = await supabase
+      .from('dler_monthly_pay')
+      .upsert(payload.slice(i, i + 500), { onConflict: 'person_id,month' })
+    if (error) throw error
+  }
   revalidateDlerAll()
 }
 

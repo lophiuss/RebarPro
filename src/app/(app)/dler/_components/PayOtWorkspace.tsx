@@ -4,7 +4,8 @@ import React, { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   DollarSign, Clock, ChevronLeft, ChevronRight, Search, Copy, RefreshCw,
-  Save, Plus, CheckCircle2, AlertTriangle, X, DownloadCloud, Zap, Pencil
+  Save, Plus, CheckCircle2, AlertTriangle, X, DownloadCloud, Zap, Pencil,
+  Download, Upload, FileSpreadsheet
 } from 'lucide-react'
 import {
   calcPersonDayCost,
@@ -33,13 +34,57 @@ import {
 } from '../actions'
 
 type PayDraft = {
-  basic_pay: string
-  allowance: string
-  employer_statutory: string
-  deductions: string
+  gross_pay: string
   working_days_override: string
   hourly_rate_override: string
   remarks: string
+}
+
+type ImportMatchedRow = {
+  person_id: number
+  emp_no: string
+  name: string
+  gross_pay: number
+  working_days_override: number | null
+  remarks: string | null
+}
+
+type ImportParseResult = {
+  fileName: string
+  sheetName: string
+  totalRows: number
+  matched: ImportMatchedRow[]
+  skippedBlank: number
+  duplicateIdsCount: number
+  errors: { rowNum: number; ref: string; reason: string }[]
+}
+
+function normalizeColKey(k: string): string {
+  return k.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+}
+
+function pickColValue(normRow: Record<string, string>, aliases: string[]): string | undefined {
+  for (const a of aliases) {
+    if (normRow[a] !== undefined) return normRow[a]
+  }
+  return undefined
+}
+
+function parseGrossPayCell(raw: string): { ok: true; value: number | null } | { ok: false; reason: string } {
+  const trimmed = raw.trim()
+  if (!trimmed) return { ok: true, value: null }
+  const cleaned = trimmed.replace(/^(rm|myr)\s*/i, '').replace(/,/g, '').replace(/\s+/g, '')
+  if (!/^-?\d+(\.\d+)?$/.test(cleaned)) {
+    return { ok: false, reason: `Invalid Gross Pay "${trimmed}"` }
+  }
+  const num = Number(cleaned)
+  if (!Number.isFinite(num)) {
+    return { ok: false, reason: `Invalid Gross Pay "${trimmed}"` }
+  }
+  if (num < 0) {
+    return { ok: false, reason: `Gross Pay cannot be negative (${trimmed})` }
+  }
+  return { ok: true, value: Math.round((num + Number.EPSILON) * 100) / 100 }
 }
 
 function shiftMonth(month: string, delta: number): string {
@@ -98,6 +143,12 @@ export default function PayOtWorkspace({
     remarks: string
   } | null>(null)
   const [editError, setEditError] = useState<string | null>(null)
+  const [importModal, setImportModal] = useState<{
+    month: string
+    parsed: ImportParseResult | null
+    parsing: boolean
+    error: string | null
+  } | null>(null)
 
   const isWorker = personType === 'WORKER'
   const basePath = isWorker ? '/dler/workers' : '/dler/staff'
@@ -109,7 +160,9 @@ export default function PayOtWorkspace({
     [month, settings, holidaySet]
   )
 
+  const deptMap = useMemo(() => new Map(departments.map(d => [d.id, d.name])), [departments])
   const projMap = useMemo(() => new Map(projects.map(p => [p.id, p.name])), [projects])
+  const staffNameMap = useMemo(() => new Map(allStaff.map(s => [s.id, s.name])), [allStaff])
 
   const staffChildrenByParent = useMemo(() => {
     const m = new Map<number, number[]>()
@@ -156,11 +209,18 @@ export default function PayOtWorkspace({
     const out: Record<number, PayDraft> = {}
     for (const person of people) {
       const p = payByPerson.get(person.id)
+      const grossVal = p
+        ? Number(p.gross_pay) ||
+          Math.max(
+            0,
+            (Number(p.basic_pay) || 0) +
+              (Number(p.allowance) || 0) +
+              (Number(p.employer_statutory) || 0) -
+              (Number(p.deductions) || 0)
+          )
+        : 0
       out[person.id] = {
-        basic_pay: p && p.basic_pay ? String(p.basic_pay) : '',
-        allowance: p && p.allowance ? String(p.allowance) : '',
-        employer_statutory: p && p.employer_statutory ? String(p.employer_statutory) : '',
-        deductions: p && p.deductions ? String(p.deductions) : '',
+        gross_pay: grossVal ? String(grossVal) : '',
         working_days_override: p?.working_days_override ? String(p.working_days_override) : '',
         hourly_rate_override: p?.hourly_rate_override ? String(p.hourly_rate_override) : '',
         remarks: p?.remarks ?? '',
@@ -187,11 +247,7 @@ export default function PayOtWorkspace({
 
   function grossOfDraft(d: PayDraft | undefined): number {
     if (!d) return 0
-    const b = Number(d.basic_pay) || 0
-    const a = Number(d.allowance) || 0
-    const s = Number(d.employer_statutory) || 0
-    const ded = Number(d.deductions) || 0
-    return Math.max(0, Math.round((b + a + s - ded) * 100) / 100)
+    return Math.max(0, Math.round((Number(d.gross_pay) || 0) * 100) / 100)
   }
 
   function updateDraft(personId: number, field: keyof PayDraft, value: string) {
@@ -199,10 +255,7 @@ export default function PayOtWorkspace({
       ...prev,
       [personId]: {
         ...(prev[personId] ?? {
-          basic_pay: '',
-          allowance: '',
-          employer_statutory: '',
-          deductions: '',
+          gross_pay: '',
           working_days_override: '',
           hourly_rate_override: '',
           remarks: '',
@@ -351,26 +404,251 @@ export default function PayOtWorkspace({
   function handleSaveAllPay() {
     const rows = filteredPeople.map(p => {
       const d = drafts[p.id] ?? {
-        basic_pay: '',
-        allowance: '',
-        employer_statutory: '',
-        deductions: '',
+        gross_pay: '',
         working_days_override: '',
         hourly_rate_override: '',
         remarks: '',
       }
       return {
         person_id: p.id,
-        basic_pay: Number(d.basic_pay) || 0,
-        allowance: Number(d.allowance) || 0,
-        employer_statutory: Number(d.employer_statutory) || 0,
-        deductions: Number(d.deductions) || 0,
+        gross_pay: grossOfDraft(d),
         working_days_override: d.working_days_override ? Number(d.working_days_override) : null,
         hourly_rate_override: d.hourly_rate_override ? Number(d.hourly_rate_override) : null,
         remarks: d.remarks || null,
       }
     })
-    runAction(() => saveMonthlyPayBatch(month, personType, rows), `Saved monthly pay for ${rows.length} ${isWorker ? 'workers' : 'staff'}.`)
+    runAction(
+      () => saveMonthlyPayBatch(month, personType, rows),
+      `Saved monthly Gross Pay for ${rows.length} ${isWorker ? 'workers' : 'staff'}.`
+    )
+  }
+
+  async function handleExportTemplate() {
+    setFeedback(null)
+    try {
+      const XLSX = await import('xlsx')
+      const headers = [
+        'ID',
+        'Name',
+        'Department',
+        'Supervisor',
+        'Gross Pay (RM)',
+        'Working Days Override',
+        'Remarks',
+      ]
+      const rows = [...people]
+        .sort((a, b) => a.emp_no.localeCompare(b.emp_no))
+        .map(p => {
+          const d = drafts[p.id]
+          const grossVal = d?.gross_pay?.trim()
+          const daysVal = d?.working_days_override?.trim()
+          return {
+            ID: p.emp_no,
+            Name: p.name,
+            Department: p.department_id ? deptMap.get(p.department_id) ?? '' : '',
+            Supervisor: p.reports_to_id ? staffNameMap.get(p.reports_to_id) ?? '' : '',
+            'Gross Pay (RM)': grossVal ? Number(grossVal) || 0 : '',
+            'Working Days Override': daysVal ? Number(daysVal) || '' : '',
+            Remarks: d?.remarks ?? '',
+          }
+        })
+
+      const ws = XLSX.utils.json_to_sheet(rows, { header: headers })
+      ws['!cols'] = [14, 28, 18, 22, 16, 22, 28].map(wch => ({ wch }))
+
+      const infoRows = [
+        ['DLER Monthly Pay Template', `${isWorker ? 'Workers' : 'Staff'} (${month})`],
+        [],
+        ['Instructions:'],
+        ['1. Keep the "ID" column unchanged — rows are matched to your DLER roster by ID.'],
+        ['2. Fill in "Gross Pay (RM)" using plain numbers (e.g. 2450.50).'],
+        ['3. Leave "Gross Pay (RM)" blank to skip updating a person; type 0 explicitly to set RM 0.'],
+        [`4. "Working Days Override" is optional (1–31; default for this company is ${monthWorkingDays} days).`],
+        ['5. Save as .xlsx or .csv, click "Import by Month", pick the target Month, and upload this file.'],
+      ]
+      const wsInfo = XLSX.utils.aoa_to_sheet(infoRows)
+      wsInfo['!cols'] = [{ wch: 78 }, { wch: 24 }]
+
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Monthly Pay')
+      XLSX.utils.book_append_sheet(wb, wsInfo, 'Instructions')
+
+      XLSX.writeFile(wb, `DLER_${isWorker ? 'Worker' : 'Staff'}_Pay_Template_${month}.xlsx`)
+      setFeedback({
+        kind: 'ok',
+        text: `Exported ${isWorker ? 'Worker' : 'Staff'} Pay template for ${month} (${rows.length} rows).`,
+      })
+    } catch (err: any) {
+      setFeedback({ kind: 'err', text: err?.message ?? 'Failed to export Excel template' })
+    }
+  }
+
+  async function handleImportFile(file: File) {
+    setImportModal(prev => (prev ? { ...prev, parsing: true, error: null, parsed: null } : null))
+    try {
+      const XLSX = await import('xlsx')
+      const buf = await file.arrayBuffer()
+      const wb = XLSX.read(buf, { type: 'array' })
+      const sheetName = wb.Sheets['Monthly Pay'] ? 'Monthly Pay' : wb.SheetNames[0]
+      if (!sheetName) throw new Error('The uploaded workbook has no sheets.')
+      const ws = wb.Sheets[sheetName]
+      const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(ws, { raw: false, defval: '' })
+      if (rawRows.length === 0) throw new Error(`Sheet "${sheetName}" is empty.`)
+
+      const firstNormKeys = new Set(Object.keys(rawRows[0]).map(normalizeColKey))
+      const grossAliases = ['gross pay rm', 'gross pay', 'gross', 'gross cost', 'monthly pay', 'salary', 'pay', 'amount']
+      const idAliases = ['id', 'emp no', 'emp id', 'worker id', 'staff id', 'employee id', 'worker no']
+      const nameAliases = ['name', 'full name', 'worker name', 'staff name']
+      const daysAliases = ['working days override', 'working days', 'days']
+      const remarkAliases = ['remarks', 'remark', 'notes', 'note']
+
+      if (!grossAliases.some(a => firstNormKeys.has(a))) {
+        throw new Error('Could not find a "Gross Pay (RM)" column in the selected sheet.')
+      }
+      if (!idAliases.some(a => firstNormKeys.has(a)) && !nameAliases.some(a => firstNormKeys.has(a))) {
+        throw new Error('Could not find an "ID" or "Name" column in the selected sheet.')
+      }
+
+      const personByEmpNo = new Map<string, DlerPerson>()
+      const nameCount = new Map<string, number>()
+      const personByUniqueName = new Map<string, DlerPerson>()
+      for (const p of people) {
+        personByEmpNo.set(p.emp_no.trim().toUpperCase(), p)
+        const nk = p.name.trim().toLowerCase()
+        nameCount.set(nk, (nameCount.get(nk) ?? 0) + 1)
+      }
+      for (const p of people) {
+        const nk = p.name.trim().toLowerCase()
+        if (nameCount.get(nk) === 1) personByUniqueName.set(nk, p)
+      }
+
+      const matchedById = new Map<number, ImportMatchedRow>()
+      const errors: { rowNum: number; ref: string; reason: string }[] = []
+      let skippedBlank = 0
+      let duplicateIdsCount = 0
+      let totalRows = 0
+
+      rawRows.forEach((raw, idx) => {
+        const rowNum = idx + 2
+        const normRow: Record<string, string> = {}
+        for (const [k, v] of Object.entries(raw)) {
+          normRow[normalizeColKey(k)] = String(v ?? '').trim()
+        }
+        if (Object.values(normRow).every(v => !v)) return
+        totalRows++
+
+        const idVal = (pickColValue(normRow, idAliases) ?? '').trim()
+        const nameVal = (pickColValue(normRow, nameAliases) ?? '').trim()
+        const grossRaw = pickColValue(normRow, grossAliases) ?? ''
+        const daysRaw = (pickColValue(normRow, daysAliases) ?? '').trim()
+        const remarksRaw = (pickColValue(normRow, remarkAliases) ?? '').trim()
+
+        let person: DlerPerson | undefined
+        if (idVal) {
+          person = personByEmpNo.get(idVal.toUpperCase())
+          if (!person) {
+            errors.push({ rowNum, ref: idVal, reason: `ID "${idVal}" not found in ${isWorker ? 'Workers' : 'Staff'}` })
+            return
+          }
+        } else if (nameVal) {
+          const nk = nameVal.toLowerCase()
+          if ((nameCount.get(nk) ?? 0) > 1) {
+            errors.push({ rowNum, ref: nameVal, reason: `Multiple people named "${nameVal}" — please fill ID` })
+            return
+          }
+          person = personByUniqueName.get(nk)
+          if (!person) {
+            errors.push({ rowNum, ref: nameVal, reason: `Name "${nameVal}" not found` })
+            return
+          }
+        } else {
+          return
+        }
+
+        const parsedGross = parseGrossPayCell(grossRaw)
+        if (!parsedGross.ok) {
+          errors.push({ rowNum, ref: person.emp_no, reason: parsedGross.reason })
+          return
+        }
+        if (parsedGross.value === null) {
+          skippedBlank++
+          return
+        }
+
+        let workingDaysOverride: number | null = null
+        if (daysRaw) {
+          const dNum = Number(daysRaw)
+          if (!Number.isFinite(dNum) || dNum < 1 || dNum > 31) {
+            errors.push({ rowNum, ref: person.emp_no, reason: `Invalid Working Days Override "${daysRaw}" (must be 1–31)` })
+            return
+          }
+          workingDaysOverride = dNum
+        }
+
+        if (matchedById.has(person.id)) duplicateIdsCount++
+        matchedById.set(person.id, {
+          person_id: person.id,
+          emp_no: person.emp_no,
+          name: person.name,
+          gross_pay: parsedGross.value,
+          working_days_override: workingDaysOverride,
+          remarks: remarksRaw || null,
+        })
+      })
+
+      setImportModal(prev =>
+        prev
+          ? {
+              ...prev,
+              parsing: false,
+              parsed: {
+                fileName: file.name,
+                sheetName,
+                totalRows,
+                matched: Array.from(matchedById.values()),
+                skippedBlank,
+                duplicateIdsCount,
+                errors,
+              },
+            }
+          : null
+      )
+    } catch (err: any) {
+      setImportModal(prev =>
+        prev ? { ...prev, parsing: false, parsed: null, error: err?.message ?? 'Failed to parse file' } : null
+      )
+    }
+  }
+
+  function handleConfirmImport() {
+    if (!importModal?.parsed || importModal.parsed.matched.length === 0) return
+    const targetMonth = importModal.month
+    const rows = importModal.parsed.matched.map(r => ({
+      person_id: r.person_id,
+      gross_pay: r.gross_pay,
+      working_days_override: r.working_days_override,
+      remarks: r.remarks,
+    }))
+    setFeedback(null)
+    startTransition(async () => {
+      try {
+        await saveMonthlyPayBatch(targetMonth, personType, rows)
+        setImportModal(null)
+        setFeedback({
+          kind: 'ok',
+          text: `Imported ${rows.length} ${isWorker ? 'worker' : 'staff'} Gross Pay row(s) into ${targetMonth}.`,
+        })
+        if (targetMonth !== month) {
+          router.push(`${basePath}?month=${targetMonth}`)
+        } else {
+          router.refresh()
+        }
+      } catch (err: any) {
+        const msg = err?.message ?? 'Import failed'
+        setImportModal(prev => (prev ? { ...prev, error: msg } : null))
+        setFeedback({ kind: 'err', text: msg })
+      }
+    })
   }
 
   return (
@@ -472,6 +750,24 @@ export default function PayOtWorkspace({
               <button
                 type="button"
                 disabled={isPending}
+                onClick={handleExportTemplate}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold border border-emerald-200"
+                title="Download Excel template pre-filled with current roster"
+              >
+                <Download className="w-3.5 h-3.5" /> Export Template
+              </button>
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={() => setImportModal({ month, parsed: null, parsing: false, error: null })}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-800 text-xs font-semibold border border-sky-200"
+                title="Import monthly Gross Pay from Excel / CSV"
+              >
+                <Upload className="w-3.5 h-3.5" /> Import by Month
+              </button>
+              <button
+                type="button"
+                disabled={isPending}
                 onClick={() =>
                   runAction(async () => {
                     const count = await copyPreviousMonthPay(month, personType)
@@ -565,31 +861,25 @@ export default function PayOtWorkspace({
       {tab === 'pay' && (
         <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
           <div className="overflow-auto max-h-[68vh]">
-            <table className="w-full text-xs border-collapse">
+            <table className="w-full min-w-[1260px] text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase text-[10px] font-bold">
-                  <th className="sticky left-0 top-0 z-30 bg-slate-50 px-3 py-2.5 text-left whitespace-nowrap">ID</th>
-                  <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-left whitespace-nowrap min-w-[190px]">Name</th>
-                  <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-left whitespace-nowrap min-w-[180px]">Dept / Sup</th>
-                  <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-left whitespace-nowrap">Project %</th>
-                  <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-right whitespace-nowrap">Basic Pay</th>
-                  <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-right whitespace-nowrap">Allowance</th>
-                  <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-right whitespace-nowrap">EPF / Stat</th>
-                  <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-right whitespace-nowrap text-rose-600">Deduct</th>
-                  <th className="sticky top-0 z-20 bg-emerald-50 px-3 py-2.5 text-right whitespace-nowrap text-emerald-800">Gross Cost</th>
-                  <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-right whitespace-nowrap">Days</th>
-                  <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-right whitespace-nowrap">RM/Day</th>
-                  <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-right whitespace-nowrap">RM/Hr</th>
-                  <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-left whitespace-nowrap">Remarks</th>
+                  <th className="sticky left-0 top-0 z-30 bg-slate-50 px-2.5 py-2.5 text-left whitespace-nowrap w-[108px] min-w-[108px] max-w-[108px] border-r border-slate-200">ID</th>
+                  <th className="sticky top-0 z-20 bg-slate-50 px-2.5 py-2.5 text-left whitespace-nowrap w-[210px] min-w-[210px]">Name</th>
+                  <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-left whitespace-nowrap w-[155px] min-w-[155px] max-w-[155px]">Department</th>
+                  <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-left whitespace-nowrap w-[170px] min-w-[170px] max-w-[170px]">Supervisor</th>
+                  <th className="sticky top-0 z-20 bg-slate-50 px-2.5 py-2.5 text-left whitespace-nowrap min-w-[170px] max-w-[220px]">Project %</th>
+                  <th className="sticky top-0 z-20 bg-emerald-50 px-3 py-2.5 text-right whitespace-nowrap text-emerald-800 min-w-[130px]">Gross Pay (RM)</th>
+                  <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-right whitespace-nowrap min-w-[72px]">Days</th>
+                  <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-right whitespace-nowrap min-w-[82px]">RM/Day</th>
+                  <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-right whitespace-nowrap min-w-[76px]">RM/Hr</th>
+                  <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-left whitespace-nowrap min-w-[140px]">Remarks</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredPeople.map(p => {
                   const d = drafts[p.id] ?? {
-                    basic_pay: '',
-                    allowance: '',
-                    employer_statutory: '',
-                    deductions: '',
+                    gross_pay: '',
                     working_days_override: '',
                     hourly_rate_override: '',
                     remarks: '',
@@ -608,10 +898,11 @@ export default function PayOtWorkspace({
                     includeBaseOnSundayHoliday: false,
                   })
                   const allocList = allocsByPerson.get(p.id) ?? []
+                  const blocked = getBlockedSupervisorIds(p.id)
 
                   return (
                     <tr key={p.id} className={`hover:bg-slate-50/70 ${p.status === 'Inactive' ? 'opacity-50' : ''}`}>
-                      <td className="sticky left-0 z-10 bg-white px-2 py-1 whitespace-nowrap">
+                      <td className="sticky left-0 z-10 bg-white px-2 py-1.5 whitespace-nowrap w-[108px] min-w-[108px] max-w-[108px] border-r border-slate-200">
                         <input
                           type="text"
                           key={`${p.id}:${p.emp_no}`}
@@ -627,10 +918,10 @@ export default function PayOtWorkspace({
                               e.currentTarget.blur()
                             }
                           }}
-                          className="w-24 font-mono text-xs text-slate-700 border border-transparent hover:border-slate-300 focus:border-teal-500 focus:bg-white bg-transparent rounded px-1.5 py-0.5 focus:outline-none"
+                          className="w-full font-mono text-xs text-slate-700 border border-transparent hover:border-slate-300 focus:border-teal-500 focus:bg-white bg-transparent rounded px-1.5 py-0.5 focus:outline-none"
                         />
                       </td>
-                      <td className="px-2 py-1.5 whitespace-nowrap min-w-[190px]">
+                      <td className="px-2.5 py-1.5 whitespace-nowrap w-[210px] min-w-[210px]">
                         <div className="flex items-center gap-1">
                           <input
                             type="text"
@@ -658,100 +949,63 @@ export default function PayOtWorkspace({
                             <Pencil className="w-3 h-3" />
                           </button>
                         </div>
-                        {p.designation && <div className="px-1.5 text-[10px] font-normal text-slate-400">{p.designation}</div>}
+                        {p.designation && <div className="px-1.5 text-[10px] font-normal text-slate-400 truncate max-w-[190px]">{p.designation}</div>}
                       </td>
-                      <td className="px-2 py-1 whitespace-nowrap min-w-[180px]">
-                        {(() => {
-                          const blocked = getBlockedSupervisorIds(p.id)
-                          return (
-                            <div className="space-y-1">
-                              <select
-                                aria-label={`Department for ${p.name}`}
-                                value={p.department_id ?? ''}
-                                disabled={isPending}
-                                onChange={e => handleChangeDept(p, e.target.value)}
-                                className="w-full max-w-[170px] border border-slate-200 hover:border-slate-300 focus:border-teal-500 rounded px-1.5 py-0.5 text-[11px] text-slate-700 bg-white focus:outline-none"
-                              >
-                                <option value="">Unassigned</option>
-                                {departments.map(dep => (
-                                  <option key={dep.id} value={dep.id}>{dep.name}</option>
-                                ))}
-                              </select>
-                              <select
-                                aria-label={`Supervisor for ${p.name}`}
-                                value={p.reports_to_id ?? ''}
-                                disabled={isPending}
-                                onChange={e => handleChangeSupervisor(p, e.target.value)}
-                                className="w-full max-w-[170px] border border-slate-200 hover:border-slate-300 focus:border-teal-500 rounded px-1.5 py-0.5 text-[11px] text-slate-500 bg-white focus:outline-none"
-                              >
-                                <option value="">No Supervisor</option>
-                                {allStaff
-                                  .filter(s => !blocked.has(s.id))
-                                  .map(s => (
-                                    <option key={s.id} value={s.id}>↳ {s.name}</option>
-                                  ))}
-                              </select>
-                            </div>
-                          )
-                        })()}
+                      <td className="px-2 py-1.5 w-[155px] min-w-[155px] max-w-[155px]">
+                        <select
+                          aria-label={`Department for ${p.name}`}
+                          value={p.department_id ?? ''}
+                          disabled={isPending}
+                          onChange={e => handleChangeDept(p, e.target.value)}
+                          className="block w-full truncate border border-slate-200 hover:border-slate-300 focus:border-teal-500 rounded px-2 py-1 text-[11px] text-slate-700 bg-white focus:outline-none"
+                        >
+                          <option value="">Unassigned</option>
+                          {departments.map(dep => (
+                            <option key={dep.id} value={dep.id}>{dep.name}</option>
+                          ))}
+                        </select>
                       </td>
-                      <td className="px-2 py-1.5 max-w-[160px]">
+                      <td className="px-2 py-1.5 w-[170px] min-w-[170px] max-w-[170px]">
+                        <select
+                          aria-label={`Supervisor for ${p.name}`}
+                          value={p.reports_to_id ?? ''}
+                          disabled={isPending}
+                          onChange={e => handleChangeSupervisor(p, e.target.value)}
+                          className="block w-full truncate border border-slate-200 hover:border-slate-300 focus:border-teal-500 rounded px-2 py-1 text-[11px] text-slate-600 bg-white focus:outline-none"
+                        >
+                          <option value="">No Supervisor</option>
+                          {allStaff
+                            .filter(s => !blocked.has(s.id))
+                            .map(s => (
+                              <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                        </select>
+                      </td>
+                      <td className="px-2.5 py-1.5 min-w-[170px] max-w-[220px] whitespace-normal align-top">
                         <div className="flex flex-wrap gap-1">
                           {allocList.length === 0 ? (
                             <span className="text-[10px] text-slate-400">Home Dept 100%</span>
                           ) : (
                             allocList.map((a, idx) => (
-                              <span key={idx} className="px-1.5 py-0.5 rounded bg-sky-50 text-sky-800 border border-sky-200 text-[10px] font-medium">
+                              <span key={idx} className="px-1.5 py-0.5 rounded bg-sky-50 text-sky-800 border border-sky-200 text-[10px] font-medium whitespace-nowrap">
                                 {a.name} {a.pct}%
                               </span>
                             ))
                           )}
                         </div>
                       </td>
-                      <td className="px-1.5 py-1.5">
+                      <td className="px-2 py-1.5 text-right bg-emerald-50/30 min-w-[130px]">
                         <input
                           type="number"
                           step="0.01"
-                          value={d.basic_pay}
-                          placeholder="0"
-                          onChange={e => updateDraft(p.id, 'basic_pay', e.target.value)}
-                          className="w-24 text-right border border-slate-200 rounded px-2 py-1 tabular-nums"
+                          min={0}
+                          value={d.gross_pay}
+                          placeholder="0.00"
+                          onChange={e => updateDraft(p.id, 'gross_pay', e.target.value)}
+                          className="w-28 text-right border border-emerald-200 focus:border-emerald-500 bg-white rounded px-2 py-1 font-semibold text-emerald-900 tabular-nums focus:outline-none"
                         />
                       </td>
-                      <td className="px-1.5 py-1.5">
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={d.allowance}
-                          placeholder="0"
-                          onChange={e => updateDraft(p.id, 'allowance', e.target.value)}
-                          className="w-20 text-right border border-slate-200 rounded px-2 py-1 tabular-nums"
-                        />
-                      </td>
-                      <td className="px-1.5 py-1.5">
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={d.employer_statutory}
-                          placeholder="0"
-                          onChange={e => updateDraft(p.id, 'employer_statutory', e.target.value)}
-                          className="w-20 text-right border border-slate-200 rounded px-2 py-1 tabular-nums"
-                        />
-                      </td>
-                      <td className="px-1.5 py-1.5">
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={d.deductions}
-                          placeholder="0"
-                          onChange={e => updateDraft(p.id, 'deductions', e.target.value)}
-                          className="w-20 text-right border border-slate-200 rounded px-2 py-1 tabular-nums text-rose-600"
-                        />
-                      </td>
-                      <td className="px-3 py-1.5 text-right font-bold text-emerald-700 bg-emerald-50/40 tabular-nums whitespace-nowrap">
-                        {gross.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </td>
-                      <td className="px-1.5 py-1.5">
+                      <td className="px-1.5 py-1.5 text-right min-w-[72px]">
                         <input
                           type="number"
                           min={1}
@@ -762,19 +1016,19 @@ export default function PayOtWorkspace({
                           className="w-14 text-right border border-slate-200 rounded px-1.5 py-1 tabular-nums"
                         />
                       </td>
-                      <td className="px-2 py-1.5 text-right text-slate-600 tabular-nums whitespace-nowrap">
+                      <td className="px-2 py-1.5 text-right text-slate-600 tabular-nums whitespace-nowrap min-w-[82px]">
                         {dayCost.baseCost.toFixed(2)}
                       </td>
-                      <td className="px-2 py-1.5 text-right text-slate-600 tabular-nums whitespace-nowrap">
+                      <td className="px-2 py-1.5 text-right text-slate-600 tabular-nums whitespace-nowrap min-w-[76px]">
                         {dayCost.hourlyRate.toFixed(2)}
                       </td>
-                      <td className="px-1.5 py-1.5">
+                      <td className="px-1.5 py-1.5 min-w-[140px]">
                         <input
                           type="text"
                           value={d.remarks}
                           onChange={e => updateDraft(p.id, 'remarks', e.target.value)}
                           placeholder="Notes..."
-                          className="w-28 border border-slate-200 rounded px-2 py-1"
+                          className="w-full min-w-[120px] border border-slate-200 rounded px-2 py-1"
                         />
                       </td>
                     </tr>
@@ -782,7 +1036,7 @@ export default function PayOtWorkspace({
                 })}
                 {filteredPeople.length === 0 && (
                   <tr>
-                    <td colSpan={13} className="text-center py-8 text-slate-400">No records found.</td>
+                    <td colSpan={10} className="text-center py-8 text-slate-400">No records found.</td>
                   </tr>
                 )}
               </tbody>
@@ -1174,6 +1428,185 @@ export default function PayOtWorkspace({
               <button type="submit" disabled={isPending} className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold">Add Staff</button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* Import Monthly Gross Pay Modal */}
+      {importModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-200">
+              <div className="flex items-center gap-2 font-bold text-slate-900 text-sm">
+                <FileSpreadsheet className="w-4 h-4 text-sky-600" />
+                Import {isWorker ? 'Worker' : 'Staff'} Monthly Gross Pay by Month
+              </div>
+              <button
+                type="button"
+                disabled={isPending || importModal.parsing}
+                onClick={() => setImportModal(null)}
+                className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-40"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 overflow-y-auto text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="block font-semibold text-slate-700">
+                  Target Month *
+                  <input
+                    type="month"
+                    value={importModal.month}
+                    disabled={isPending || importModal.parsing}
+                    onChange={e =>
+                      e.target.value &&
+                      setImportModal(prev => (prev ? { ...prev, month: e.target.value } : null))
+                    }
+                    className="mt-1 w-full border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-900 bg-white"
+                  />
+                </label>
+
+                <label className="block font-semibold text-slate-700">
+                  Upload Excel / CSV File (.xlsx, .xls, .csv) *
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    disabled={isPending || importModal.parsing}
+                    onChange={e => {
+                      const f = e.target.files?.[0]
+                      if (f) handleImportFile(f)
+                    }}
+                    className="mt-1 w-full text-xs text-slate-600 file:mr-2.5 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-slate-300 file:text-xs file:font-semibold file:bg-slate-50 file:text-slate-700 hover:file:bg-slate-100"
+                  />
+                </label>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
+                <span>
+                  Matches by <b>ID</b> (or unique Name if ID is blank). Blank <b>Gross Pay (RM)</b> rows are skipped.
+                </span>
+                <button
+                  type="button"
+                  onClick={handleExportTemplate}
+                  className="inline-flex items-center gap-1 font-semibold text-emerald-700 hover:underline shrink-0"
+                >
+                  <Download className="w-3 h-3" /> Download Template
+                </button>
+              </div>
+
+              {importModal.parsing && (
+                <div className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2.5 text-sky-800 font-medium">
+                  Reading workbook…
+                </div>
+              )}
+
+              {importModal.error && (
+                <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-rose-800 font-medium">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{importModal.error}</span>
+                </div>
+              )}
+
+              {importModal.parsed && (() => {
+                const parsed = importModal.parsed
+                const importTotal = parsed.matched.reduce((s, r) => s + r.gross_pay, 0)
+                return (
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 font-semibold">
+                        Matched: {parsed.matched.length} row(s)
+                      </span>
+                      <span className="px-2.5 py-1 rounded-full bg-sky-50 border border-sky-200 text-sky-800 font-semibold tabular-nums">
+                        Total Gross: RM {importTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                      {parsed.skippedBlank > 0 && (
+                        <span className="px-2.5 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-600 font-semibold">
+                          Blank skipped: {parsed.skippedBlank}
+                        </span>
+                      )}
+                      {parsed.duplicateIdsCount > 0 && (
+                        <span className="px-2.5 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-800 font-semibold">
+                          Duplicate IDs (last row used): {parsed.duplicateIdsCount}
+                        </span>
+                      )}
+                      {parsed.errors.length > 0 && (
+                        <span className="px-2.5 py-1 rounded-full bg-rose-50 border border-rose-200 text-rose-800 font-semibold">
+                          Skipped issues: {parsed.errors.length}
+                        </span>
+                      )}
+                    </div>
+
+                    {parsed.errors.length > 0 && (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-2.5 max-h-28 overflow-y-auto space-y-1 text-[11px] text-amber-900">
+                        {parsed.errors.map((err, i) => (
+                          <div key={i}>
+                            Row {err.rowNum} ({err.ref}): {err.reason}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {parsed.matched.length > 0 ? (
+                      <div className="border border-slate-200 rounded-xl overflow-hidden max-h-56 overflow-y-auto">
+                        <table className="w-full text-[11px] border-collapse">
+                          <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 text-slate-500 uppercase text-[10px] font-bold">
+                            <tr>
+                              <th className="px-3 py-1.5 text-left">ID</th>
+                              <th className="px-3 py-1.5 text-left">Name</th>
+                              <th className="px-3 py-1.5 text-right">Gross Pay (RM)</th>
+                              <th className="px-3 py-1.5 text-right">Days</th>
+                              <th className="px-3 py-1.5 text-left">Remarks</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {parsed.matched.map(r => (
+                              <tr key={r.person_id} className="hover:bg-slate-50/60">
+                                <td className="px-3 py-1 font-mono text-slate-600">{r.emp_no}</td>
+                                <td className="px-3 py-1 font-semibold text-slate-900">{r.name}</td>
+                                <td className="px-3 py-1 text-right font-bold text-emerald-700 tabular-nums">
+                                  {r.gross_pay.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </td>
+                                <td className="px-3 py-1 text-right text-slate-600 tabular-nums">
+                                  {r.working_days_override ?? '—'}
+                                </td>
+                                <td className="px-3 py-1 text-slate-500 truncate max-w-[140px]">{r.remarks ?? ''}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="text-center py-6 text-slate-400 border border-dashed border-slate-200 rounded-xl">
+                        No valid rows with Gross Pay found to import.
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
+            </div>
+
+            <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                disabled={isPending}
+                onClick={() => setImportModal(null)}
+                className="px-3.5 py-1.5 rounded-xl border border-slate-300 bg-white text-xs font-semibold text-slate-700 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isPending || importModal.parsing || !importModal.parsed || importModal.parsed.matched.length === 0}
+                onClick={handleConfirmImport}
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold disabled:opacity-50"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                {isPending
+                  ? 'Importing…'
+                  : `Import ${importModal.parsed?.matched.length ?? 0} Row(s) into ${importModal.month}`}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
