@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   Network, Table2, Plus, Search, RefreshCw, Pencil, Trash2, X,
   Building2, FolderKanban, Users, ChevronDown, ChevronRight, Minus, Maximize2, Minimize2, Crosshair, Scan, CheckCircle2, AlertTriangle,
-  ArrowUp, ArrowDown, UserPlus, Unlink, Check, Tag, Tags, Printer
+  ArrowUp, ArrowDown, ArrowUpDown, UserPlus, Unlink, Check, Tag, Tags, Printer
 } from 'lucide-react'
 import type { DlerRole } from '../guard'
 import type { DlerAllocation, DlerDepartment, DlerPerson, DlerProject } from '@/lib/dler-math'
@@ -33,6 +33,7 @@ import {
 } from './treeLayout'
 
 const DLER_PREF_EVENT = 'dler-org-pref'
+const MATRIX_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
 
 function useDlerPref(key: string, fallback: string): [string, (value: string) => void] {
   const subscribe = useCallback((cb: () => void) => {
@@ -258,6 +259,11 @@ export default function OrgChartClient({
     fit: 'page' | 'width'
   } | null>(null)
   const [printBusy, setPrintBusy] = useState(false)
+  const [matrixSort, setMatrixSort] = useState<{
+    key: 'type' | 'id' | 'name' | 'dept' | 'reportsTo' | 'total' | `proj:${number}`
+    dir: 'ascending' | 'descending'
+  } | null>(null)
+  const [matrixSortStatus, setMatrixSortStatus] = useState('')
 
   const [tagModal, setTagModal] = useState<{
     person: DlerPerson
@@ -731,6 +737,56 @@ export default function OrgChartClient({
       return true
     })
   }, [people, typeFilter, scope, selectedDeptId, selectedProjId, allocByPerson, q])
+
+  function toggleMatrixSort(
+    key: 'type' | 'id' | 'name' | 'dept' | 'reportsTo' | 'total' | `proj:${number}`,
+    label: string
+  ) {
+    const nextDir: 'ascending' | 'descending' =
+      matrixSort?.key === key
+        ? matrixSort.dir === 'ascending'
+          ? 'descending'
+          : 'ascending'
+        : 'ascending'
+    setMatrixSort({ key, dir: nextDir })
+    setMatrixSortStatus(`Sorted by ${label}, ${nextDir}, ${filteredPeople.length} rows`)
+  }
+
+  const sortedMatrixPeople = useMemo(() => {
+    if (!matrixSort) return filteredPeople
+    const factor = matrixSort.dir === 'ascending' ? 1 : -1
+    const meta = new Map<number, { dept: string; sup: string; total: number }>()
+    for (const p of filteredPeople) {
+      let tot = 0
+      for (const v of allocByPerson.get(p.id)?.values() ?? []) tot += v
+      meta.set(p.id, {
+        dept: p.department_id ? deptMap.get(p.department_id)?.name ?? '' : '',
+        sup: p.reports_to_id ? personMap.get(p.reports_to_id)?.name ?? '' : '',
+        total: Math.round(tot * 10) / 10,
+      })
+    }
+    return [...filteredPeople].sort((a, b) => {
+      let cmp = 0
+      if (matrixSort.key === 'type') {
+        cmp = MATRIX_COLLATOR.compare(a.person_type, b.person_type)
+      } else if (matrixSort.key === 'id') {
+        cmp = MATRIX_COLLATOR.compare(a.emp_no, b.emp_no)
+      } else if (matrixSort.key === 'name') {
+        cmp = MATRIX_COLLATOR.compare(a.name, b.name)
+      } else if (matrixSort.key === 'dept') {
+        cmp = MATRIX_COLLATOR.compare(meta.get(a.id)!.dept, meta.get(b.id)!.dept)
+      } else if (matrixSort.key === 'reportsTo') {
+        cmp = MATRIX_COLLATOR.compare(meta.get(a.id)!.sup, meta.get(b.id)!.sup)
+      } else if (matrixSort.key === 'total') {
+        cmp = meta.get(a.id)!.total - meta.get(b.id)!.total
+      } else if (matrixSort.key.startsWith('proj:')) {
+        const pid = Number(matrixSort.key.slice(5))
+        cmp = (allocByPerson.get(a.id)?.get(pid) ?? 0) - (allocByPerson.get(b.id)?.get(pid) ?? 0)
+      }
+      if (cmp !== 0) return cmp * factor
+      return MATRIX_COLLATOR.compare(a.emp_no, b.emp_no)
+    })
+  }, [filteredPeople, matrixSort, deptMap, personMap, allocByPerson])
 
   // Summary metrics for the active scope
   const scopeStats = useMemo(() => {
@@ -1956,33 +2012,131 @@ export default function OrgChartClient({
       )}
 
       {/* VIEW 2: Allocation Matrix Table */}
-      {viewStyle === 'matrix' && (
+      {viewStyle === 'matrix' && (() => {
+        const renderSortIcon = (key: NonNullable<typeof matrixSort>['key']) => {
+          if (matrixSort?.key !== key) return <ArrowUpDown className="w-3 h-3 opacity-35 shrink-0" aria-hidden="true" />
+          return matrixSort.dir === 'ascending'
+            ? <ArrowUp className="w-3 h-3 text-teal-600 shrink-0" aria-hidden="true" />
+            : <ArrowDown className="w-3 h-3 text-teal-600 shrink-0" aria-hidden="true" />
+        }
+        return (
         <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+          <div role="status" className="sr-only">{matrixSortStatus}</div>
           <div className="org-chart-canvas overflow-auto max-h-[70vh]">
             <table className="text-xs border-collapse w-full">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase text-[10px] font-bold">
-                  <th className="sticky left-0 top-0 z-30 bg-slate-50 px-3 py-2.5 text-left whitespace-nowrap">Type</th>
-                  <th className="sticky top-0 z-20 bg-slate-50 px-3 py-2.5 text-left whitespace-nowrap">ID</th>
-                  <th className="sticky top-0 z-20 bg-slate-50 px-3 py-2.5 text-left whitespace-nowrap min-w-[160px]">Name</th>
-                  <th className="sticky top-0 z-20 bg-slate-50 px-3 py-2.5 text-left whitespace-nowrap">Home Dept</th>
-                  <th className="sticky top-0 z-20 bg-slate-50 px-3 py-2.5 text-left whitespace-nowrap">Reports To</th>
-                  <th className="sticky top-0 z-20 bg-slate-50 px-3 py-2.5 text-center whitespace-nowrap">Total %</th>
-                  {activeProjects.map(pr => (
-                    <th
-                      key={pr.id}
-                      className={`sticky top-0 z-20 px-2 py-2.5 text-center whitespace-nowrap min-w-[76px] ${
-                        scope === 'project' && selectedProjId === pr.id ? 'bg-sky-100 text-sky-900' : 'bg-slate-50'
-                      }`}
+                  <th
+                    scope="col"
+                    aria-sort={matrixSort?.key === 'type' ? matrixSort.dir : undefined}
+                    className="sticky left-0 top-0 z-30 bg-slate-50 p-0 text-left whitespace-nowrap"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleMatrixSort('type', 'Type')}
+                      className="w-full min-h-[34px] px-3 py-2.5 text-left uppercase flex items-center gap-1 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-teal-600"
                     >
-                      {pr.name} %
-                    </th>
-                  ))}
-                  <th className="sticky top-0 z-20 bg-slate-50 px-3 py-2.5 text-right whitespace-nowrap">Actions</th>
+                      <span>Type</span>
+                      {renderSortIcon('type')}
+                    </button>
+                  </th>
+                  <th
+                    scope="col"
+                    aria-sort={matrixSort?.key === 'id' ? matrixSort.dir : undefined}
+                    className="sticky top-0 z-20 bg-slate-50 p-0 text-left whitespace-nowrap"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleMatrixSort('id', 'ID')}
+                      className="w-full min-h-[34px] px-3 py-2.5 text-left uppercase flex items-center gap-1 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-teal-600"
+                    >
+                      <span>ID</span>
+                      {renderSortIcon('id')}
+                    </button>
+                  </th>
+                  <th
+                    scope="col"
+                    aria-sort={matrixSort?.key === 'name' ? matrixSort.dir : undefined}
+                    className="sticky top-0 z-20 bg-slate-50 p-0 text-left whitespace-nowrap min-w-[160px]"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleMatrixSort('name', 'Name')}
+                      className="w-full min-h-[34px] px-3 py-2.5 text-left uppercase flex items-center gap-1 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-teal-600"
+                    >
+                      <span>Name</span>
+                      {renderSortIcon('name')}
+                    </button>
+                  </th>
+                  <th
+                    scope="col"
+                    aria-sort={matrixSort?.key === 'dept' ? matrixSort.dir : undefined}
+                    className="sticky top-0 z-20 bg-slate-50 p-0 text-left whitespace-nowrap"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleMatrixSort('dept', 'Home Dept')}
+                      className="w-full min-h-[34px] px-3 py-2.5 text-left uppercase flex items-center gap-1 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-teal-600"
+                    >
+                      <span>Home Dept</span>
+                      {renderSortIcon('dept')}
+                    </button>
+                  </th>
+                  <th
+                    scope="col"
+                    aria-sort={matrixSort?.key === 'reportsTo' ? matrixSort.dir : undefined}
+                    className="sticky top-0 z-20 bg-slate-50 p-0 text-left whitespace-nowrap"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleMatrixSort('reportsTo', 'Reports To')}
+                      className="w-full min-h-[34px] px-3 py-2.5 text-left uppercase flex items-center gap-1 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-teal-600"
+                    >
+                      <span>Reports To</span>
+                      {renderSortIcon('reportsTo')}
+                    </button>
+                  </th>
+                  <th
+                    scope="col"
+                    aria-sort={matrixSort?.key === 'total' ? matrixSort.dir : undefined}
+                    className="sticky top-0 z-20 bg-slate-50 p-0 text-center whitespace-nowrap"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleMatrixSort('total', 'Total %')}
+                      className="w-full min-h-[34px] px-3 py-2.5 uppercase flex items-center justify-center gap-1 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-teal-600"
+                    >
+                      <span>Total %</span>
+                      {renderSortIcon('total')}
+                    </button>
+                  </th>
+                  {activeProjects.map(pr => {
+                    const pKey = `proj:${pr.id}` as const
+                    return (
+                      <th
+                        key={pr.id}
+                        scope="col"
+                        aria-sort={matrixSort?.key === pKey ? matrixSort.dir : undefined}
+                        className={`sticky top-0 z-20 p-0 text-center whitespace-nowrap min-w-[76px] ${
+                          scope === 'project' && selectedProjId === pr.id ? 'bg-sky-100 text-sky-900' : 'bg-slate-50'
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => toggleMatrixSort(pKey, `${pr.name} %`)}
+                          className="w-full min-h-[34px] px-2 py-2.5 uppercase flex items-center justify-center gap-1 hover:bg-slate-100/80 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-teal-600"
+                        >
+                          <span>{pr.name} %</span>
+                          {renderSortIcon(pKey)}
+                        </button>
+                      </th>
+                    )
+                  })}
+                  <th scope="col" className="sticky top-0 z-20 bg-slate-50 px-3 py-2.5 text-right whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredPeople.map(p => {
+                {sortedMatrixPeople.map(p => {
                   const editable = canEditType(p.person_type)
                   const pAllocs = allocByPerson.get(p.id)
                   const total = totalPctOf(p.id)
@@ -2197,7 +2351,7 @@ export default function OrgChartClient({
             </table>
           </div>
         </div>
-      )}
+      )})()}
 
       {/* Add / Edit Modal */}
       {modalPerson && (

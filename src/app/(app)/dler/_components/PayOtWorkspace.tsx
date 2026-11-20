@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   DollarSign, Clock, ChevronLeft, ChevronRight, Search, Copy, RefreshCw,
   Save, Plus, CheckCircle2, AlertTriangle, X, DownloadCloud, Zap, Pencil,
-  Download, Upload, FileSpreadsheet
+  Download, Upload, FileSpreadsheet, ArrowUpDown, ArrowUp, ArrowDown
 } from 'lucide-react'
 import {
   calcPersonDayCost,
@@ -32,6 +32,11 @@ import {
   updatePersonEmpNo,
   updatePersonParentAndDept,
 } from '../actions'
+
+const PAY_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+
+type PaySortKey = 'id' | 'name' | 'dept' | 'sup' | 'project' | 'gross' | 'days' | 'rmDay' | 'rmHr' | 'remarks'
+type OtSortKey = 'id' | 'name' | 'totalOtH' | 'totalOtRm'
 
 type PayDraft = {
   gross_pay: string
@@ -149,6 +154,9 @@ export default function PayOtWorkspace({
     parsing: boolean
     error: string | null
   } | null>(null)
+  const [paySort, setPaySort] = useState<{ key: PaySortKey; dir: 'ascending' | 'descending' } | null>(null)
+  const [otSort, setOtSort] = useState<{ key: OtSortKey; dir: 'ascending' | 'descending' } | null>(null)
+  const [sortStatus, setSortStatus] = useState('')
 
   const isWorker = personType === 'WORKER'
   const basePath = isWorker ? '/dler/workers' : '/dler/staff'
@@ -277,6 +285,125 @@ export default function PayOtWorkspace({
   const totalPayrollSum = useMemo(() => {
     return filteredPeople.reduce((s, p) => s + grossOfDraft(drafts[p.id]), 0)
   }, [filteredPeople, drafts])
+
+  function togglePaySort(key: PaySortKey, label: string) {
+    const nextDir: 'ascending' | 'descending' =
+      paySort?.key === key ? (paySort.dir === 'ascending' ? 'descending' : 'ascending') : 'ascending'
+    setPaySort({ key, dir: nextDir })
+    setSortStatus(`Sorted Monthly Pay by ${label}, ${nextDir}, ${filteredPeople.length} rows`)
+  }
+
+  function toggleOtSort(key: OtSortKey, label: string) {
+    const nextDir: 'ascending' | 'descending' =
+      otSort?.key === key ? (otSort.dir === 'ascending' ? 'descending' : 'ascending') : 'ascending'
+    setOtSort({ key, dir: nextDir })
+    setSortStatus(`Sorted Daily OT by ${label}, ${nextDir}, ${filteredPeople.length} rows`)
+  }
+
+  function renderOtIcon(key: OtSortKey) {
+    if (otSort?.key !== key) return <ArrowUpDown className="w-3 h-3 text-slate-400 shrink-0" aria-hidden="true" />
+    return otSort.dir === 'ascending' ? (
+      <ArrowUp className="w-3 h-3 text-indigo-600 shrink-0" aria-hidden="true" />
+    ) : (
+      <ArrowDown className="w-3 h-3 text-indigo-600 shrink-0" aria-hidden="true" />
+    )
+  }
+
+  const sortedPayPeople = useMemo(() => {
+    if (!paySort) return filteredPeople
+    const factor = paySort.dir === 'ascending' ? 1 : -1
+    const meta = new Map<
+      number,
+      { dept: string; sup: string; project: string; gross: number; days: number; rmDay: number; rmHr: number; remarks: string }
+    >()
+    for (const p of filteredPeople) {
+      const d = drafts[p.id]
+      const gross = grossOfDraft(d)
+      const wDays = Number(d?.working_days_override) > 0 ? Number(d?.working_days_override) : monthWorkingDays
+      const dayCost = calcPersonDayCost({
+        grossPay: gross,
+        workingDays: wDays,
+        standardHours: Number(settings.standard_hours_per_day) || 8,
+        hourlyRateOverride: d?.hourly_rate_override ? Number(d.hourly_rate_override) : null,
+        otHours: 0,
+        dayType: 'normal',
+        isAbsent: false,
+        multipliers: { normal: 1.5, sunday: 2.0, holiday: 3.0 },
+        includeBaseOnSundayHoliday: false,
+      })
+      const allocList = allocsByPerson.get(p.id) ?? []
+      meta.set(p.id, {
+        dept: p.department_id ? deptMap.get(p.department_id) ?? '' : '',
+        sup: p.reports_to_id ? staffNameMap.get(p.reports_to_id) ?? '' : '',
+        project: allocList.map(a => `${a.name} ${a.pct}%`).join(', '),
+        gross,
+        days: wDays,
+        rmDay: dayCost.baseCost,
+        rmHr: dayCost.hourlyRate,
+        remarks: d?.remarks ?? '',
+      })
+    }
+    return [...filteredPeople].sort((a, b) => {
+      const ma = meta.get(a.id)!
+      const mb = meta.get(b.id)!
+      let cmp = 0
+      if (paySort.key === 'id') cmp = PAY_COLLATOR.compare(a.emp_no, b.emp_no)
+      else if (paySort.key === 'name') cmp = PAY_COLLATOR.compare(a.name, b.name)
+      else if (paySort.key === 'dept') cmp = PAY_COLLATOR.compare(ma.dept, mb.dept)
+      else if (paySort.key === 'sup') cmp = PAY_COLLATOR.compare(ma.sup, mb.sup)
+      else if (paySort.key === 'project') cmp = PAY_COLLATOR.compare(ma.project, mb.project)
+      else if (paySort.key === 'gross') cmp = ma.gross - mb.gross
+      else if (paySort.key === 'days') cmp = ma.days - mb.days
+      else if (paySort.key === 'rmDay') cmp = ma.rmDay - mb.rmDay
+      else if (paySort.key === 'rmHr') cmp = ma.rmHr - mb.rmHr
+      else if (paySort.key === 'remarks') cmp = PAY_COLLATOR.compare(ma.remarks, mb.remarks)
+      if (cmp !== 0) return cmp * factor
+      return PAY_COLLATOR.compare(a.emp_no, b.emp_no)
+    })
+  }, [filteredPeople, paySort, drafts, monthWorkingDays, settings.standard_hours_per_day, allocsByPerson, deptMap, staffNameMap])
+
+  const sortedOtRows = useMemo(() => {
+    const computed = filteredPeople.map(p => {
+      const d = drafts[p.id]
+      const gross = grossOfDraft(d)
+      const wDays = Number(d?.working_days_override) > 0 ? Number(d?.working_days_override) : monthWorkingDays
+      let totalOtHours = 0
+      let totalOtRm = 0
+      for (const dt of monthDates) {
+        const row = otMap.get(`${p.id}:${dt}`)
+        const otH = Number(row?.ot_hours ?? 0)
+        totalOtHours += otH
+        const c = calcPersonDayCost({
+          grossPay: gross,
+          workingDays: wDays,
+          standardHours: Number(settings.standard_hours_per_day) || 8,
+          hourlyRateOverride: d?.hourly_rate_override ? Number(d.hourly_rate_override) : null,
+          otHours: otH,
+          dayType: row?.day_type ?? getDayType(dt, holidaySet),
+          isAbsent: row?.is_absent ?? false,
+          multipliers: {
+            normal: Number(settings.normal_ot_multiplier) || 1.5,
+            sunday: Number(settings.sunday_ot_multiplier) || 2.0,
+            holiday: Number(settings.holiday_ot_multiplier) || 3.0,
+          },
+          includeBaseOnSundayHoliday: settings.include_base_on_sunday_holiday,
+        })
+        totalOtRm += c.otCost
+      }
+      return { person: p, totalOtHours, totalOtRm }
+    })
+    if (!otSort) return computed
+    const factor = otSort.dir === 'ascending' ? 1 : -1
+    return [...computed].sort((a, b) => {
+      let cmp = 0
+      if (otSort.key === 'id') cmp = PAY_COLLATOR.compare(a.person.emp_no, b.person.emp_no)
+      else if (otSort.key === 'name') cmp = PAY_COLLATOR.compare(a.person.name, b.person.name)
+      else if (otSort.key === 'totalOtH') cmp = a.totalOtHours - b.totalOtHours
+      else if (otSort.key === 'totalOtRm') cmp = a.totalOtRm - b.totalOtRm
+      if (cmp !== 0) return cmp * factor
+      return PAY_COLLATOR.compare(a.person.emp_no, b.person.emp_no)
+    })
+  }, [filteredPeople, otSort, drafts, monthWorkingDays, monthDates, otMap, settings, holidaySet])
 
   function goMonth(nextMonth: string) {
     router.push(`${basePath}?month=${nextMonth}`)
@@ -858,26 +985,164 @@ export default function PayOtWorkspace({
       </div>
 
       {/* TAB 1: Monthly Pay Table */}
-      {tab === 'pay' && (
+      {tab === 'pay' && (() => {
+        const renderPayIcon = (key: PaySortKey) => {
+          if (paySort?.key !== key) return <ArrowUpDown className="w-3 h-3 opacity-35 shrink-0" aria-hidden="true" />
+          return paySort.dir === 'ascending'
+            ? <ArrowUp className="w-3 h-3 text-teal-700 shrink-0" aria-hidden="true" />
+            : <ArrowDown className="w-3 h-3 text-teal-700 shrink-0" aria-hidden="true" />
+        }
+        return (
         <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+          <div role="status" className="sr-only">{sortStatus}</div>
           <div className="overflow-auto max-h-[68vh]">
             <table className="w-full min-w-[1260px] text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase text-[10px] font-bold">
-                  <th className="sticky left-0 top-0 z-30 bg-slate-50 px-2.5 py-2.5 text-left whitespace-nowrap w-[108px] min-w-[108px] max-w-[108px] border-r border-slate-200">ID</th>
-                  <th className="sticky top-0 z-20 bg-slate-50 px-2.5 py-2.5 text-left whitespace-nowrap w-[210px] min-w-[210px]">Name</th>
-                  <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-left whitespace-nowrap w-[155px] min-w-[155px] max-w-[155px]">Department</th>
-                  <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-left whitespace-nowrap w-[170px] min-w-[170px] max-w-[170px]">Supervisor</th>
-                  <th className="sticky top-0 z-20 bg-slate-50 px-2.5 py-2.5 text-left whitespace-nowrap min-w-[170px] max-w-[220px]">Project %</th>
-                  <th className="sticky top-0 z-20 bg-emerald-50 px-3 py-2.5 text-right whitespace-nowrap text-emerald-800 min-w-[130px]">Gross Pay (RM)</th>
-                  <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-right whitespace-nowrap min-w-[72px]">Days</th>
-                  <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-right whitespace-nowrap min-w-[82px]">RM/Day</th>
-                  <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-right whitespace-nowrap min-w-[76px]">RM/Hr</th>
-                  <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-left whitespace-nowrap min-w-[140px]">Remarks</th>
+                  <th
+                    scope="col"
+                    aria-sort={paySort?.key === 'id' ? paySort.dir : undefined}
+                    className="sticky left-0 top-0 z-30 bg-slate-50 p-0 text-left whitespace-nowrap w-[108px] min-w-[108px] max-w-[108px] border-r border-slate-200"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => togglePaySort('id', 'ID')}
+                      className="w-full min-h-[34px] px-2.5 py-2.5 uppercase flex items-center gap-1 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-teal-600"
+                    >
+                      <span>ID</span>
+                      {renderPayIcon('id')}
+                    </button>
+                  </th>
+                  <th
+                    scope="col"
+                    aria-sort={paySort?.key === 'name' ? paySort.dir : undefined}
+                    className="sticky top-0 z-20 bg-slate-50 p-0 text-left whitespace-nowrap w-[210px] min-w-[210px]"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => togglePaySort('name', 'Name')}
+                      className="w-full min-h-[34px] px-2.5 py-2.5 uppercase flex items-center gap-1 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-teal-600"
+                    >
+                      <span>Name</span>
+                      {renderPayIcon('name')}
+                    </button>
+                  </th>
+                  <th
+                    scope="col"
+                    aria-sort={paySort?.key === 'dept' ? paySort.dir : undefined}
+                    className="sticky top-0 z-20 bg-slate-50 p-0 text-left whitespace-nowrap w-[155px] min-w-[155px] max-w-[155px]"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => togglePaySort('dept', 'Department')}
+                      className="w-full min-h-[34px] px-2.5 py-2.5 uppercase flex items-center gap-1 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-teal-600"
+                    >
+                      <span>Department</span>
+                      {renderPayIcon('dept')}
+                    </button>
+                  </th>
+                  <th
+                    scope="col"
+                    aria-sort={paySort?.key === 'sup' ? paySort.dir : undefined}
+                    className="sticky top-0 z-20 bg-slate-50 p-0 text-left whitespace-nowrap w-[170px] min-w-[170px] max-w-[170px]"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => togglePaySort('sup', 'Supervisor')}
+                      className="w-full min-h-[34px] px-2.5 py-2.5 uppercase flex items-center gap-1 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-teal-600"
+                    >
+                      <span>Supervisor</span>
+                      {renderPayIcon('sup')}
+                    </button>
+                  </th>
+                  <th
+                    scope="col"
+                    aria-sort={paySort?.key === 'project' ? paySort.dir : undefined}
+                    className="sticky top-0 z-20 bg-slate-50 p-0 text-left whitespace-nowrap min-w-[170px] max-w-[220px]"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => togglePaySort('project', 'Project %')}
+                      className="w-full min-h-[34px] px-2.5 py-2.5 uppercase flex items-center gap-1 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-teal-600"
+                    >
+                      <span>Project %</span>
+                      {renderPayIcon('project')}
+                    </button>
+                  </th>
+                  <th
+                    scope="col"
+                    aria-sort={paySort?.key === 'gross' ? paySort.dir : undefined}
+                    className="sticky top-0 z-20 bg-emerald-50 p-0 text-right whitespace-nowrap text-emerald-800 min-w-[130px]"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => togglePaySort('gross', 'Gross Pay (RM)')}
+                      className="w-full min-h-[34px] px-3 py-2.5 uppercase flex items-center justify-end gap-1 hover:bg-emerald-100/70 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-emerald-700"
+                    >
+                      {renderPayIcon('gross')}
+                      <span>Gross Pay (RM)</span>
+                    </button>
+                  </th>
+                  <th
+                    scope="col"
+                    aria-sort={paySort?.key === 'days' ? paySort.dir : undefined}
+                    className="sticky top-0 z-20 bg-slate-50 p-0 text-right whitespace-nowrap min-w-[72px]"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => togglePaySort('days', 'Days')}
+                      className="w-full min-h-[34px] px-2 py-2.5 uppercase flex items-center justify-end gap-1 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-teal-600"
+                    >
+                      {renderPayIcon('days')}
+                      <span>Days</span>
+                    </button>
+                  </th>
+                  <th
+                    scope="col"
+                    aria-sort={paySort?.key === 'rmDay' ? paySort.dir : undefined}
+                    className="sticky top-0 z-20 bg-slate-50 p-0 text-right whitespace-nowrap min-w-[82px]"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => togglePaySort('rmDay', 'RM/Day')}
+                      className="w-full min-h-[34px] px-2 py-2.5 uppercase flex items-center justify-end gap-1 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-teal-600"
+                    >
+                      {renderPayIcon('rmDay')}
+                      <span>RM/Day</span>
+                    </button>
+                  </th>
+                  <th
+                    scope="col"
+                    aria-sort={paySort?.key === 'rmHr' ? paySort.dir : undefined}
+                    className="sticky top-0 z-20 bg-slate-50 p-0 text-right whitespace-nowrap min-w-[76px]"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => togglePaySort('rmHr', 'RM/Hr')}
+                      className="w-full min-h-[34px] px-2 py-2.5 uppercase flex items-center justify-end gap-1 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-teal-600"
+                    >
+                      {renderPayIcon('rmHr')}
+                      <span>RM/Hr</span>
+                    </button>
+                  </th>
+                  <th
+                    scope="col"
+                    aria-sort={paySort?.key === 'remarks' ? paySort.dir : undefined}
+                    className="sticky top-0 z-20 bg-slate-50 p-0 text-left whitespace-nowrap min-w-[140px]"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => togglePaySort('remarks', 'Remarks')}
+                      className="w-full min-h-[34px] px-2 py-2.5 uppercase flex items-center gap-1 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-teal-600"
+                    >
+                      <span>Remarks</span>
+                      {renderPayIcon('remarks')}
+                    </button>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredPeople.map(p => {
+                {sortedPayPeople.map(p => {
                   const d = drafts[p.id] ?? {
                     gross_pay: '',
                     working_days_override: '',
@@ -996,12 +1261,17 @@ export default function PayOtWorkspace({
                       </td>
                       <td className="px-2 py-1.5 text-right bg-emerald-50/30 min-w-[130px]">
                         <input
-                          type="number"
-                          step="0.01"
-                          min={0}
+                          type="text"
+                          inputMode="decimal"
+                          autoComplete="off"
                           value={d.gross_pay}
                           placeholder="0.00"
-                          onChange={e => updateDraft(p.id, 'gross_pay', e.target.value)}
+                          onChange={e => {
+                            const v = e.target.value
+                            if (v === '' || /^\d*\.?\d*$/.test(v)) {
+                              updateDraft(p.id, 'gross_pay', v)
+                            }
+                          }}
                           className="w-28 text-right border border-emerald-200 focus:border-emerald-500 bg-white rounded px-2 py-1 font-semibold text-emerald-900 tabular-nums focus:outline-none"
                         />
                       </td>
@@ -1034,7 +1304,7 @@ export default function PayOtWorkspace({
                     </tr>
                   )
                 })}
-                {filteredPeople.length === 0 && (
+                {sortedPayPeople.length === 0 && (
                   <tr>
                     <td colSpan={10} className="text-center py-8 text-slate-400">No records found.</td>
                   </tr>
@@ -1043,11 +1313,15 @@ export default function PayOtWorkspace({
             </table>
           </div>
         </div>
-      )}
+        )
+      })()}
 
       {/* TAB 2: Daily OT & Attendance Grid */}
       {tab === 'ot' && (
         <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
+          <div role="status" className="sr-only">
+            {sortStatus}
+          </div>
           <div className="px-4 py-2.5 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
             <span>
               Type daily OT hours per cell (saves automatically on blur).{' '}
@@ -1059,9 +1333,35 @@ export default function PayOtWorkspace({
             <table className="text-[11px] border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
-                  <th className="sticky left-0 top-0 z-30 bg-slate-50 px-2 py-2 text-left whitespace-nowrap w-[96px] min-w-[96px]">ID</th>
-                  <th className="sticky left-[96px] top-0 z-30 bg-slate-50 px-2.5 py-2 text-left whitespace-nowrap min-w-[165px] border-r border-slate-200">Name</th>
-                  <th className="sticky top-0 z-20 bg-slate-50 px-1.5 py-2 text-center whitespace-nowrap">Fill</th>
+                  <th
+                    scope="col"
+                    aria-sort={otSort?.key === 'id' ? otSort.dir : undefined}
+                    className="sticky left-0 top-0 z-30 bg-slate-50 p-0 text-left whitespace-nowrap w-[96px] min-w-[96px]"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleOtSort('id', 'ID')}
+                      className="w-full min-h-[30px] px-2 py-2 flex items-center justify-between gap-1 text-left hover:bg-slate-100/80 focus-visible:outline-2 focus-visible:outline-indigo-600 focus-visible:-outline-offset-2"
+                    >
+                      <span>ID</span>
+                      {renderOtIcon('id')}
+                    </button>
+                  </th>
+                  <th
+                    scope="col"
+                    aria-sort={otSort?.key === 'name' ? otSort.dir : undefined}
+                    className="sticky left-[96px] top-0 z-30 bg-slate-50 p-0 text-left whitespace-nowrap min-w-[165px] border-r border-slate-200"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleOtSort('name', 'Name')}
+                      className="w-full min-h-[30px] px-2.5 py-2 flex items-center justify-between gap-1 text-left hover:bg-slate-100/80 focus-visible:outline-2 focus-visible:outline-indigo-600 focus-visible:-outline-offset-2"
+                    >
+                      <span>Name</span>
+                      {renderOtIcon('name')}
+                    </button>
+                  </th>
+                  <th scope="col" className="sticky top-0 z-20 bg-slate-50 px-1.5 py-2 text-center whitespace-nowrap">Fill</th>
                   {monthDates.map(dt => {
                     const dType = getDayType(dt, holidaySet)
                     const bg =
@@ -1071,44 +1371,43 @@ export default function PayOtWorkspace({
                         ? 'bg-amber-100 text-amber-800'
                         : 'bg-slate-50 text-slate-600'
                     return (
-                      <th key={dt} className={`sticky top-0 z-20 px-1 py-2 text-center min-w-[44px] ${bg}`} title={dt}>
+                      <th scope="col" key={dt} className={`sticky top-0 z-20 px-1 py-2 text-center min-w-[44px] ${bg}`} title={dt}>
                         {dt.slice(8, 10)}
                       </th>
                     )
                   })}
-                  <th className="sticky top-0 z-20 bg-indigo-50 px-2.5 py-2 text-right whitespace-nowrap text-indigo-800">Total OT(h)</th>
-                  <th className="sticky top-0 z-20 bg-amber-50 px-2.5 py-2 text-right whitespace-nowrap text-amber-900">OT RM</th>
+                  <th
+                    scope="col"
+                    aria-sort={otSort?.key === 'totalOtH' ? otSort.dir : undefined}
+                    className="sticky top-0 z-20 bg-indigo-50 p-0 text-right whitespace-nowrap text-indigo-800"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleOtSort('totalOtH', 'Total OT(h)')}
+                      className="w-full min-h-[30px] px-2.5 py-2 flex items-center justify-end gap-1 text-right hover:bg-indigo-100/70 focus-visible:outline-2 focus-visible:outline-indigo-600 focus-visible:-outline-offset-2"
+                    >
+                      <span>Total OT(h)</span>
+                      {renderOtIcon('totalOtH')}
+                    </button>
+                  </th>
+                  <th
+                    scope="col"
+                    aria-sort={otSort?.key === 'totalOtRm' ? otSort.dir : undefined}
+                    className="sticky top-0 z-20 bg-amber-50 p-0 text-right whitespace-nowrap text-amber-900"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleOtSort('totalOtRm', 'OT RM')}
+                      className="w-full min-h-[30px] px-2.5 py-2 flex items-center justify-end gap-1 text-right hover:bg-amber-100/70 focus-visible:outline-2 focus-visible:outline-indigo-600 focus-visible:-outline-offset-2"
+                    >
+                      <span>OT RM</span>
+                      {renderOtIcon('totalOtRm')}
+                    </button>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredPeople.map(p => {
-                  const d = drafts[p.id]
-                  const gross = grossOfDraft(d)
-                  const wDays = Number(d?.working_days_override) > 0 ? Number(d?.working_days_override) : monthWorkingDays
-                  let totalOtHours = 0
-                  let totalOtRm = 0
-                  for (const dt of monthDates) {
-                    const row = otMap.get(`${p.id}:${dt}`)
-                    const otH = Number(row?.ot_hours ?? 0)
-                    totalOtHours += otH
-                    const c = calcPersonDayCost({
-                      grossPay: gross,
-                      workingDays: wDays,
-                      standardHours: Number(settings.standard_hours_per_day) || 8,
-                      hourlyRateOverride: d?.hourly_rate_override ? Number(d.hourly_rate_override) : null,
-                      otHours: otH,
-                      dayType: row?.day_type ?? getDayType(dt, holidaySet),
-                      isAbsent: row?.is_absent ?? false,
-                      multipliers: {
-                        normal: Number(settings.normal_ot_multiplier) || 1.5,
-                        sunday: Number(settings.sunday_ot_multiplier) || 2.0,
-                        holiday: Number(settings.holiday_ot_multiplier) || 3.0,
-                      },
-                      includeBaseOnSundayHoliday: settings.include_base_on_sunday_holiday,
-                    })
-                    totalOtRm += c.otCost
-                  }
-
+                {sortedOtRows.map(({ person: p, totalOtHours, totalOtRm }) => {
                   return (
                     <tr key={p.id} className="hover:bg-slate-50/70">
                       <td className="sticky left-0 z-10 bg-white px-1.5 py-1 whitespace-nowrap w-[96px] min-w-[96px]">

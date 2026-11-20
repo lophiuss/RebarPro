@@ -640,12 +640,17 @@ export default function M3InputClient({
                       <td className="px-4 py-2 text-slate-500">{deptName}</td>
                       <td className="px-4 py-2 text-right">
                         <input
-                          type="number"
-                          step="any"
-                          min={0}
+                          type="text"
+                          inputMode="decimal"
+                          autoComplete="off"
                           value={d.val}
                           placeholder="0.0"
-                          onChange={e => setDailyDrafts(prev => ({ ...prev, [key]: { ...d, val: e.target.value } }))}
+                          onChange={e => {
+                            const v = e.target.value
+                            if (v === '' || /^\d*\.?\d*$/.test(v)) {
+                              setDailyDrafts(prev => ({ ...prev, [key]: { ...d, val: v } }))
+                            }
+                          }}
                           className={`w-28 text-right border rounded-lg px-2.5 py-1.5 font-semibold tabular-nums ${
                             existing?.source === 'erp_sync' ? 'border-sky-300 bg-sky-50/40' : 'border-slate-300'
                           }`}
@@ -678,12 +683,17 @@ export default function M3InputClient({
                       <td className="px-4 py-2 text-slate-500">Department Direct</td>
                       <td className="px-4 py-2 text-right">
                         <input
-                          type="number"
-                          step="any"
-                          min={0}
+                          type="text"
+                          inputMode="decimal"
+                          autoComplete="off"
                           value={d.val}
                           placeholder="0.0"
-                          onChange={e => setDailyDrafts(prev => ({ ...prev, [key]: { ...d, val: e.target.value } }))}
+                          onChange={e => {
+                            const v = e.target.value
+                            if (v === '' || /^\d*\.?\d*$/.test(v)) {
+                              setDailyDrafts(prev => ({ ...prev, [key]: { ...d, val: v } }))
+                            }
+                          }}
                           className="w-28 text-right border border-slate-300 rounded-lg px-2.5 py-1.5 font-semibold tabular-nums"
                         />
                       </td>
@@ -815,9 +825,9 @@ export default function M3InputClient({
                                 <td key={dt} className="p-0.5 text-center">
                                   <input
                                     key={`m3-${p.id}-${dt}-${v}-${existing?.source ?? ''}`}
-                                    type="number"
-                                    step="any"
-                                    min={0}
+                                    type="text"
+                                    inputMode="decimal"
+                                    autoComplete="off"
                                     defaultValue={v}
                                     title={
                                       existing?.source === 'erp_sync'
@@ -826,8 +836,17 @@ export default function M3InputClient({
                                         ? 'Manual entry'
                                         : undefined
                                     }
+                                    onChange={e => {
+                                      const cleaned = e.currentTarget.value.replace(/[^0-9.]/g, '')
+                                      if (cleaned !== e.currentTarget.value) e.currentTarget.value = cleaned
+                                    }}
                                     onBlur={e => {
-                                      const next = Number(e.target.value) || 0
+                                      const raw = e.currentTarget.value.trim()
+                                      if (raw !== '' && !/^\d*(\.\d+)?$/.test(raw)) {
+                                        e.currentTarget.value = v
+                                        return
+                                      }
+                                      const next = raw === '' ? 0 : Number(raw)
                                       const prev = Number(existing?.m3_volume ?? 0)
                                       if (next !== prev) saveMatrixCell('project', p.id, dt, next)
                                     }}
@@ -859,12 +878,21 @@ export default function M3InputClient({
                               <td key={dt} className="p-0.5 text-center">
                                 <input
                                   key={`m3-dept-${g.deptId}-${dt}-${v}-${existing?.source ?? ''}`}
-                                  type="number"
-                                  step="any"
-                                  min={0}
+                                  type="text"
+                                  inputMode="decimal"
+                                  autoComplete="off"
                                   defaultValue={v}
+                                  onChange={e => {
+                                    const cleaned = e.currentTarget.value.replace(/[^0-9.]/g, '')
+                                    if (cleaned !== e.currentTarget.value) e.currentTarget.value = cleaned
+                                  }}
                                   onBlur={e => {
-                                    const next = Number(e.target.value) || 0
+                                    const raw = e.currentTarget.value.trim()
+                                    if (raw !== '' && !/^\d*(\.\d+)?$/.test(raw)) {
+                                      e.currentTarget.value = v
+                                      return
+                                    }
+                                    const next = raw === '' ? 0 : Number(raw)
                                     const prev = Number(existing?.m3_volume ?? 0)
                                     if (next !== prev) saveMatrixCell('department', g.deptId!, dt, next)
                                   }}

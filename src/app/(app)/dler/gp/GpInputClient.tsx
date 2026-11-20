@@ -255,11 +255,17 @@ export default function GpInputClient({
                       <td className="px-4 py-1.5 pl-6 text-slate-700">{f.name} (own)</td>
                       <td className="px-4 py-1.5 text-right">
                         <input
-                          type="number"
-                          step="100"
+                          type="text"
+                          inputMode="decimal"
+                          autoComplete="off"
                           value={drafts.fac[f.id] ?? ''}
                           placeholder="0"
-                          onChange={e => setDrafts(s => ({ ...s, fac: { ...s.fac, [f.id]: e.target.value } }))}
+                          onChange={e => {
+                            const v = e.target.value
+                            if (v === '' || v === '-' || /^-?\d*\.?\d*$/.test(v)) {
+                              setDrafts(s => ({ ...s, fac: { ...s.fac, [f.id]: v } }))
+                            }
+                          }}
                           className="w-36 text-right border border-slate-300 rounded-lg px-2.5 py-1.5 tabular-nums font-semibold"
                         />
                       </td>
@@ -283,11 +289,17 @@ export default function GpInputClient({
                             <td className="px-4 py-1.5 pl-12 text-slate-600">{d.name} (own)</td>
                             <td className="px-4 py-1.5 text-right">
                               <input
-                                type="number"
-                                step="100"
+                                type="text"
+                                inputMode="decimal"
+                                autoComplete="off"
                                 value={drafts.dept[d.id] ?? ''}
                                 placeholder="0"
-                                onChange={e => setDrafts(s => ({ ...s, dept: { ...s.dept, [d.id]: e.target.value } }))}
+                                onChange={e => {
+                                  const v = e.target.value
+                                  if (v === '' || v === '-' || /^-?\d*\.?\d*$/.test(v)) {
+                                    setDrafts(s => ({ ...s, dept: { ...s.dept, [d.id]: v } }))
+                                  }
+                                }}
                                 className="w-36 text-right border border-slate-300 rounded-lg px-2.5 py-1.5 tabular-nums"
                               />
                             </td>
@@ -300,11 +312,17 @@ export default function GpInputClient({
                               </td>
                               <td className="px-4 py-1.5 text-right">
                                 <input
-                                  type="number"
-                                  step="100"
+                                  type="text"
+                                  inputMode="decimal"
+                                  autoComplete="off"
                                   value={drafts.proj[p.id] ?? ''}
                                   placeholder="0"
-                                  onChange={e => setDrafts(s => ({ ...s, proj: { ...s.proj, [p.id]: e.target.value } }))}
+                                  onChange={e => {
+                                    const v = e.target.value
+                                    if (v === '' || v === '-' || /^-?\d*\.?\d*$/.test(v)) {
+                                      setDrafts(s => ({ ...s, proj: { ...s.proj, [p.id]: v } }))
+                                    }
+                                  }}
                                   className="w-36 text-right border border-slate-300 rounded-lg px-2.5 py-1.5 tabular-nums"
                                 />
                               </td>
@@ -319,11 +337,17 @@ export default function GpInputClient({
                         <td className="px-4 py-1.5 pl-10 font-medium text-slate-900">{p.name} (No Dept)</td>
                         <td className="px-4 py-1.5 text-right">
                           <input
-                            type="number"
-                            step="100"
+                            type="text"
+                            inputMode="decimal"
+                            autoComplete="off"
                             value={drafts.proj[p.id] ?? ''}
                             placeholder="0"
-                            onChange={e => setDrafts(s => ({ ...s, proj: { ...s.proj, [p.id]: e.target.value } }))}
+                            onChange={e => {
+                              const v = e.target.value
+                              if (v === '' || v === '-' || /^-?\d*\.?\d*$/.test(v)) {
+                                setDrafts(s => ({ ...s, proj: { ...s.proj, [p.id]: v } }))
+                              }
+                            }}
                             className="w-36 text-right border border-slate-300 rounded-lg px-2.5 py-1.5 tabular-nums"
                           />
                         </td>
