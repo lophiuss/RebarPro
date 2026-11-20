@@ -4,7 +4,7 @@ import React, { useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   DollarSign, Clock, ChevronLeft, ChevronRight, Search, Copy, RefreshCw,
-  Save, Plus, CheckCircle2, AlertTriangle, X, DownloadCloud, Zap
+  Save, Plus, CheckCircle2, AlertTriangle, X, DownloadCloud, Zap, Pencil
 } from 'lucide-react'
 import {
   calcPersonDayCost,
@@ -27,7 +27,9 @@ import {
   saveMonthlyPayBatch,
   syncWorkerOtFromPlantpro,
   syncWorkersFromPlantpro,
+  updatePersonDetails,
   updatePersonEmpNo,
+  updatePersonParentAndDept,
 } from '../actions'
 
 type PayDraft = {
@@ -71,7 +73,7 @@ export default function PayOtWorkspace({
   departments: DlerDepartment[]
   projects: DlerProject[]
   people: DlerPerson[]
-  allStaff: { id: number; name: string }[]
+  allStaff: { id: number; name: string; emp_no?: string }[]
   allocations: DlerAllocation[]
   monthlyPays: DlerMonthlyPay[]
   dailyOts: DlerDailyOt[]
@@ -85,6 +87,17 @@ export default function PayOtWorkspace({
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null)
   const [showAddStaff, setShowAddStaff] = useState(false)
   const [newStaff, setNewStaff] = useState({ emp_no: '', name: '', designation: '', department_id: '', reports_to_id: '' })
+  const [editingPerson, setEditingPerson] = useState<{
+    id: number
+    emp_no: string
+    name: string
+    designation: string
+    department_id: string
+    reports_to_id: string
+    status: 'Active' | 'Inactive' | 'On Leave'
+    remarks: string
+  } | null>(null)
+  const [editError, setEditError] = useState<string | null>(null)
 
   const isWorker = personType === 'WORKER'
   const basePath = isWorker ? '/dler/workers' : '/dler/staff'
@@ -96,9 +109,36 @@ export default function PayOtWorkspace({
     [month, settings, holidaySet]
   )
 
-  const deptMap = useMemo(() => new Map(departments.map(d => [d.id, d.name])), [departments])
   const projMap = useMemo(() => new Map(projects.map(p => [p.id, p.name])), [projects])
-  const staffNameMap = useMemo(() => new Map(allStaff.map(s => [s.id, s.name])), [allStaff])
+
+  const staffChildrenByParent = useMemo(() => {
+    const m = new Map<number, number[]>()
+    if (!isWorker) {
+      for (const p of people) {
+        if (p.reports_to_id != null) {
+          const arr = m.get(p.reports_to_id) ?? []
+          arr.push(p.id)
+          m.set(p.reports_to_id, arr)
+        }
+      }
+    }
+    return m
+  }, [isWorker, people])
+
+  function getBlockedSupervisorIds(personId: number): Set<number> {
+    const blocked = new Set<number>()
+    if (isWorker) return blocked
+    const stack = [personId]
+    while (stack.length > 0) {
+      const cur = stack.pop()!
+      if (blocked.has(cur)) continue
+      blocked.add(cur)
+      for (const cid of staffChildrenByParent.get(cur) ?? []) {
+        stack.push(cid)
+      }
+    }
+    return blocked
+  }
 
   const allocsByPerson = useMemo(() => {
     const m = new Map<number, { name: string; pct: number }[]>()
@@ -221,6 +261,89 @@ export default function PayOtWorkspace({
       } catch (err: any) {
         el.value = person.emp_no
         setFeedback({ kind: 'err', text: err?.message ?? 'Failed to update ID' })
+      }
+    })
+  }
+
+  function handleAmendName(person: DlerPerson, el: HTMLInputElement) {
+    const nextVal = el.value.trim()
+    if (!nextVal) {
+      el.value = person.name
+      return
+    }
+    if (nextVal === person.name) {
+      el.value = person.name
+      return
+    }
+    setFeedback(null)
+    startTransition(async () => {
+      try {
+        await updatePersonDetails(person.id, { name: nextVal })
+        setFeedback({ kind: 'ok', text: `Updated name to ${nextVal}.` })
+        router.refresh()
+      } catch (err: any) {
+        el.value = person.name
+        setFeedback({ kind: 'err', text: err?.message ?? 'Failed to update name' })
+      }
+    })
+  }
+
+  function handleChangeDept(person: DlerPerson, val: string) {
+    const departmentId = val ? Number(val) : null
+    if ((person.department_id ?? null) === departmentId) return
+    runAction(
+      () => updatePersonParentAndDept(person.id, { department_id: departmentId }),
+      `Updated department for ${person.name}.`
+    )
+  }
+
+  function handleChangeSupervisor(person: DlerPerson, val: string) {
+    const reportsToId = val ? Number(val) : null
+    if ((person.reports_to_id ?? null) === reportsToId) return
+    runAction(
+      () => updatePersonParentAndDept(person.id, { reports_to_id: reportsToId }),
+      `Updated supervisor for ${person.name}.`
+    )
+  }
+
+  function openEditPerson(p: DlerPerson) {
+    setEditError(null)
+    setEditingPerson({
+      id: p.id,
+      emp_no: p.emp_no,
+      name: p.name,
+      designation: p.designation ?? '',
+      department_id: p.department_id != null ? String(p.department_id) : '',
+      reports_to_id: p.reports_to_id != null ? String(p.reports_to_id) : '',
+      status: p.status,
+      remarks: p.remarks ?? '',
+    })
+  }
+
+  function handleSaveEditPerson(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editingPerson) return
+    setEditError(null)
+    setFeedback(null)
+    const snap = editingPerson
+    startTransition(async () => {
+      try {
+        await updatePersonDetails(snap.id, {
+          emp_no: snap.emp_no,
+          name: snap.name,
+          designation: snap.designation || null,
+          department_id: snap.department_id ? Number(snap.department_id) : null,
+          reports_to_id: snap.reports_to_id ? Number(snap.reports_to_id) : null,
+          status: snap.status,
+          remarks: snap.remarks || null,
+        })
+        setEditingPerson(null)
+        setFeedback({ kind: 'ok', text: `Saved details for ${snap.name.trim()}.` })
+        router.refresh()
+      } catch (err: any) {
+        const msg = err?.message ?? 'Save failed'
+        setEditError(msg)
+        setFeedback({ kind: 'err', text: msg })
       }
     })
   }
@@ -446,8 +569,8 @@ export default function PayOtWorkspace({
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase text-[10px] font-bold">
                   <th className="sticky left-0 top-0 z-30 bg-slate-50 px-3 py-2.5 text-left whitespace-nowrap">ID</th>
-                  <th className="sticky top-0 z-20 bg-slate-50 px-3 py-2.5 text-left whitespace-nowrap min-w-[160px]">Name</th>
-                  <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-left whitespace-nowrap">Dept / Sup</th>
+                  <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-left whitespace-nowrap min-w-[190px]">Name</th>
+                  <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-left whitespace-nowrap min-w-[180px]">Dept / Sup</th>
                   <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-left whitespace-nowrap">Project %</th>
                   <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-right whitespace-nowrap">Basic Pay</th>
                   <th className="sticky top-0 z-20 bg-slate-50 px-2 py-2.5 text-right whitespace-nowrap">Allowance</th>
@@ -507,15 +630,70 @@ export default function PayOtWorkspace({
                           className="w-24 font-mono text-xs text-slate-700 border border-transparent hover:border-slate-300 focus:border-teal-500 focus:bg-white bg-transparent rounded px-1.5 py-0.5 focus:outline-none"
                         />
                       </td>
-                      <td className="px-3 py-1.5 font-semibold text-slate-900 whitespace-nowrap">
-                        <div>{p.name}</div>
-                        {p.designation && <div className="text-[10px] font-normal text-slate-400">{p.designation}</div>}
+                      <td className="px-2 py-1.5 whitespace-nowrap min-w-[190px]">
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="text"
+                            key={`name:${p.id}:${p.name}`}
+                            defaultValue={p.name}
+                            aria-label={`${isWorker ? 'Worker' : 'Staff'} name for ${p.name}`}
+                            title="Click to edit name (Enter or blur to save)"
+                            onBlur={e => handleAmendName(p, e.currentTarget)}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') {
+                                e.currentTarget.blur()
+                              } else if (e.key === 'Escape') {
+                                e.currentTarget.value = p.name
+                                e.currentTarget.blur()
+                              }
+                            }}
+                            className="w-40 font-semibold text-xs text-slate-900 border border-transparent hover:border-slate-300 focus:border-teal-500 focus:bg-white bg-transparent rounded px-1.5 py-0.5 focus:outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => openEditPerson(p)}
+                            title="Edit all details"
+                            className="p-1 rounded text-slate-400 hover:text-teal-700 hover:bg-teal-50 shrink-0"
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                        </div>
+                        {p.designation && <div className="px-1.5 text-[10px] font-normal text-slate-400">{p.designation}</div>}
                       </td>
-                      <td className="px-2 py-1.5 whitespace-nowrap text-slate-600">
-                        <div>{p.department_id ? deptMap.get(p.department_id) : '—'}</div>
-                        {p.reports_to_id && (
-                          <div className="text-[10px] text-slate-400">↳ {staffNameMap.get(p.reports_to_id) ?? ''}</div>
-                        )}
+                      <td className="px-2 py-1 whitespace-nowrap min-w-[180px]">
+                        {(() => {
+                          const blocked = getBlockedSupervisorIds(p.id)
+                          return (
+                            <div className="space-y-1">
+                              <select
+                                aria-label={`Department for ${p.name}`}
+                                value={p.department_id ?? ''}
+                                disabled={isPending}
+                                onChange={e => handleChangeDept(p, e.target.value)}
+                                className="w-full max-w-[170px] border border-slate-200 hover:border-slate-300 focus:border-teal-500 rounded px-1.5 py-0.5 text-[11px] text-slate-700 bg-white focus:outline-none"
+                              >
+                                <option value="">Unassigned</option>
+                                {departments.map(dep => (
+                                  <option key={dep.id} value={dep.id}>{dep.name}</option>
+                                ))}
+                              </select>
+                              <select
+                                aria-label={`Supervisor for ${p.name}`}
+                                value={p.reports_to_id ?? ''}
+                                disabled={isPending}
+                                onChange={e => handleChangeSupervisor(p, e.target.value)}
+                                className="w-full max-w-[170px] border border-slate-200 hover:border-slate-300 focus:border-teal-500 rounded px-1.5 py-0.5 text-[11px] text-slate-500 bg-white focus:outline-none"
+                              >
+                                <option value="">No Supervisor</option>
+                                {allStaff
+                                  .filter(s => !blocked.has(s.id))
+                                  .map(s => (
+                                    <option key={s.id} value={s.id}>↳ {s.name}</option>
+                                  ))}
+                              </select>
+                            </div>
+                          )
+                        })()}
                       </td>
                       <td className="px-2 py-1.5 max-w-[160px]">
                         <div className="flex flex-wrap gap-1">
@@ -628,7 +806,7 @@ export default function PayOtWorkspace({
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
                   <th className="sticky left-0 top-0 z-30 bg-slate-50 px-2 py-2 text-left whitespace-nowrap w-[96px] min-w-[96px]">ID</th>
-                  <th className="sticky left-[96px] top-0 z-30 bg-slate-50 px-2.5 py-2 text-left whitespace-nowrap min-w-[150px] border-r border-slate-200">Name</th>
+                  <th className="sticky left-[96px] top-0 z-30 bg-slate-50 px-2.5 py-2 text-left whitespace-nowrap min-w-[165px] border-r border-slate-200">Name</th>
                   <th className="sticky top-0 z-20 bg-slate-50 px-1.5 py-2 text-center whitespace-nowrap">Fill</th>
                   {monthDates.map(dt => {
                     const dType = getDayType(dt, holidaySet)
@@ -698,8 +876,18 @@ export default function PayOtWorkspace({
                           className="w-20 font-mono text-[11px] text-slate-700 border border-transparent hover:border-slate-300 focus:border-teal-500 focus:bg-white bg-transparent rounded px-1 py-0.5 focus:outline-none"
                         />
                       </td>
-                      <td className="sticky left-[96px] z-10 bg-white px-2.5 py-1 font-semibold text-slate-900 whitespace-nowrap border-r border-slate-200 truncate max-w-[150px]" title={p.name}>
-                        {p.name}
+                      <td className="sticky left-[96px] z-10 bg-white px-2 py-1 font-semibold text-slate-900 whitespace-nowrap border-r border-slate-200 min-w-[165px] max-w-[180px]" title={p.name}>
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="truncate">{p.name}</span>
+                          <button
+                            type="button"
+                            onClick={() => openEditPerson(p)}
+                            title="Edit ID, Name, Dept, Supervisor..."
+                            className="p-0.5 rounded text-slate-400 hover:text-teal-700 hover:bg-teal-50 shrink-0"
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                        </div>
                       </td>
                       <td className="px-1 py-1 text-center">
                         <button
@@ -788,6 +976,144 @@ export default function PayOtWorkspace({
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* Edit Worker / Staff Details Modal */}
+      {editingPerson && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <form
+            onSubmit={handleSaveEditPerson}
+            className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-5 space-y-3"
+          >
+            <div className="flex items-center justify-between border-b pb-3">
+              <h2 className="text-base font-bold text-slate-900">
+                Edit {isWorker ? 'Worker' : 'Staff'} Details
+              </h2>
+              <button type="button" onClick={() => setEditingPerson(null)}>
+                <X className="w-5 h-5 text-slate-400" />
+              </button>
+            </div>
+
+            {editError && (
+              <div className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-medium text-rose-800">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{editError}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <label className="block font-semibold text-slate-600">
+                {isWorker ? 'Worker' : 'Staff'} ID *
+                <input
+                  required
+                  value={editingPerson.emp_no}
+                  onChange={e => setEditingPerson({ ...editingPerson, emp_no: e.target.value })}
+                  className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-mono font-normal text-slate-900"
+                />
+              </label>
+
+              <label className="block font-semibold text-slate-600">
+                Name *
+                <input
+                  required
+                  value={editingPerson.name}
+                  onChange={e => setEditingPerson({ ...editingPerson, name: e.target.value })}
+                  className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-normal text-slate-900"
+                />
+              </label>
+
+              <label className="block font-semibold text-slate-600">
+                Designation
+                <input
+                  value={editingPerson.designation}
+                  onChange={e => setEditingPerson({ ...editingPerson, designation: e.target.value })}
+                  placeholder="e.g. Supervisor / Concretor"
+                  className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-normal text-slate-900"
+                />
+              </label>
+
+              <label className="block font-semibold text-slate-600">
+                Status
+                <select
+                  value={editingPerson.status}
+                  onChange={e =>
+                    setEditingPerson({
+                      ...editingPerson,
+                      status: e.target.value as 'Active' | 'Inactive' | 'On Leave',
+                    })
+                  }
+                  className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-normal text-slate-900"
+                >
+                  <option value="Active">Active</option>
+                  <option value="On Leave">On Leave</option>
+                  <option value="Inactive">Inactive</option>
+                </select>
+              </label>
+
+              <label className="block font-semibold text-slate-600">
+                Home Department
+                <select
+                  value={editingPerson.department_id}
+                  onChange={e => setEditingPerson({ ...editingPerson, department_id: e.target.value })}
+                  className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-normal text-slate-900"
+                >
+                  <option value="">Unassigned</option>
+                  {departments.map(d => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block font-semibold text-slate-600">
+                Supervisor / Reports To
+                <select
+                  value={editingPerson.reports_to_id}
+                  onChange={e => setEditingPerson({ ...editingPerson, reports_to_id: e.target.value })}
+                  className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm bg-white font-normal text-slate-900"
+                >
+                  <option value="">(None / Top level)</option>
+                  {(() => {
+                    const blocked = getBlockedSupervisorIds(editingPerson.id)
+                    return allStaff
+                      .filter(s => !blocked.has(s.id))
+                      .map(s => (
+                        <option key={s.id} value={s.id}>
+                          {s.emp_no ? `${s.name} (${s.emp_no})` : s.name}
+                        </option>
+                      ))
+                  })()}
+                </select>
+              </label>
+
+              <label className="block sm:col-span-2 font-semibold text-slate-600">
+                Remarks
+                <input
+                  value={editingPerson.remarks}
+                  onChange={e => setEditingPerson({ ...editingPerson, remarks: e.target.value })}
+                  placeholder="Optional remarks..."
+                  className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm font-normal text-slate-900"
+                />
+              </label>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t">
+              <button
+                type="button"
+                onClick={() => setEditingPerson(null)}
+                className="px-4 py-2 rounded-xl border text-xs font-semibold text-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isPending}
+                className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold disabled:opacity-50"
+              >
+                Save Changes
+              </button>
+            </div>
+          </form>
         </div>
       )}
 

@@ -65,7 +65,7 @@ export default async function DlerStaffPage(props: {
       departments={(deptsRes.data ?? []) as DlerDepartment[]}
       projects={(projsRes.data ?? []) as DlerProject[]}
       people={staffRows}
-      allStaff={staffRows.map(s => ({ id: s.id, name: s.name }))}
+      allStaff={staffRows.map(s => ({ id: s.id, name: s.name, emp_no: s.emp_no }))}
       allocations={(allocRes.data ?? []) as DlerAllocation[]}
       monthlyPays={(payRes.data ?? []) as DlerMonthlyPay[]}
       dailyOts={dailyOts}

@@ -306,6 +306,94 @@ export async function updatePersonEmpNo(personId: number, empNo: string) {
   revalidateDlerAll()
 }
 
+export async function updatePersonDetails(
+  personId: number,
+  patch: {
+    emp_no?: string
+    name?: string
+    designation?: string | null
+    department_id?: number | null
+    reports_to_id?: number | null
+    status?: 'Active' | 'Inactive' | 'On Leave'
+    remarks?: string | null
+  }
+) {
+  const { supabase, role } = await requireDlerRole(['admin', 'hr_worker', 'hr_staff'])
+
+  const { data: existing, error: exErr } = await supabase
+    .from('dler_people')
+    .select('id, person_type, emp_no')
+    .eq('id', personId)
+    .single()
+  if (exErr || !existing) throw new Error('Person not found')
+  if (role === 'hr_worker' && existing.person_type !== 'WORKER') throw new Error('Forbidden')
+  if (role === 'hr_staff' && existing.person_type !== 'STAFF') throw new Error('Forbidden')
+
+  const updatePayload: Record<string, unknown> = {}
+
+  if (patch.emp_no !== undefined) {
+    const trimmed = patch.emp_no.trim()
+    if (!trimmed) throw new Error('ID cannot be empty')
+    if (trimmed !== existing.emp_no) {
+      const { data: dupRows, error: dupErr } = await supabase
+        .from('dler_people')
+        .select('id, name')
+        .eq('person_type', existing.person_type)
+        .eq('emp_no', trimmed)
+        .neq('id', personId)
+      if (dupErr) throw dupErr
+      if (dupRows && dupRows.length > 0) {
+        throw new Error(`ID "${trimmed}" is already used by ${dupRows[0].name}`)
+      }
+      updatePayload.emp_no = trimmed
+    }
+  }
+
+  if (patch.name !== undefined) {
+    const trimmed = patch.name.trim()
+    if (!trimmed) throw new Error('Name cannot be empty')
+    updatePayload.name = trimmed
+  }
+
+  if (patch.designation !== undefined) {
+    updatePayload.designation = patch.designation?.trim() || null
+  }
+
+  if (patch.department_id !== undefined) {
+    updatePayload.department_id = patch.department_id
+  }
+
+  if (patch.reports_to_id !== undefined) {
+    if (patch.reports_to_id === personId) throw new Error('Cannot report to self')
+    if (patch.reports_to_id != null) {
+      const { data: allPeople, error: listErr } = await supabase
+        .from('dler_people')
+        .select('id, reports_to_id')
+      if (listErr) throw listErr
+      if (wouldCreateCycle((allPeople ?? []) as { id: number; reports_to_id: number | null }[], personId, patch.reports_to_id)) {
+        throw new Error('Circular reporting hierarchy is not allowed')
+      }
+    } else {
+      updatePayload.is_assistant = false
+    }
+    updatePayload.reports_to_id = patch.reports_to_id
+  }
+
+  if (patch.status !== undefined) {
+    updatePayload.status = patch.status
+  }
+
+  if (patch.remarks !== undefined) {
+    updatePayload.remarks = patch.remarks?.trim() || null
+  }
+
+  if (Object.keys(updatePayload).length === 0) return
+
+  const { error } = await supabase.from('dler_people').update(updatePayload).eq('id', personId)
+  if (error) throw error
+  revalidateDlerAll()
+}
+
 export async function updatePersonParentAndDept(
   personId: number,
   patch: {

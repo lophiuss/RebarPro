@@ -91,6 +91,8 @@ export interface DlerDailyM3 {
   m3_volume: number
   remarks: string | null
   source: 'manual' | 'erp_sync'
+  erp_ref?: string | null
+  updated_at?: string
 }
 
 export interface DlerGpEntry {

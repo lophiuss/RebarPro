@@ -4,6 +4,7 @@ import { isCastcoreConfigured } from '@/lib/dler-castcore'
 import M3InputClient from './M3InputClient'
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 120
 
 export default async function DlerM3Page(props: {
   searchParams: Promise<{ month?: string; date?: string }>

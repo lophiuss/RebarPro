@@ -34,7 +34,7 @@ export default async function DlerWorkersPage(props: {
     supabase.from('dler_departments').select('*').order('sort_order').order('name'),
     supabase.from('dler_projects').select('*').order('name'),
     supabase.from('dler_people').select('*').eq('person_type', 'WORKER').order('emp_no'),
-    supabase.from('dler_people').select('id, name').eq('person_type', 'STAFF').order('name'),
+    supabase.from('dler_people').select('id, name, emp_no').eq('person_type', 'STAFF').order('name'),
     supabase.from('dler_project_allocations').select('person_id, project_id, percentage'),
     supabase.from('dler_monthly_pay').select('*').eq('month', month),
   ])
@@ -64,7 +64,7 @@ export default async function DlerWorkersPage(props: {
       departments={(deptsRes.data ?? []) as DlerDepartment[]}
       projects={(projsRes.data ?? []) as DlerProject[]}
       people={(workersRes.data ?? []) as DlerPerson[]}
-      allStaff={(staffRes.data ?? []) as { id: number; name: string }[]}
+      allStaff={(staffRes.data ?? []) as { id: number; name: string; emp_no?: string }[]}
       allocations={(allocRes.data ?? []) as DlerAllocation[]}
       monthlyPays={(payRes.data ?? []) as DlerMonthlyPay[]}
       dailyOts={dailyOts}

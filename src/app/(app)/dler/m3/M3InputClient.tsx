@@ -21,6 +21,59 @@ function shiftMonth(month: string, delta: number): string {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`
 }
 
+function formatM3(n: number): string {
+  return n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
+}
+
+function deptAccent(name: string): {
+  card: string
+  label: string
+  badge: string
+  groupHeader: string
+  subtotalBg: string
+  subtotalText: string
+} {
+  const lower = name.trim().toLowerCase()
+  if (lower === 'building') {
+    return {
+      card: 'border-indigo-200 bg-indigo-50/50',
+      label: 'text-indigo-700',
+      badge: 'bg-indigo-100 text-indigo-800 border-indigo-200',
+      groupHeader: 'bg-indigo-50/90 text-indigo-900',
+      subtotalBg: 'bg-indigo-50',
+      subtotalText: 'text-indigo-950',
+    }
+  }
+  if (lower === 'tunnel') {
+    return {
+      card: 'border-teal-200 bg-teal-50/50',
+      label: 'text-teal-700',
+      badge: 'bg-teal-100 text-teal-800 border-teal-200',
+      groupHeader: 'bg-teal-50/90 text-teal-900',
+      subtotalBg: 'bg-teal-50',
+      subtotalText: 'text-teal-950',
+    }
+  }
+  if (lower === 'sbg') {
+    return {
+      card: 'border-amber-200 bg-amber-50/50',
+      label: 'text-amber-700',
+      badge: 'bg-amber-100 text-amber-800 border-amber-200',
+      groupHeader: 'bg-amber-50/90 text-amber-900',
+      subtotalBg: 'bg-amber-50',
+      subtotalText: 'text-amber-950',
+    }
+  }
+  return {
+    card: 'border-slate-200 bg-slate-50/70',
+    label: 'text-slate-600',
+    badge: 'bg-slate-100 text-slate-700 border-slate-200',
+    groupHeader: 'bg-slate-100 text-slate-800',
+    subtotalBg: 'bg-slate-100',
+    subtotalText: 'text-slate-900',
+  }
+}
+
 export default function M3InputClient({
   month,
   selectedDate,
@@ -55,6 +108,32 @@ export default function M3InputClient({
     const m = new Map<string, DlerDailyM3>()
     for (const e of entries) m.set(e.entry_key, e)
     return m
+  }, [entries])
+
+  const { savedSyncedCount, lastSyncedLabel } = useMemo(() => {
+    let cnt = 0
+    let latestIso = ''
+    for (const e of entries) {
+      if (e.source === 'erp_sync') {
+        if (Number(e.m3_volume) > 0) cnt++
+        if (e.updated_at && e.updated_at > latestIso) latestIso = e.updated_at
+      }
+    }
+    let label: string | null = null
+    if (latestIso) {
+      const dt = new Date(latestIso)
+      if (!Number.isNaN(dt.getTime())) {
+        label = new Intl.DateTimeFormat('en-GB', {
+          timeZone: 'Asia/Kuala_Lumpur',
+          day: '2-digit',
+          month: 'short',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        }).format(dt)
+      }
+    }
+    return { savedSyncedCount: cnt, lastSyncedLabel: label }
   }, [entries])
 
   // Daily form drafts keyed by `project:${id}` or `department:${id}`
@@ -93,6 +172,123 @@ export default function M3InputClient({
   const dailyTotal = useMemo(() => {
     return Object.values(dailyDrafts).reduce((s, d) => s + (Number(d.val) || 0), 0)
   }, [dailyDrafts])
+
+  const dailyDeptSummary = useMemo(() => {
+    const totalsByDeptKey = new Map<string, number>()
+    for (const p of projects) {
+      const val = Number(dailyDrafts[`project:${p.id}`]?.val) || 0
+      const key = p.department_id != null ? `dept-${p.department_id}` : 'unassigned'
+      totalsByDeptKey.set(key, (totalsByDeptKey.get(key) ?? 0) + val)
+    }
+    for (const dep of productionDepts) {
+      const val = Number(dailyDrafts[`department:${dep.id}`]?.val) || 0
+      if (val > 0 || totalsByDeptKey.has(`dept-${dep.id}`)) {
+        totalsByDeptKey.set(`dept-${dep.id}`, (totalsByDeptKey.get(`dept-${dep.id}`) ?? 0) + val)
+      }
+    }
+    const items: { key: string; name: string; total: number }[] = []
+    for (const dep of departments) {
+      const k = `dept-${dep.id}`
+      if (totalsByDeptKey.has(k)) {
+        items.push({ key: k, name: dep.name, total: Math.round((totalsByDeptKey.get(k) ?? 0) * 10000) / 10000 })
+      }
+    }
+    if (totalsByDeptKey.has('unassigned')) {
+      items.push({
+        key: 'unassigned',
+        name: 'Unassigned',
+        total: Math.round((totalsByDeptKey.get('unassigned') ?? 0) * 10000) / 10000,
+      })
+    }
+    return items
+  }, [dailyDrafts, projects, departments, productionDepts])
+
+  const matrixSummary = useMemo(() => {
+    type MatrixGroup = {
+      key: string
+      deptId: number | null
+      name: string
+      projects: DlerProject[]
+      hasDirectM3: boolean
+      directDailyTotals: Record<string, number>
+      dailyTotals: Record<string, number>
+      monthTotal: number
+    }
+
+    const projsByDept = new Map<number | null, DlerProject[]>()
+    for (const p of projects) {
+      const k = p.department_id ?? null
+      const arr = projsByDept.get(k) ?? []
+      arr.push(p)
+      projsByDept.set(k, arr)
+    }
+
+    const groups: MatrixGroup[] = []
+
+    const pushGroup = (key: string, deptId: number | null, name: string, groupProjects: DlerProject[]) => {
+      const directDailyTotals: Record<string, number> = {}
+      const dailyTotals: Record<string, number> = {}
+      let hasDirectM3 = false
+      let monthTotal = 0
+
+      for (const dt of monthDates) {
+        let daySum = 0
+        for (const p of groupProjects) {
+          daySum += Number(entryMap.get(`project:${dt}:${p.id}`)?.m3_volume) || 0
+        }
+        const directVal =
+          deptId != null ? Number(entryMap.get(`department:${dt}:${deptId}`)?.m3_volume) || 0 : 0
+        if (directVal > 0) hasDirectM3 = true
+        directDailyTotals[dt] = directVal
+        const total = Math.round((daySum + directVal) * 10000) / 10000
+        dailyTotals[dt] = total
+        monthTotal += total
+      }
+
+      groups.push({
+        key,
+        deptId,
+        name,
+        projects: groupProjects,
+        hasDirectM3,
+        directDailyTotals,
+        dailyTotals,
+        monthTotal: Math.round(monthTotal * 10000) / 10000,
+      })
+    }
+
+    for (const dep of departments) {
+      const groupProjects = projsByDept.get(dep.id) ?? []
+      const hasAnyDirect = monthDates.some(
+        dt => (Number(entryMap.get(`department:${dt}:${dep.id}`)?.m3_volume) || 0) > 0
+      )
+      if (groupProjects.length > 0 || hasAnyDirect) {
+        pushGroup(`dept-${dep.id}`, dep.id, dep.name, groupProjects)
+      }
+    }
+
+    const unassignedProjects = projsByDept.get(null) ?? []
+    if (unassignedProjects.length > 0) {
+      pushGroup('unassigned', null, 'Unassigned', unassignedProjects)
+    }
+
+    const overallDailyTotals: Record<string, number> = {}
+    let overallMonthTotal = 0
+    for (const dt of monthDates) {
+      let dtSum = 0
+      for (const g of groups) {
+        dtSum += g.dailyTotals[dt] ?? 0
+      }
+      overallDailyTotals[dt] = Math.round(dtSum * 10000) / 10000
+      overallMonthTotal += dtSum
+    }
+
+    return {
+      groups,
+      overallDailyTotals,
+      overallMonthTotal: Math.round(overallMonthTotal * 10000) / 10000,
+    }
+  }, [departments, projects, monthDates, entryMap])
 
   function saveDaily() {
     setFeedback(null)
@@ -191,17 +387,37 @@ export default function M3InputClient({
         endDate,
         overwriteManual,
       })
-      const parts = [
-        `Castcore sync (${res.startDate} to ${res.endDate}): ${res.upsertedRows} cell(s) updated`,
-        `${res.totalCastM3Synced.toLocaleString(undefined, { maximumFractionDigits: 2 })} m³ cast across ${res.matchedProjects} matched project(s)`,
-      ]
-      if (res.zeroClearedRows > 0) parts.push(`${res.zeroClearedRows} cleared to 0`)
+      const totalCastStr = res.totalCastM3Synced.toLocaleString(undefined, { maximumFractionDigits: 2 })
+      const parts: string[] = []
+      if (res.upsertedRows === 0 && res.unchangedRows > 0) {
+        parts.push(
+          `Already up to date in Supabase (${res.startDate} to ${res.endDate}) · ${res.unchangedRows} cell(s) unchanged (${totalCastStr} m³ cast across ${res.matchedProjects} project(s))`
+        )
+      } else if (res.upsertedRows > 0) {
+        const diffBits: string[] = []
+        if (res.insertedRows > 0) diffBits.push(`${res.insertedRows} new`)
+        if (res.updatedRows > 0) diffBits.push(`${res.updatedRows} updated`)
+        if (res.zeroClearedRows > 0) diffBits.push(`${res.zeroClearedRows} cleared`)
+        if (res.unchangedRows > 0) diffBits.push(`${res.unchangedRows} unchanged`)
+        parts.push(
+          `Saved to Supabase (${res.startDate} to ${res.endDate}): ${diffBits.join(', ')} (${totalCastStr} m³ cast across ${res.matchedProjects} project(s))`
+        )
+      } else {
+        parts.push(
+          `Castcore sync (${res.startDate} to ${res.endDate}): 0 cells changed (${totalCastStr} m³ across ${res.matchedProjects} matched project(s))`
+        )
+      }
       if (res.skippedManualRows > 0) parts.push(`${res.skippedManualRows} manual cell(s) skipped`)
       if (res.unmappedWithVolume.length > 0) {
         parts.push(
           `Unmapped with cast m³: ${res.unmappedWithVolume
             .map(u => `${u.code} (${u.totalCastM3.toFixed(2)} m³)`)
             .join(', ')}`
+        )
+      }
+      if (res.upsertedRows === 0 && res.unchangedRows === 0 && res.skippedManualRows === 0 && !res.partial) {
+        parts.push(
+          `No non-zero casting records found in Castcore for ${res.startDate} to ${res.endDate} — try Full Month or Last 7 Days.`
         )
       }
       if (res.partial) {
@@ -243,6 +459,11 @@ export default function M3InputClient({
               <CloudCog className="w-3 h-3" />
               {castcoreConfigured ? 'Castcore Sync Connected' : 'Castcore Env Missing'}
             </span>
+            {savedSyncedCount > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-sky-50 text-sky-700 border border-sky-200">
+                Saved in DB: {savedSyncedCount} cell(s){lastSyncedLabel ? ` · ${lastSyncedLabel} MYT` : ''}
+              </span>
+            )}
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
             Enter or sync daily precast casting volume (m³) per project &amp; production department.
@@ -252,8 +473,15 @@ export default function M3InputClient({
         <div className="flex flex-wrap items-center gap-2.5">
           <button
             type="button"
-            disabled={syncing || isPending || !castcoreConfigured}
+            disabled={syncing || isPending}
             onClick={() => {
+              if (!castcoreConfigured) {
+                setFeedback({
+                  kind: 'err',
+                  text: 'Castcore API is not configured on this server (missing CASTCORE_API_HOST / CASTCORE_API_KEY env vars).',
+                })
+                return
+              }
               setSyncError(null)
               setSyncModalOpen(true)
             }}
@@ -262,7 +490,9 @@ export default function M3InputClient({
                 ? 'Pull daily Casting Volume (m³) from Castcore Production Summary API'
                 : 'Set CASTCORE_API_HOST and CASTCORE_API_KEY in server env vars'
             }
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold shadow-xs disabled:opacity-50"
+            className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-white text-xs font-semibold shadow-xs disabled:opacity-50 ${
+              castcoreConfigured ? 'bg-teal-600 hover:bg-teal-700' : 'bg-amber-600 hover:bg-amber-700'
+            }`}
           >
             <RefreshCw className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} />
             {syncing ? 'Syncing…' : 'Sync from Castcore'}
@@ -341,8 +571,22 @@ export default function M3InputClient({
       {mode === 'daily' ? (
         <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
           <div className="px-5 py-3.5 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-3">
-            <div className="text-sm font-bold text-slate-900">
-              Date: {selectedDate} · Total Output: <span className="text-sky-700">{dailyTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })} m³</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="text-sm font-bold text-slate-900">
+                Date: {selectedDate} · Total Output:{' '}
+                <span className="text-sky-700">{formatM3(dailyTotal)} m³</span>
+              </div>
+              {dailyDeptSummary.map(item => {
+                const ac = deptAccent(item.name)
+                return (
+                  <span
+                    key={item.key}
+                    className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border tabular-nums ${ac.badge}`}
+                  >
+                    {item.name}: {formatM3(item.total)} m³
+                  </span>
+                )
+              })}
             </div>
             <button
               type="button"
@@ -463,10 +707,56 @@ export default function M3InputClient({
         <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden">
           <div className="px-4 py-2.5 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
             <span>Click any cell to edit daily m³ for {month} (saves automatically when leaving the field).</span>
-            <span className="inline-flex items-center gap-2 text-[11px]">
-              <span className="inline-block w-3 h-3 rounded bg-sky-50 border border-sky-200 align-middle" /> Castcore Synced
+            <span className="inline-flex flex-wrap items-center gap-2 text-[11px]">
+              {savedSyncedCount > 0 && (
+                <span>
+                  Saved in DB: <b>{savedSyncedCount}</b> synced cell(s){lastSyncedLabel ? ` (${lastSyncedLabel} MYT)` : ''} ·
+                </span>
+              )}
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-block w-3 h-3 rounded bg-sky-50 border border-sky-200 align-middle" /> Castcore Synced
+              </span>
             </span>
           </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 px-4 py-3 border-b border-slate-200 bg-white">
+            {matrixSummary.groups.map(g => {
+              const ac = deptAccent(g.name)
+              const pct =
+                matrixSummary.overallMonthTotal > 0
+                  ? ((g.monthTotal / matrixSummary.overallMonthTotal) * 100).toFixed(1)
+                  : null
+              return (
+                <div key={g.key} className={`rounded-xl border px-3.5 py-2.5 ${ac.card}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={`text-[11px] font-bold uppercase tracking-wider truncate ${ac.label}`}>
+                      {g.name}
+                    </span>
+                    <span className="text-[10px] text-slate-500 font-medium shrink-0">
+                      {g.projects.length} proj
+                    </span>
+                  </div>
+                  <div className="mt-1 text-base font-extrabold text-slate-900 tabular-nums">
+                    {formatM3(g.monthTotal)} m³
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-0.5 tabular-nums">
+                    {pct ? `${pct}% of total` : 'No output'}
+                  </div>
+                </div>
+              )
+            })}
+            <div className="rounded-xl border border-slate-900 bg-slate-900 text-white px-3.5 py-2.5">
+              <div className="text-[11px] font-bold uppercase tracking-wider text-slate-300">
+                Overall Total ({month})
+              </div>
+              <div className="mt-1 text-base font-extrabold tabular-nums">
+                {formatM3(matrixSummary.overallMonthTotal)} m³
+              </div>
+              <div className="text-[10px] text-slate-400 mt-0.5 tabular-nums">
+                {matrixSummary.groups.length} group(s) · {projects.length} projects
+              </div>
+            </div>
+          </div>
+
           <div className="overflow-auto max-h-[68vh]">
             <table className="text-[11px] border-collapse">
               <thead>
@@ -475,7 +765,7 @@ export default function M3InputClient({
                     Project / Dept
                   </th>
                   {monthDates.map(dt => (
-                    <th key={dt} className="sticky top-0 z-20 bg-slate-50 px-1 py-2 text-center min-w-[46px]" title={dt}>
+                    <th key={dt} className="sticky top-0 z-20 bg-slate-50 px-1 py-2 text-center min-w-[48px]" title={dt}>
                       {dt.slice(8, 10)}
                     </th>
                   ))}
@@ -483,64 +773,160 @@ export default function M3InputClient({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {projects.map(p => {
-                  const rowSum = monthDates.reduce(
-                    (s, dt) => s + (Number(entryMap.get(`project:${dt}:${p.id}`)?.m3_volume) || 0),
-                    0
-                  )
+                {matrixSummary.groups.map(g => {
+                  const ac = deptAccent(g.name)
+                  const directMonthSum = g.deptId != null
+                    ? monthDates.reduce((s, dt) => s + (g.directDailyTotals[dt] ?? 0), 0)
+                    : 0
                   return (
-                    <tr key={`p-${p.id}`} className="hover:bg-slate-50/70">
-                      <td className="sticky left-0 z-10 bg-white px-3 py-1 font-semibold text-slate-900 whitespace-nowrap border-r border-slate-200">
-                        <div className="flex items-center gap-1.5">
-                          <span>{p.name}</span>
-                          {p.erp_code ? (
-                            <span className="font-mono text-[9px] px-1 py-0.2 rounded bg-slate-100 text-slate-500 border border-slate-200">
-                              {p.erp_code}
-                            </span>
-                          ) : (
-                            <span className="text-[9px] font-normal text-slate-400 italic">Unmapped</span>
-                          )}
-                        </div>
-                      </td>
-                      {monthDates.map(dt => {
-                        const existing = entryMap.get(`project:${dt}:${p.id}`)
-                        const v = existing?.m3_volume ? String(existing.m3_volume) : ''
+                    <React.Fragment key={g.key}>
+                      <tr className="border-t border-slate-200">
+                        <td
+                          className={`sticky left-0 z-10 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider whitespace-nowrap border-r border-slate-200 ${ac.groupHeader}`}
+                        >
+                          {g.name} ({g.projects.length})
+                        </td>
+                        <td colSpan={monthDates.length + 1} className={ac.groupHeader} />
+                      </tr>
+
+                      {g.projects.map(p => {
+                        const rowSum = monthDates.reduce(
+                          (s, dt) => s + (Number(entryMap.get(`project:${dt}:${p.id}`)?.m3_volume) || 0),
+                          0
+                        )
                         return (
-                          <td key={dt} className="p-0.5 text-center">
-                            <input
-                              key={`m3-${p.id}-${dt}-${v}-${existing?.source ?? ''}`}
-                              type="number"
-                              step="any"
-                              min={0}
-                              defaultValue={v}
-                              title={
-                                existing?.source === 'erp_sync'
-                                  ? 'Synced from Castcore (edit to override manually)'
-                                  : existing?.source === 'manual'
-                                  ? 'Manual entry'
-                                  : undefined
-                              }
-                              onBlur={e => {
-                                const next = Number(e.target.value) || 0
-                                const prev = Number(existing?.m3_volume ?? 0)
-                                if (next !== prev) saveMatrixCell('project', p.id, dt, next)
-                              }}
-                              className={`w-12 text-center border rounded py-0.5 tabular-nums ${
-                                existing?.source === 'erp_sync'
-                                  ? 'bg-sky-50/50 border-sky-200 text-sky-900'
-                                  : 'border-slate-200'
-                              }`}
-                            />
-                          </td>
+                          <tr key={`p-${p.id}`} className="hover:bg-slate-50/70">
+                            <td className="sticky left-0 z-10 bg-white px-3 py-1 font-semibold text-slate-900 whitespace-nowrap border-r border-slate-200">
+                              <div className="flex items-center gap-1.5">
+                                <span>{p.name}</span>
+                                {p.erp_code ? (
+                                  <span className="font-mono text-[9px] px-1 py-0.2 rounded bg-slate-100 text-slate-500 border border-slate-200">
+                                    {p.erp_code}
+                                  </span>
+                                ) : (
+                                  <span className="text-[9px] font-normal text-slate-400 italic">Unmapped</span>
+                                )}
+                              </div>
+                            </td>
+                            {monthDates.map(dt => {
+                              const existing = entryMap.get(`project:${dt}:${p.id}`)
+                              const v = existing?.m3_volume ? String(existing.m3_volume) : ''
+                              return (
+                                <td key={dt} className="p-0.5 text-center">
+                                  <input
+                                    key={`m3-${p.id}-${dt}-${v}-${existing?.source ?? ''}`}
+                                    type="number"
+                                    step="any"
+                                    min={0}
+                                    defaultValue={v}
+                                    title={
+                                      existing?.source === 'erp_sync'
+                                        ? 'Synced from Castcore (edit to override manually)'
+                                        : existing?.source === 'manual'
+                                        ? 'Manual entry'
+                                        : undefined
+                                    }
+                                    onBlur={e => {
+                                      const next = Number(e.target.value) || 0
+                                      const prev = Number(existing?.m3_volume ?? 0)
+                                      if (next !== prev) saveMatrixCell('project', p.id, dt, next)
+                                    }}
+                                    className={`w-12 text-center border rounded py-0.5 tabular-nums ${
+                                      existing?.source === 'erp_sync'
+                                        ? 'bg-sky-50/50 border-sky-200 text-sky-900'
+                                        : 'border-slate-200'
+                                    }`}
+                                  />
+                                </td>
+                              )
+                            })}
+                            <td className="px-3 py-1 text-right font-bold text-sky-700 bg-sky-50/40 tabular-nums whitespace-nowrap">
+                              {formatM3(rowSum)}
+                            </td>
+                          </tr>
                         )
                       })}
-                      <td className="px-3 py-1 text-right font-bold text-sky-700 bg-sky-50/40 tabular-nums whitespace-nowrap">
-                        {rowSum.toFixed(1)}
-                      </td>
-                    </tr>
+
+                      {g.deptId != null && g.hasDirectM3 && (
+                        <tr className="hover:bg-slate-50/70">
+                          <td className="sticky left-0 z-10 bg-white px-3 py-1 font-semibold text-slate-700 whitespace-nowrap border-r border-slate-200">
+                            {g.name} (Direct)
+                          </td>
+                          {monthDates.map(dt => {
+                            const existing = entryMap.get(`department:${dt}:${g.deptId}`)
+                            const v = existing?.m3_volume ? String(existing.m3_volume) : ''
+                            return (
+                              <td key={dt} className="p-0.5 text-center">
+                                <input
+                                  key={`m3-dept-${g.deptId}-${dt}-${v}-${existing?.source ?? ''}`}
+                                  type="number"
+                                  step="any"
+                                  min={0}
+                                  defaultValue={v}
+                                  onBlur={e => {
+                                    const next = Number(e.target.value) || 0
+                                    const prev = Number(existing?.m3_volume ?? 0)
+                                    if (next !== prev) saveMatrixCell('department', g.deptId!, dt, next)
+                                  }}
+                                  className="w-12 text-center border border-slate-200 rounded py-0.5 tabular-nums"
+                                />
+                              </td>
+                            )
+                          })}
+                          <td className="px-3 py-1 text-right font-bold text-sky-700 bg-sky-50/40 tabular-nums whitespace-nowrap">
+                            {formatM3(directMonthSum)}
+                          </td>
+                        </tr>
+                      )}
+
+                      <tr className="border-t border-b border-slate-200 font-bold">
+                        <td
+                          className={`sticky left-0 z-10 px-3 py-1.5 whitespace-nowrap border-r border-slate-200 ${ac.subtotalBg} ${ac.subtotalText}`}
+                        >
+                          {g.name} Total
+                        </td>
+                        {monthDates.map(dt => {
+                          const daySum = g.dailyTotals[dt] ?? 0
+                          return (
+                            <td
+                              key={dt}
+                              className={`px-1 py-1.5 text-center tabular-nums ${ac.subtotalBg} ${ac.subtotalText}`}
+                            >
+                              {daySum > 0 ? formatM3(daySum) : '—'}
+                            </td>
+                          )
+                        })}
+                        <td
+                          className={`px-3 py-1.5 text-right tabular-nums whitespace-nowrap ${ac.subtotalBg} ${ac.subtotalText}`}
+                        >
+                          {formatM3(g.monthTotal)}
+                        </td>
+                      </tr>
+                    </React.Fragment>
                   )
                 })}
               </tbody>
+              <tfoot>
+                <tr>
+                  <td className="sticky left-0 bottom-0 z-30 bg-slate-900 text-white font-bold px-3 py-2 whitespace-nowrap border-r border-slate-700">
+                    Overall Total
+                  </td>
+                  {monthDates.map(dt => {
+                    const dayTotal = matrixSummary.overallDailyTotals[dt] ?? 0
+                    return (
+                      <td
+                        key={dt}
+                        className="sticky bottom-0 z-20 bg-slate-900 text-slate-100 text-center font-semibold tabular-nums px-1 py-2"
+                      >
+                        {dayTotal > 0 ? formatM3(dayTotal) : '—'}
+                      </td>
+                    )
+                  })}
+                  <td className="sticky bottom-0 z-20 bg-sky-700 text-white text-right font-extrabold tabular-nums px-3 py-2 whitespace-nowrap">
+                    {formatM3(matrixSummary.overallMonthTotal)}
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
@@ -629,6 +1015,9 @@ export default function M3InputClient({
               <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-[11px] text-slate-600 space-y-1">
                 <div>
                   Pulls <b>Casting volume (m³)</b> for <b>{previewRange.startDate}</b> to <b>{previewRange.endDate}</b> matched by project <b>ERP Code</b> (max 31 days/request, 60 req/min limit).
+                </div>
+                <div>
+                  Synced values are saved permanently in Supabase — re-syncing only updates cells that changed in Castcore.
                 </div>
                 <div>
                   Manage project ERP code mappings in{' '}

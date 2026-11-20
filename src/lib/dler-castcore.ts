@@ -20,6 +20,9 @@ export interface CastcoreSyncResult {
   partial: boolean
   partialProjects: { code: string; name: string; error: string }[]
   matchedProjects: number
+  insertedRows: number
+  updatedRows: number
+  unchangedRows: number
   upsertedRows: number
   skippedManualRows: number
   zeroClearedRows: number
@@ -242,7 +245,7 @@ export async function syncCastcoreM3Range(options: CastcoreSyncOptions): Promise
     existingMap.set(r.entry_key, {
       entry_key: r.entry_key,
       source: r.source,
-      m3_volume: Number(r.m3_volume) || 0,
+      m3_volume: round4(Number(r.m3_volume) || 0),
       remarks: r.remarks ?? null,
     })
   }
@@ -268,9 +271,13 @@ export async function syncCastcoreM3Range(options: CastcoreSyncOptions): Promise
   const matchedProjectIds = new Set<number>()
   const partialProjectsMap = new Map<string, { code: string; name: string; error: string }>()
   const unmappedMap = new Map<string, { code: string; name: string; totalCastM3: number }>()
+  const insertedKeys = new Set<string>()
+  const updatedKeys = new Set<string>()
   const clearedKeys = new Set<string>()
   let partial = false
   let skippedManualRows = 0
+  let unchangedRows = 0
+  let totalPeriodCastM3 = 0
   let lastRateLimitRemaining: number | null = null
 
   for (let idx = 0; idx < chunks.length; idx++) {
@@ -318,15 +325,24 @@ export async function syncCastcoreM3Range(options: CastcoreSyncOptions): Promise
         const vol = round4(Math.max(0, Number(d.casting_volume) || 0))
         const entryKey = `project:${d.date}:${dlerProj.id}`
         const existing = existingMap.get(entryKey)
+        const prevVol = existing ? round4(Number(existing.m3_volume) || 0) : null
 
         if (existing?.source === 'manual' && !overwriteManual) {
-          if (Number(existing.m3_volume) !== vol) {
+          if (prevVol !== vol) {
             skippedManualRows++
+          } else if (vol > 0) {
+            unchangedRows++
+            totalPeriodCastM3 += vol
           }
           continue
         }
 
         if (vol > 0) {
+          totalPeriodCastM3 += vol
+          if (existing && prevVol === vol && existing.source === 'erp_sync') {
+            unchangedRows++
+            continue
+          }
           upsertMap.set(entryKey, {
             entry_key: entryKey,
             entry_date: d.date,
@@ -341,10 +357,12 @@ export async function syncCastcoreM3Range(options: CastcoreSyncOptions): Promise
             updated_at: now,
           })
           clearedKeys.delete(entryKey)
+          if (existing) updatedKeys.add(entryKey)
+          else insertedKeys.add(entryKey)
         } else if (
           existing &&
           (existing.source === 'erp_sync' || overwriteManual) &&
-          Number(existing.m3_volume) > 0
+          (prevVol ?? 0) > 0
         ) {
           upsertMap.set(entryKey, {
             entry_key: entryKey,
@@ -360,22 +378,22 @@ export async function syncCastcoreM3Range(options: CastcoreSyncOptions): Promise
             updated_at: now,
           })
           clearedKeys.add(entryKey)
+          insertedKeys.delete(entryKey)
+          updatedKeys.delete(entryKey)
         }
       }
     }
   }
 
   const upserts = Array.from(upsertMap.values())
-  for (let i = 0; i < upserts.length; i += 500) {
-    const { error } = await admin
-      .from('dler_daily_m3')
-      .upsert(upserts.slice(i, i + 500), { onConflict: 'entry_key' })
-    if (error) throw error
+  if (upserts.length > 0) {
+    for (let i = 0; i < upserts.length; i += 500) {
+      const { error } = await admin
+        .from('dler_daily_m3')
+        .upsert(upserts.slice(i, i + 500), { onConflict: 'entry_key' })
+      if (error) throw error
+    }
   }
-
-  const totalCastM3Synced = round4(
-    upserts.reduce((sum, r) => sum + (r.m3_volume > 0 ? r.m3_volume : 0), 0)
-  )
 
   return {
     startDate,
@@ -384,11 +402,14 @@ export async function syncCastcoreM3Range(options: CastcoreSyncOptions): Promise
     partial,
     partialProjects: Array.from(partialProjectsMap.values()),
     matchedProjects: matchedProjectIds.size,
+    insertedRows: insertedKeys.size,
+    updatedRows: updatedKeys.size,
+    unchangedRows,
     upsertedRows: upserts.length,
     skippedManualRows,
     zeroClearedRows: clearedKeys.size,
     unmappedWithVolume: Array.from(unmappedMap.values()),
-    totalCastM3Synced,
+    totalCastM3Synced: round4(totalPeriodCastM3),
     rateLimitRemaining: lastRateLimitRemaining,
   }
 }
