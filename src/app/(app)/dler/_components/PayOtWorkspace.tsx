@@ -905,7 +905,7 @@ export default function PayOtWorkspace({
               >
                 <Copy className="w-3.5 h-3.5" /> Copy Prev Month
               </button>
-              {isWorker ? (
+              {isWorker && (
                 <button
                   type="button"
                   disabled={isPending}
@@ -918,15 +918,14 @@ export default function PayOtWorkspace({
                 >
                   <RefreshCw className="w-3.5 h-3.5" /> Sync Worker IDs from HR
                 </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setShowAddStaff(true)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold border border-indigo-200"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Add Staff
-                </button>
               )}
+              <button
+                type="button"
+                onClick={() => setShowAddStaff(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold border border-indigo-200"
+              >
+                <Plus className="w-3.5 h-3.5" /> {isWorker ? 'Add Worker' : 'Add Staff'}
+              </button>
               <button
                 type="button"
                 disabled={isPending}
@@ -979,6 +978,13 @@ export default function PayOtWorkspace({
                   </button>
                 </>
               )}
+              <button
+                type="button"
+                onClick={() => setShowAddStaff(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold border border-indigo-200"
+              >
+                <Plus className="w-3.5 h-3.5" /> {isWorker ? 'Add Worker' : 'Add Staff'}
+              </button>
             </>
           )}
         </div>
@@ -1670,15 +1676,15 @@ export default function PayOtWorkspace({
         </div>
       )}
 
-      {/* Add Staff Modal (Laily / Admin) */}
-      {showAddStaff && !isWorker && (
+      {/* Add Worker / Staff Modal (Anim / Laily / Admin) */}
+      {showAddStaff && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
           <form
             onSubmit={e => {
               e.preventDefault()
               runAction(async () => {
                 await saveDlerPerson({
-                  person_type: 'STAFF',
+                  person_type: personType,
                   emp_no: newStaff.emp_no,
                   name: newStaff.name,
                   designation: newStaff.designation || null,
@@ -1688,17 +1694,25 @@ export default function PayOtWorkspace({
                 })
                 setShowAddStaff(false)
                 setNewStaff({ emp_no: '', name: '', designation: '', department_id: '', reports_to_id: '' })
-              }, 'Staff member added.')
+              }, isWorker ? 'Worker added.' : 'Staff member added.')
             }}
             className="bg-white rounded-2xl shadow-xl w-full max-w-md p-5 space-y-3"
           >
             <div className="flex items-center justify-between border-b pb-3">
-              <h2 className="text-base font-bold text-slate-900">Add Staff Member</h2>
+              <h2 className="text-base font-bold text-slate-900">
+                {isWorker ? 'Add Worker' : 'Add Staff Member'}
+              </h2>
               <button type="button" onClick={() => setShowAddStaff(false)}><X className="w-5 h-5 text-slate-400" /></button>
             </div>
             <label className="block text-xs font-semibold text-slate-600">
-              Staff ID *
-              <input required value={newStaff.emp_no} onChange={e => setNewStaff({ ...newStaff, emp_no: e.target.value })} placeholder="e.g. STF-101" className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" />
+              {isWorker ? 'Worker ID *' : 'Staff ID *'}
+              <input
+                required
+                value={newStaff.emp_no}
+                onChange={e => setNewStaff({ ...newStaff, emp_no: e.target.value })}
+                placeholder={isWorker ? 'e.g. W-101' : 'e.g. STF-101'}
+                className="mt-1 w-full border rounded-lg px-3 py-2 text-sm"
+              />
             </label>
             <label className="block text-xs font-semibold text-slate-600">
               Name *
@@ -1706,7 +1720,12 @@ export default function PayOtWorkspace({
             </label>
             <label className="block text-xs font-semibold text-slate-600">
               Designation
-              <input value={newStaff.designation} onChange={e => setNewStaff({ ...newStaff, designation: e.target.value })} placeholder="e.g. Engineer / HR" className="mt-1 w-full border rounded-lg px-3 py-2 text-sm" />
+              <input
+                value={newStaff.designation}
+                onChange={e => setNewStaff({ ...newStaff, designation: e.target.value })}
+                placeholder={isWorker ? 'e.g. Barbender / Machine Operator' : 'e.g. Engineer / HR'}
+                className="mt-1 w-full border rounded-lg px-3 py-2 text-sm"
+              />
             </label>
             <label className="block text-xs font-semibold text-slate-600">
               Home Department
@@ -1719,12 +1738,18 @@ export default function PayOtWorkspace({
               Reports To
               <select value={newStaff.reports_to_id} onChange={e => setNewStaff({ ...newStaff, reports_to_id: e.target.value })} className="mt-1 w-full border rounded-lg px-3 py-2 text-sm bg-white">
                 <option value="">(Top level)</option>
-                {allStaff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                {allStaff.map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.emp_no ? `${s.name} (${s.emp_no})` : s.name}
+                  </option>
+                ))}
               </select>
             </label>
             <div className="flex justify-end gap-2 pt-3 border-t">
               <button type="button" onClick={() => setShowAddStaff(false)} className="px-4 py-2 rounded-xl border text-xs font-semibold">Cancel</button>
-              <button type="submit" disabled={isPending} className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold">Add Staff</button>
+              <button type="submit" disabled={isPending} className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold">
+                {isWorker ? 'Add Worker' : 'Add Staff'}
+              </button>
             </div>
           </form>
         </div>
